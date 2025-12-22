@@ -1,0 +1,166 @@
+{
+  "name": "harmony",
+  "displayName": "Harmony",
+  "description": "AI code assistant powered by GPT-OSS-120B with Harmony protocol",
+  "version": "1.0.0",
+  "publisher": "dashtotherock",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:harmony.chat",
+    "onCommand:harmony.explain",
+    "onCommand:harmony.refactor",
+    "onCommand:harmony.generate"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "harmony.chat",
+        "title": "Open Chat",
+        "category": "Harmony"
+      },
+      {
+        "command": "harmony.explain",
+        "title": "Explain Code",
+        "category": "Harmony"
+      },
+      {
+        "command": "harmony.refactor",
+        "title": "Refactor Code",
+        "category": "Harmony"
+      },
+      {
+        "command": "harmony.generate",
+        "title": "Generate Code",
+        "category": "Harmony"
+      },
+      {
+        "command": "harmony.test",
+        "title": "Test Format",
+        "category": "Harmony"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "harmony.chat",
+        "key": "ctrl+shift+l",
+        "mac": "cmd+shift+l"
+      }
+    ],
+    "views": {
+      "explorer": [
+        {
+          "id": "harmony",
+          "name": "Harmony"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "harmony",
+          "title": "Harmony",
+          "icon": "media/icon.png"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Harmony",
+      "properties": {
+        "harmony.serverUrl": {
+          "type": "string",
+          "default": "http://localhost:8000",
+          "description": "URL of the Llama server"
+        },
+        "harmony.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API key for the Llama server (if required)"
+        },
+        "harmony.model": {
+          "type": "string",
+          "default": "gpt-oss-120b",
+          "description": "Model name to use"
+        },
+        "harmony.temperature": {
+          "type": "number",
+          "default": 0.7,
+          "description": "Temperature for generation"
+        },
+        "harmony.maxTokens": {
+          "type": "number",
+          "default": 2048,
+          "description": "Maximum tokens to generate"
+        },
+        "harmony.mcpServers": {
+          "type": "array",
+          "default": [],
+          "description": "MCP (Model Context Protocol) servers configuration",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Name of the MCP server"
+              },
+              "command": {
+                "type": "string",
+                "description": "Command to start the MCP server"
+              },
+              "args": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Arguments for the command"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "stdio"
+                ],
+                "default": "stdio",
+                "description": "Transport type (currently only stdio is supported)"
+              }
+            },
+            "required": [
+              "name",
+              "command"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "webpack",
+    "watch": "webpack --watch",
+    "package": "webpack --mode production --devtool hidden-source-map",
+    "compile-tests": "tsc -p . --outDir out",
+    "watch-tests": "tsc -p . -w --outDir out",
+    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "postinstall": "npm run compile"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.11.5",
+    "@typescript-eslint/eslint-plugin": "^6.19.0",
+    "@typescript-eslint/parser": "^6.19.0",
+    "eslint": "^8.56.0",
+    "typescript": "^5.3.3",
+    "ts-loader": "^9.5.1",
+    "webpack": "^5.90.0",
+    "webpack-cli": "^5.1.4",
+    "@types/axios": "^0.14.0"
+  },
+  "dependencies": {
+    "axios": "^1.6.7"
+  }
+}
