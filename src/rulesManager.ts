@@ -317,6 +317,108 @@ export class RulesManager {
   }
 
   /**
+   * Get applicable rules based on conversation history
+   * Checks rules against all user messages in the conversation to ensure
+   * rules triggered earlier continue to apply in follow-up messages
+   */
+  getApplicableRulesFromHistory(conversationHistory: readonly { role: string; content: string }[]): Rule[] {
+    if (!conversationHistory || conversationHistory.length === 0 || this.rules.size === 0) {
+      return [];
+    }
+
+    // Collect all user messages from history
+    const userMessages = conversationHistory
+      .filter(msg => msg.role === 'user')
+      .map(msg => msg.content)
+      .filter(content => content && content.trim().length >= 5); // Skip very short messages
+
+    if (userMessages.length === 0) {
+      return [];
+    }
+
+    // Combine all user messages into a single text for rule matching
+    // This ensures rules triggered in earlier messages continue to apply
+    const combinedText = userMessages.join(' ').toLowerCase();
+    
+    // Use the existing getApplicableRules logic but with combined text
+    // We'll create a temporary method that checks against combined text
+    const applicableRules: Rule[] = [];
+    const matchedRuleIds = new Set<string>();
+
+    for (const rule of this.rules.values()) {
+      // Skip if already matched
+      if (matchedRuleIds.has(rule.id)) {
+        continue;
+      }
+
+      // If rule has explicit triggers, check if any match in any user message
+      if (rule.triggers && rule.triggers.length > 0) {
+        const matches = rule.triggers.some(trigger => {
+          const triggerLower = trigger.toLowerCase();
+          const regex = new RegExp(`\\b${triggerLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`);
+          return userMessages.some(msg => regex.test(msg.toLowerCase()));
+        });
+        if (matches) {
+          applicableRules.push(rule);
+          matchedRuleIds.add(rule.id);
+          console.log(`[Rules] Rule "${rule.id}" matched via trigger keyword in conversation history`);
+          continue;
+        }
+      }
+
+      // Check description keywords against all user messages
+      const commonWords = new Set(['the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'had', 'was', 'one', 'our', 'out', 'day', 'get', 'has', 'him', 'his', 'how', 'its', 'may', 'new', 'now', 'old', 'see', 'two', 'who', 'way', 'use', 'her', 'she', 'man', 'say', 'did', 'set', 'put', 'end', 'why', 'let', 'has', 'been', 'call', 'find', 'know', 'take', 'come', 'make', 'give', 'work', 'seem', 'feel', 'look', 'play', 'move', 'live', 'think', 'turn', 'become', 'leave', 'meet', 'keep', 'help', 'show', 'hear', 'believe', 'bring', 'happen', 'write', 'sit', 'stand', 'lose', 'add', 'change', 'send', 'build', 'stay', 'cut', 'reach', 'pay', 'speak', 'read', 'allow', 'open', 'walk', 'win', 'offer', 'remember', 'love', 'consider', 'appear', 'buy', 'wait', 'serve', 'die', 'send', 'expect', 'build', 'stay', 'fall', 'cut', 'reach', 'kill', 'remains', 'suggest', 'raise', 'pass', 'sell', 'decide', 'return', 'accept', 'require', 'argue', 'prove', 'realize', 'catch', 'spend', 'agree', 'understand']);
+      
+      if (rule.description) {
+        const descriptionWords = rule.description
+          .toLowerCase()
+          .split(/\s+/)
+          .filter(w => w.length > 3 && !commonWords.has(w))
+          .map(w => w.replace(/[^a-z0-9]/g, ''))
+          .filter(w => w.length > 0);
+        
+        // Check if any description keyword appears in any user message
+        const descriptionMatches = descriptionWords.some(word => 
+          userMessages.some(msg => msg.toLowerCase().includes(word))
+        );
+        
+        if (descriptionMatches) {
+          applicableRules.push(rule);
+          matchedRuleIds.add(rule.id);
+          console.log(`[Rules] Rule "${rule.id}" matched via description keywords in conversation history`);
+          continue;
+        }
+      }
+
+      // Check content keywords with analysis intent
+      const analysisIntentKeywords = /\b(analyze|analysis|parse|examine|evaluate|process|format|generate)\b/i;
+      const hasAnalysisIntent = userMessages.some(msg => analysisIntentKeywords.test(msg.toLowerCase()));
+      
+      if (hasAnalysisIntent && rule.content) {
+        const contentPreview = rule.content.toLowerCase().substring(0, 200);
+        const contentWords = contentPreview
+          .split(/\s+/)
+          .filter(w => w.length > 4 && !commonWords.has(w))
+          .map(w => w.replace(/[^a-z0-9]/g, ''))
+          .filter(w => w.length > 0)
+          .slice(0, 5);
+        
+        const contentMatches = contentWords.some(word => 
+          userMessages.some(msg => msg.toLowerCase().includes(word))
+        );
+        
+        if (contentMatches) {
+          applicableRules.push(rule);
+          matchedRuleIds.add(rule.id);
+          console.log(`[Rules] Rule "${rule.id}" matched via content keywords + analysis intent in conversation history`);
+        }
+      }
+    }
+
+    return applicableRules;
+  }
+
+  /**
    * Get rules that are applicable based on tool names called
    * This helps when tools are called but the query didn't explicitly match rule triggers
    */

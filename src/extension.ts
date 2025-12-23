@@ -7,7 +7,8 @@ import { WebviewManager, WebviewMessage } from "./webviewManager";
 import { CodeActions } from "./codeActions";
 import { MCPManager } from "./mcpManager";
 import { RulesManager } from "./rulesManager";
-import { NativeToolsManager } from "./nativeTools";
+import { NativeToolsManager, NativeToolResult } from "./nativeToolManager";
+import { ConversationManager, ChatMessage } from "./conversationManager";
 
 export class HarmonyAssistant {
   private webviewManager: WebviewManager;
@@ -18,6 +19,7 @@ export class HarmonyAssistant {
   private mcpManager: MCPManager;
   private rulesManager: RulesManager;
   private nativeToolsManager: NativeToolsManager;
+  private conversationManager: ConversationManager;
 
   constructor(context: vscode.ExtensionContext) {
     this.config = loadConfig();
@@ -25,6 +27,7 @@ export class HarmonyAssistant {
     this.mcpManager = new MCPManager();
     this.rulesManager = new RulesManager();
     this.nativeToolsManager = new NativeToolsManager();
+    this.conversationManager = new ConversationManager();
     this.llamaClient = new LlamaClient(this.config, this.mcpManager, this.rulesManager, this.nativeToolsManager);
     this.templateRenderer = new TemplateRenderer(context);
     this.codeActions = new CodeActions(
@@ -131,25 +134,53 @@ export class HarmonyAssistant {
       text?.substring(0, 100)
     );
 
+    // Add user message to history
+    const userMessage: ChatMessage = {
+      role: 'user',
+      content: text,
+    };
+    this.conversationManager.addMessage(userMessage);
+
     try {
-      console.log(`[DEBUG] Calling Harmony server...`);
+      console.log(`[DEBUG] Calling Harmony server with ${this.conversationManager.getLength()} messages in history...`);
       const response = await this.llamaClient.callServer(
         text,
         "chat",
-        (name, ctx) => this.templateRenderer.applyTemplate(name, ctx)
+        (name, ctx) => this.templateRenderer.applyTemplate(name, ctx, this.conversationManager.getHistoryForTemplate()),
+        false,
+        this.conversationManager.getHistoryForTemplate() // Pass history for rule matching
       );
       console.log(
         `[Harmony] Sending response to webview. Content length: ${response.content?.length || 0}`
       );
 
+      // Add assistant response to history
+      this.conversationManager.addMessage({
+        role: 'assistant',
+        content: response.content,
+        reasoning: response.reasoning,
+      });
+
       await this.webviewManager.sendMessage(response);
     } catch (error: any) {
       console.error(`[Harmony] Error in handleChatMessage:`, error);
+
+      // Remove the user message from history since the request failed
+      // (it was already added above, but we want to keep history consistent with successful requests only)
+      this.conversationManager.removeMessage(userMessage);
 
       await this.webviewManager.sendMessage({
         content: `❌ Error: ${error.message}`,
       });
     }
+  }
+
+  /**
+   * Clear conversation history
+   */
+  public clearConversationHistory(): void {
+    this.conversationManager.clear();
+    console.log(`[Harmony] Conversation history cleared`);
   }
 
   private async sendCodeContext(): Promise<void> {
@@ -185,35 +216,19 @@ export class HarmonyAssistant {
     await this.codeActions.generateCode();
   }
 
-  public async testFormat(): Promise<void> {
-    // Test with Harmony tokens AND markdown
-    const testResponse = `<|thinking|>Let me think about this response carefully...<|end|><|assistant|>final<|message|>Hello! 👋 I'm here to help you with any coding questions you have<|end|>assistant<|eoa|><|assistant|>final<|message|>**Hi!** How can I assist you today?
+  /**
+   * Read a file using the native tools manager
+   */
+  public async readFile(filePath: string): Promise<NativeToolResult> {
+    return await this.nativeToolsManager.callTool("read_file", { file_path: filePath });
+  }
 
-## Example Code
-Here's some \`code\`:
-\`\`\`python
-def hello():
-    print("Hello World!")
-\`\`\`
-
-**Key Points:**
-1. This is a list item
-2. Another item
-
-<|eoa|>`;
-
-    console.log("[Test] =========== RAW RESPONSE ===========");
-    console.log(testResponse);
-    console.log("[Test] =========== CLEANED RESPONSE ===========");
-    const cleaned = this.llamaClient.cleanHarmonyResponse(testResponse);
-    console.log(cleaned);
-
-    vscode.window.showInformationMessage(
-      `Test cleaned: ${cleaned.content.substring(0, 80)}...${
-        cleaned.reasoning
-          ? ` (Reasoning: ${cleaned.reasoning.substring(0, 40)}...)`
-          : ""
-      }`
+  async testReadFile(): Promise<void> {
+    const testPath = "README.md"; // Common file in workspace root
+    const result = await this.readFile(testPath);
+    console.log(`Test read ${testPath}:`, 
+      result.isError ? "ERROR" : "SUCCESS",
+      result.content[0]?.text?.substring(0, 100) + "..."
     );
   }
 
@@ -242,7 +257,7 @@ export function activate(context: vscode.ExtensionContext) {
       assistant.generateCode();
     }),
     vscode.commands.registerCommand("harmony.test", () => {
-      assistant.testFormat();
+      assistant.testReadFile();
     }),
     assistant
   );

@@ -3,8 +3,10 @@ import { LlamaConfig } from "./config";
 import { MCPManager } from "./mcpManager";
 import { MCPToolCall, MCPToolResult } from "./mcpClient";
 import { RulesManager, Rule } from "./rulesManager";
-import { NativeToolsManager, NativeTool } from "./nativeTools";
+import { NativeToolsManager, NativeTool } from "./nativeToolManager";
 import { HarmonyProcessor, HarmonyParseResult } from "./harmonyProcessor";
+import { ToolCallExtractor } from "./utils/toolCallExtractor";
+import { ChatMessage } from "./conversationManager";
 import { 
   logLongMessage, 
   logApiRequest, 
@@ -20,13 +22,25 @@ export interface LlamaResponse {
     arguments: Record<string, any>;
     result?: MCPToolResult;
   }>;
+  // Add new field to track if this is a continuation response
+  isContinuation?: boolean;
 }
 
 /**
- * Main LlamaClient with HarmonyProcessor integration
+ * Main LlamaClient with HarmonyProcessor integration and multi-step continuation
  */
 export class LlamaClient {
   private harmonyProcessor = new HarmonyProcessor();
+  private conversationContext: {
+    originalPrompt: string;
+    steps: Array<{
+      toolCalls: Array<{ name: string; arguments: Record<string, any> }>;
+      reasoning?: string;
+      timestamp: number;
+    }>;
+    maxSteps: number;
+    currentStep: number;
+  } | null = null;
 
   constructor(
     private config: LlamaConfig,
@@ -38,9 +52,30 @@ export class LlamaClient {
   async callServer(
     prompt: string,
     templateName?: string,
-    applyTemplate?: (templateName: string, context: any) => Promise<string>
+    applyTemplate?: (templateName: string, context: any, history?: readonly ChatMessage[]) => Promise<string>,
+    isContinuation: boolean = false,
+    conversationHistory?: readonly ChatMessage[]
   ): Promise<LlamaResponse> {
     try {
+      // If this is not a continuation, start a new conversation context
+      if (!isContinuation) {
+        this.conversationContext = {
+          originalPrompt: prompt,
+          steps: [],
+          maxSteps: 5, // Maximum steps to prevent infinite loops
+          currentStep: 1,
+        };
+      }
+
+      // If we're at max steps, stop continuing
+      if (this.conversationContext && this.conversationContext.currentStep > this.conversationContext.maxSteps) {
+        console.warn(`[Harmony] Reached maximum steps (${this.conversationContext.maxSteps}) for task: "${this.conversationContext.originalPrompt}"`);
+        return {
+          content: `I've gathered information through multiple steps, but haven't completed the task. Here's what I found so far.`,
+          reasoning: "Reached maximum allowed steps for this task.",
+        };
+      }
+
       const endpoint = `${this.config.serverUrl}/v1/completions`;
  
       logApiRequest(endpoint, prompt, 100);
@@ -84,13 +119,54 @@ export class LlamaClient {
       }
 
       // Get applicable rules
+      // Check rules against conversation history if available, otherwise just current prompt
+      // This ensures rules triggered in earlier messages continue to apply in follow-ups
       let rulesContext = "";
       if (this.rulesManager) {
-        const applicableRules = this.rulesManager.getApplicableRules(prompt);
+        let applicableRules: Rule[] = [];
+        
+        if (conversationHistory && conversationHistory.length > 0) {
+          // Check rules against all user messages in conversation history
+          applicableRules = this.rulesManager.getApplicableRulesFromHistory(conversationHistory);
+          console.log(`[Rules] Checking rules against conversation history (${conversationHistory.length} messages)`);
+        }
+        
+        // Also check current prompt for any new rules that might match
+        const currentPromptRules = this.rulesManager.getApplicableRules(prompt);
+        
+        // Combine and deduplicate rules
+        const allRules = new Map<string, Rule>();
+        applicableRules.forEach(rule => allRules.set(rule.id, rule));
+        currentPromptRules.forEach(rule => allRules.set(rule.id, rule));
+        
+        applicableRules = Array.from(allRules.values());
+        
         if (applicableRules.length > 0) {
-          console.log(`[Rules] Found ${applicableRules.length} applicable rule(s) for query`);
+          console.log(`[Rules] Found ${applicableRules.length} applicable rule(s) (from history + current prompt)`);
           rulesContext = this.rulesManager.formatRulesForPrompt(applicableRules);
           logRules(applicableRules);
+        }
+      }
+
+      // If this is a continuation, add context about previous steps
+      let continuationContext = "";
+      if (isContinuation && this.conversationContext) {
+        const previousSteps = this.conversationContext.steps;
+        if (previousSteps.length > 0) {
+          continuationContext = "\n\n## CONTINUATION - Previous Steps:\n";
+          previousSteps.forEach((step, index) => {
+            continuationContext += `\nStep ${index + 1}:\n`;
+            if (step.reasoning) {
+              continuationContext += `Reasoning: ${step.reasoning.substring(0, 200)}...\n`;
+            }
+            step.toolCalls.forEach(toolCall => {
+              continuationContext += `- Called ${toolCall.name} with args: ${JSON.stringify(toolCall.arguments)}\n`;
+            });
+          });
+          
+          continuationContext += `\nOriginal task: "${this.conversationContext.originalPrompt}"\n`;
+          continuationContext += `Current step: ${this.conversationContext.currentStep} of ${this.conversationContext.maxSteps}\n`;
+          continuationContext += `\nNow continue with the NEXT step to complete the task:\n`;
         }
       }
 
@@ -99,19 +175,20 @@ export class LlamaClient {
       if (templateName && applyTemplate) {
         const mcpTools = this.mcpManager?.getAllTools() || [];
         const nativeTools = this.nativeToolsManager?.getAvailableTools() || [];
-        const basePrompt = await applyTemplate(templateName, { 
-          prompt: prompt + toolsContext,
+        const templateContext = { 
+          prompt: prompt + toolsContext + continuationContext,
           rules: rulesContext || "",
           tools: [...mcpTools, ...nativeTools]
-        });
+        };
         
-        if (!basePrompt.includes("{{rules}}") && rulesContext) {
-          finalPrompt = rulesContext + basePrompt;
-        } else {
-          finalPrompt = basePrompt;
+        finalPrompt = await applyTemplate(templateName, templateContext);
+        
+        // If template doesn't include rules and we have them, prepend
+        if (!finalPrompt.includes("{{rules}}") && rulesContext) {
+          finalPrompt = rulesContext + finalPrompt;
         }
       } else {
-        finalPrompt = rulesContext + prompt + toolsContext;
+        finalPrompt = rulesContext + continuationContext + prompt + toolsContext;
       }
 
       // Log prompt preview
@@ -119,6 +196,9 @@ export class LlamaClient {
       console.log(`[Harmony] Final prompt (first ${previewLength} chars): ${finalPrompt.substring(0, previewLength)}...`);
       if (rulesContext) {
         console.log(`[Rules] Rules context length: ${rulesContext.length} characters`);
+      }
+      if (continuationContext) {
+        console.log(`[Harmony] Continuation context length: ${continuationContext.length} characters`);
       }
 
       // Make API call
@@ -181,12 +261,32 @@ export class LlamaClient {
       // Extract tool calls
       let toolCalls: MCPToolCall[] = [];
       if (parsed.rawToolCalls && parsed.rawToolCalls.length > 0) {
-        toolCalls = this.harmonyProcessor.extractToolCalls(parsed.rawToolCalls);
+        // Filter out items that don't look like tool calls before processing
+        // This prevents unnecessary processing of regular content that was incorrectly added to rawToolCalls
+        const validToolCalls = parsed.rawToolCalls.filter(raw => 
+          ToolCallExtractor.looksLikeToolCall(raw) || raw.includes('<tool_call')
+        );
+        
+        if (validToolCalls.length > 0) {
+          toolCalls = this.harmonyProcessor.extractToolCalls(validToolCalls);
+        } else if (parsed.rawToolCalls.length > 0) {
+          // Log if we filtered out all items - this indicates a bug in the parser
+          console.warn(`[LlamaClient] Found ${parsed.rawToolCalls.length} item(s) in rawToolCalls but none looked like tool calls. This may indicate a parsing issue.`);
+        }
       }
       
       // Also check content for tool calls as fallback
       if (toolCalls.length === 0) {
         toolCalls = this.extractToolCallsFromContent(parsed.content);
+      }
+
+      // Save this step to conversation context
+      if (this.conversationContext) {
+        this.conversationContext.steps.push({
+          toolCalls: toolCalls.map(tc => ({ name: tc.name, arguments: tc.arguments || {} })),
+          reasoning: parsed.reasoning,
+          timestamp: Date.now(),
+        });
       }
 
       if (toolCalls.length > 0 && (this.mcpManager || this.nativeToolsManager)) {
@@ -223,21 +323,120 @@ export class LlamaClient {
           finalContent += this.formatToolResults(executedToolCalls);
         }
         
+        // Check if we should continue
+        const shouldContinue = await this.shouldContinueTask(
+          isContinuation ? this.conversationContext!.originalPrompt : prompt,
+          executedToolCalls,
+          finalContent,
+          isContinuation
+        );
+        
+        if (shouldContinue && this.conversationContext) {
+          console.log(`[Harmony] Task incomplete, continuing to step ${this.conversationContext.currentStep + 1}...`);
+          
+          // Prepare continuation prompt
+          const continuationPrompt = `Based on the tool results, continue working on the original task.`;
+          
+          // Increment step counter
+          this.conversationContext.currentStep++;
+          
+          // Recursive call with continuation
+          const continuationResponse = await this.callServer(
+            continuationPrompt,
+            templateName,
+            applyTemplate,
+            true // Mark as continuation
+          );
+          
+          // Merge responses
+          return {
+            content: finalContent + "\n\n---\n\n" + continuationResponse.content,
+            reasoning: parsed.reasoning,
+            toolCalls: [...executedToolCalls, ...(continuationResponse.toolCalls || [])],
+            isContinuation: true,
+          };
+        }
+        
         return {
           content: finalContent,
           reasoning: parsed.reasoning,
           toolCalls: executedToolCalls,
+          isContinuation: isContinuation,
         };
       }
 
       return {
         content: parsed.content,
         reasoning: parsed.reasoning,
+        isContinuation: isContinuation,
       };
     } catch (error: any) {
       console.error("Error calling Harmony server:", error);
       throw new Error(`Failed to call Harmony server: ${error.message}`);
     }
+  }
+
+  /**
+   * Determine if the task should continue after tool execution
+   */
+  private async shouldContinueTask(
+    originalPrompt: string,
+    executedToolCalls: Array<{ name: string; arguments: Record<string, any>; result?: MCPToolResult }>,
+    currentContent: string,
+    isAlreadyContinuation: boolean
+  ): Promise<boolean> {
+    // Check if we've reached the maximum steps
+    if (this.conversationContext && this.conversationContext.currentStep >= this.conversationContext.maxSteps) {
+      return false;
+    }
+    
+    // Check if the task appears complete
+    const taskCompletionPhrases = [
+      /(?:updated|created|wrote|modified).*\.(?:md|txt|json|js|ts|py|java|cpp|c|html|css)/i,
+      /file.*has been.*(?:created|updated|written|modified)/i,
+      /task.*(?:complete|done|finished|accomplished)/i,
+      /(?:here'?s|here is).*the.*(?:readme|file|code)/i,
+      /I have.*(?:created|updated|written)/i,
+      /\*\*File:\*\*\s*`[^`]+`/i,
+      /```[\s\S]*?```/i, // Code blocks in response
+    ];
+    
+    const hasCompletionPhrase = taskCompletionPhrases.some(phrase => phrase.test(currentContent.toLowerCase()));
+    
+    // Check if we've performed file modification
+    const hasFileModification = executedToolCalls.some(tc => 
+      ['create_file', 'replace_file', 'write_file', 'update_file'].includes(tc.name)
+    );
+    
+    // Check if original prompt requested file creation/modification
+    const isFileTask = /(?:update|create|write|modify|edit|generate).*\.(?:md|txt|json|js|ts|py|java|cpp|c|html|css)/i.test(originalPrompt.toLowerCase());
+    
+    // Check if we've only done discovery/read tools
+    const onlyDiscoveryTools = executedToolCalls.every(tc => 
+      ['list_files', 'read_file', 'grep_files', 'search', 'find'].includes(tc.name)
+    );
+    
+    // Decision logic
+    if (isFileTask && onlyDiscoveryTools && !hasFileModification) {
+      console.log(`[Harmony] Task "${originalPrompt}" needs continuation: Only discovery tools used, no file modification yet`);
+      return true;
+    }
+    
+    if (isFileTask && !hasFileModification && !hasCompletionPhrase) {
+      console.log(`[Harmony] Task "${originalPrompt}" needs continuation: File task but no file modification or completion phrase`);
+      return true;
+    }
+    
+    // Check for explicit "continue" or "next step" in reasoning/content
+    const hasContinuationHint = /(?:next|continue|then|after|now|further|additional)/i.test(currentContent.toLowerCase());
+    
+    if (hasContinuationHint && !hasCompletionPhrase) {
+      console.log(`[Harmony] Task "${originalPrompt}" needs continuation: Has continuation hints but no completion`);
+      return true;
+    }
+    
+    console.log(`[Harmony] Task "${originalPrompt}" appears complete: hasFileModification=${hasFileModification}, hasCompletionPhrase=${hasCompletionPhrase}`);
+    return false;
   }
 
   /**
@@ -377,7 +576,7 @@ export class LlamaClient {
     applicableRules: Rule[],
     originalPrompt: string,
     templateName?: string,
-    applyTemplate?: (templateName: string, context: any) => Promise<string>
+    applyTemplate?: (templateName: string, context: any, history?: readonly ChatMessage[]) => Promise<string>
   ): Promise<string> {
     // Extract tool results text
     let toolResultsText = "";
@@ -473,13 +672,10 @@ JSON Output:`;
   }
 
   /**
-   * Legacy method for backward compatibility
+   * Reset conversation context
    */
-  cleanHarmonyResponse(response: string): LlamaResponse {
-    const parsed = this.harmonyProcessor.parseResponse(response);
-    return {
-      content: parsed.content,
-      reasoning: parsed.reasoning,
-    };
+  resetConversationContext(): void {
+    this.conversationContext = null;
+    console.log(`[Harmony] Conversation context reset`);
   }
 }
