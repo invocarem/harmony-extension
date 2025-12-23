@@ -3,6 +3,7 @@ import { LlamaConfig } from "./config";
 import { MCPManager } from "./mcpManager";
 import { MCPToolCall, MCPToolResult } from "./mcpClient";
 import { RulesManager, Rule } from "./rulesManager";
+import { NativeToolsManager, NativeTool } from "./nativeTools";
 
 export interface LlamaResponse {
   content: string;
@@ -18,7 +19,8 @@ export class LlamaClient {
   constructor(
     private config: LlamaConfig,
     private mcpManager?: MCPManager,
-    private rulesManager?: RulesManager
+    private rulesManager?: RulesManager,
+    private nativeToolsManager?: NativeToolsManager
   ) {}
 
   async callServer(
@@ -31,25 +33,44 @@ export class LlamaClient {
       console.log(`[Harmony] Calling endpoint: ${endpoint}`);
       console.log(`[Harmony] Prompt: ${prompt.substring(0, 100)}...`);
 
-      // Get available MCP tools and add them to context
+      // Get available tools (MCP + Native) and add them to context
       let toolsContext = "";
+      const allTools: Array<{ name: string; description?: string; inputSchema: any; type: "mcp" | "native" }> = [];
+      
+      // Get MCP tools
       if (this.mcpManager) {
-        const tools = this.mcpManager.getAllTools();
-        if (tools.length > 0) {
-          toolsContext = "\n\nAvailable MCP Tools:\n";
-          tools.forEach((tool) => {
-            toolsContext += `- ${tool.name}: ${tool.description || "No description"}\n`;
-            if (tool.inputSchema.properties) {
-              const props = Object.entries(tool.inputSchema.properties)
-                .map(([key, value]: [string, any]) => `  ${key}: ${value.type || "any"}`)
-                .join("\n");
-              if (props) {
-                toolsContext += `  Parameters:\n${props}\n`;
-              }
+        const mcpTools = this.mcpManager.getAllTools();
+        mcpTools.forEach((tool) => {
+          allTools.push({ ...tool, type: "mcp" });
+        });
+      }
+      
+      // Get Native tools
+      if (this.nativeToolsManager) {
+        const nativeTools = this.nativeToolsManager.getAvailableTools();
+        nativeTools.forEach((tool) => {
+          allTools.push({ ...tool, type: "native" });
+        });
+      }
+      
+      if (allTools.length > 0) {
+        toolsContext = "\n\nAvailable Tools:\n";
+        allTools.forEach((tool) => {
+          const toolType = tool.type === "native" ? "[Built-in] " : "[MCP] ";
+          toolsContext += `- ${toolType}${tool.name}: ${tool.description || "No description"}\n`;
+          if (tool.inputSchema.properties) {
+            const props = Object.entries(tool.inputSchema.properties)
+              .map(([key, value]: [string, any]) => {
+                const desc = value.description ? ` - ${value.description}` : "";
+                return `  ${key}: ${value.type || "any"}${desc}`;
+              })
+              .join("\n");
+            if (props) {
+              toolsContext += `  Parameters:\n${props}\n`;
             }
-          });
-          toolsContext += "\nTo call a tool, use the format: <tool_call name=\"tool_name\" args=\"{...}\" />\n";
-        }
+          }
+        });
+        toolsContext += "\nTo call a tool, use the format: <tool_call name=\"tool_name\" args=\"{...}\" />\n";
       }
 
       // Get applicable rules based on the query
@@ -72,10 +93,12 @@ export class LlamaClient {
       let finalPrompt: string;
       if (templateName && applyTemplate) {
         // Pass rules and tools separately so template can structure them properly
+        const mcpTools = this.mcpManager?.getAllTools() || [];
+        const nativeTools = this.nativeToolsManager?.getAvailableTools() || [];
         const basePrompt = await applyTemplate(templateName, { 
           prompt: prompt + toolsContext,
           rules: rulesContext || "",
-          tools: this.mcpManager?.getAllTools() || []
+          tools: [...mcpTools, ...nativeTools]
         });
         // If template doesn't use {{rules}}, prepend them
         if (!basePrompt.includes("{{rules}}") && rulesContext) {
@@ -426,9 +449,43 @@ export class LlamaClient {
     
     for (const toolCall of toolCalls) {
       try {
-        const serverName = this.mcpManager!.findToolServer(toolCall.name);
+        // Check if it's a native tool first
+        if (this.nativeToolsManager) {
+          const nativeTools = this.nativeToolsManager.getAvailableTools();
+          const isNativeTool = nativeTools.some(t => t.name === toolCall.name);
+          
+          if (isNativeTool) {
+            console.log(`[Harmony] Executing native tool "${toolCall.name}"`);
+            const result = await this.nativeToolsManager.callTool(
+              toolCall.name,
+              toolCall.arguments || {}
+            );
+            
+            // Convert NativeToolResult to MCPToolResult format
+            const mcpResult: MCPToolResult = {
+              content: result.content,
+              isError: result.isError,
+            };
+            
+            results.push({
+              name: toolCall.name,
+              arguments: toolCall.arguments || {},
+              result: mcpResult,
+            });
+
+            console.log(`[Harmony] Native tool "${toolCall.name}" executed successfully`);
+            continue;
+          }
+        }
+        
+        // Otherwise, try MCP tools
+        if (!this.mcpManager) {
+          throw new Error("MCP Manager not available");
+        }
+        
+        const serverName = this.mcpManager.findToolServer(toolCall.name);
         if (!serverName) {
-          console.error(`[Harmony] Tool "${toolCall.name}" not found in any MCP server`);
+          console.error(`[Harmony] Tool "${toolCall.name}" not found in any MCP server or native tools`);
           results.push({
             name: toolCall.name,
             arguments: toolCall.arguments || {},
@@ -445,8 +502,8 @@ export class LlamaClient {
           continue;
         }
 
-        console.log(`[Harmony] Executing tool "${toolCall.name}" on server "${serverName}"`);
-        const result = await this.mcpManager!.callTool(
+        console.log(`[Harmony] Executing MCP tool "${toolCall.name}" on server "${serverName}"`);
+        const result = await this.mcpManager.callTool(
           serverName,
           toolCall.name,
           toolCall.arguments || {}
@@ -458,7 +515,7 @@ export class LlamaClient {
           result,
         });
 
-        console.log(`[Harmony] Tool "${toolCall.name}" executed successfully`);
+        console.log(`[Harmony] MCP tool "${toolCall.name}" executed successfully`);
       } catch (error: any) {
         console.error(`[Harmony] Error executing tool "${toolCall.name}":`, error);
         results.push({

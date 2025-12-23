@@ -7,6 +7,7 @@ import { WebviewManager, WebviewMessage } from "./webviewManager";
 import { CodeActions } from "./codeActions";
 import { MCPManager } from "./mcpManager";
 import { RulesManager } from "./rulesManager";
+import { NativeToolsManager } from "./nativeTools";
 
 export class HarmonyAssistant {
   private webviewManager: WebviewManager;
@@ -16,13 +17,15 @@ export class HarmonyAssistant {
   private config: LlamaConfig;
   private mcpManager: MCPManager;
   private rulesManager: RulesManager;
+  private nativeToolsManager: NativeToolsManager;
 
   constructor(context: vscode.ExtensionContext) {
     this.config = loadConfig();
     this.webviewManager = new WebviewManager(context);
     this.mcpManager = new MCPManager();
     this.rulesManager = new RulesManager();
-    this.llamaClient = new LlamaClient(this.config, this.mcpManager, this.rulesManager);
+    this.nativeToolsManager = new NativeToolsManager();
+    this.llamaClient = new LlamaClient(this.config, this.mcpManager, this.rulesManager, this.nativeToolsManager);
     this.templateRenderer = new TemplateRenderer(context);
     this.codeActions = new CodeActions(
       this.llamaClient,
@@ -71,7 +74,7 @@ export class HarmonyAssistant {
         console.log("[Rules] Rules paths configuration changed, reloading...");
         this.config = loadConfig();
         await this.initializeRules();
-        this.llamaClient = new LlamaClient(this.config, this.mcpManager, this.rulesManager);
+        this.llamaClient = new LlamaClient(this.config, this.mcpManager, this.rulesManager, this.nativeToolsManager);
         this.codeActions = new CodeActions(
           this.llamaClient,
           this.templateRenderer
@@ -79,7 +82,7 @@ export class HarmonyAssistant {
       } else if (event.affectsConfiguration("harmony")) {
         // Reload other config
         this.config = loadConfig();
-        this.llamaClient = new LlamaClient(this.config, this.mcpManager, this.rulesManager);
+        this.llamaClient = new LlamaClient(this.config, this.mcpManager, this.rulesManager, this.nativeToolsManager);
         this.codeActions = new CodeActions(
           this.llamaClient,
           this.templateRenderer

@@ -152,21 +152,27 @@
     "package": "webpack --mode production --devtool hidden-source-map",
     "compile-tests": "tsc -p . --outDir out",
     "watch-tests": "tsc -p . -w --outDir out",
-    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "pretest": "npm run compile",
     "lint": "eslint src --ext ts",
     "postinstall": "npm run compile"
   },
   "devDependencies": {
-    "@types/vscode": "^1.85.0",
+    "@types/axios": "^0.14.0",
+    "@types/jest": "^30.0.0",
     "@types/node": "^20.11.5",
+    "@types/vscode": "^1.85.0",
     "@typescript-eslint/eslint-plugin": "^6.19.0",
     "@typescript-eslint/parser": "^6.19.0",
     "eslint": "^8.56.0",
-    "typescript": "^5.3.3",
+    "jest": "^30.2.0",
+    "ts-jest": "^29.4.6",
     "ts-loader": "^9.5.1",
+    "typescript": "^5.3.3",
     "webpack": "^5.90.0",
-    "webpack-cli": "^5.1.4",
-    "@types/axios": "^0.14.0"
+    "webpack-cli": "^5.1.4"
   },
   "dependencies": {
     "axios": "^1.6.7"
