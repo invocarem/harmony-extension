@@ -6,6 +6,7 @@ import { TemplateRenderer } from "./templateRenderer";
 import { WebviewManager, WebviewMessage } from "./webviewManager";
 import { CodeActions } from "./codeActions";
 import { MCPManager } from "./mcpManager";
+import { RulesManager } from "./rulesManager";
 
 export class HarmonyAssistant {
   private webviewManager: WebviewManager;
@@ -14,12 +15,14 @@ export class HarmonyAssistant {
   private codeActions: CodeActions;
   private config: LlamaConfig;
   private mcpManager: MCPManager;
+  private rulesManager: RulesManager;
 
   constructor(context: vscode.ExtensionContext) {
     this.config = loadConfig();
     this.webviewManager = new WebviewManager(context);
     this.mcpManager = new MCPManager();
-    this.llamaClient = new LlamaClient(this.config, this.mcpManager);
+    this.rulesManager = new RulesManager();
+    this.llamaClient = new LlamaClient(this.config, this.mcpManager, this.rulesManager);
     this.templateRenderer = new TemplateRenderer(context);
     this.codeActions = new CodeActions(
       this.llamaClient,
@@ -27,6 +30,7 @@ export class HarmonyAssistant {
     );
 
     this.initializeMCP();
+    this.initializeRules();
     this.setupWebviewHandlers();
     this.setupConfigWatcher(context);
   }
@@ -44,16 +48,38 @@ export class HarmonyAssistant {
     }
   }
 
+  private async initializeRules(): Promise<void> {
+    if (this.config.rulesPaths.length > 0) {
+      console.log(`[Rules] Loading ${this.config.rulesPaths.length} rule file(s)`);
+      try {
+        await this.rulesManager.loadRules(this.config.rulesPaths);
+        const rules = this.rulesManager.getAllRules();
+        console.log(`[Rules] Loaded ${rules.length} rule(s)`);
+      } catch (error) {
+        console.error("[Rules] Failed to initialize rules:", error);
+      }
+    }
+  }
+
   private setupConfigWatcher(context: vscode.ExtensionContext): void {
     const configWatcher = vscode.workspace.onDidChangeConfiguration(async (event) => {
       if (event.affectsConfiguration("harmony.mcpServers")) {
         console.log("[MCP] MCP servers configuration changed, reinitializing...");
         this.config = loadConfig();
         await this.initializeMCP();
+      } else if (event.affectsConfiguration("harmony.rulesPaths")) {
+        console.log("[Rules] Rules paths configuration changed, reloading...");
+        this.config = loadConfig();
+        await this.initializeRules();
+        this.llamaClient = new LlamaClient(this.config, this.mcpManager, this.rulesManager);
+        this.codeActions = new CodeActions(
+          this.llamaClient,
+          this.templateRenderer
+        );
       } else if (event.affectsConfiguration("harmony")) {
         // Reload other config
         this.config = loadConfig();
-        this.llamaClient = new LlamaClient(this.config, this.mcpManager);
+        this.llamaClient = new LlamaClient(this.config, this.mcpManager, this.rulesManager);
         this.codeActions = new CodeActions(
           this.llamaClient,
           this.templateRenderer
@@ -191,6 +217,7 @@ def hello():
   public dispose(): void {
     this.webviewManager.dispose();
     this.mcpManager.dispose();
+    this.rulesManager.dispose();
   }
 }
 

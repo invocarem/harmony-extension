@@ -8,6 +8,7 @@ export interface LlamaConfig {
   temperature: number;
   maxTokens: number;
   mcpServers: MCPServerConfig[];
+  rulesPaths: string[];
 }
 
 /**
@@ -70,6 +71,8 @@ export function loadConfig(): LlamaConfig {
     console.log(`[Harmony] Normalized server URL: "${rawServerUrl}" -> "${normalizedServerUrl}"`);
   }
 
+  const rulesPaths = config.get<string[]>("rulesPaths", []);
+
   return {
     serverUrl: normalizedServerUrl,
     apiKey: config.get("apiKey", ""),
@@ -77,6 +80,7 @@ export function loadConfig(): LlamaConfig {
     temperature: config.get("temperature", 0.7),
     maxTokens: config.get("maxTokens", 2048),
     mcpServers,
+    rulesPaths,
   };
 }
 

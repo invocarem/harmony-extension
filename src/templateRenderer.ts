@@ -31,10 +31,23 @@ export class TemplateRenderer {
   }
 
   private renderTemplate(template: string, context: any): string {
-    // Simple template rendering - replace {variable} with values
-    return template.replace(/{(\w+)}/g, (match, key) => {
-      return context[key] !== undefined ? context[key] : match;
-    });
+    // Simple template rendering - replace {{variable}} with values
+    // Handle both {{variable}} and {variable} patterns
+    return template
+      .replace(/{{(\w+)}}/g, (match, key) => {
+        const value = context[key];
+        if (value === undefined || value === null) {
+          return ""; // Remove placeholder if value is missing
+        }
+        return String(value);
+      })
+      .replace(/{(\w+)}/g, (match, key) => {
+        const value = context[key];
+        if (value === undefined || value === null) {
+          return ""; // Remove placeholder if value is missing
+        }
+        return String(value);
+      });
   }
 }
 

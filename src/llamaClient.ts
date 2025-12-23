@@ -2,6 +2,7 @@ import axios from "axios";
 import { LlamaConfig } from "./config";
 import { MCPManager } from "./mcpManager";
 import { MCPToolCall, MCPToolResult } from "./mcpClient";
+import { RulesManager, Rule } from "./rulesManager";
 
 export interface LlamaResponse {
   content: string;
@@ -16,7 +17,8 @@ export interface LlamaResponse {
 export class LlamaClient {
   constructor(
     private config: LlamaConfig,
-    private mcpManager?: MCPManager
+    private mcpManager?: MCPManager,
+    private rulesManager?: RulesManager
   ) {}
 
   async callServer(
@@ -50,16 +52,48 @@ export class LlamaClient {
         }
       }
 
-      // Apply Jinja template if specified
-      let finalPrompt = prompt + toolsContext;
-      if (templateName && applyTemplate) {
-        finalPrompt = await applyTemplate(templateName, { 
-          prompt: prompt + toolsContext,
-          tools: this.mcpManager?.getAllTools() || []
-        });
+      // Get applicable rules based on the query
+      let rulesContext = "";
+      if (this.rulesManager) {
+        const applicableRules = this.rulesManager.getApplicableRules(prompt);
+        if (applicableRules.length > 0) {
+          console.log(`[Rules] Found ${applicableRules.length} applicable rule(s) for query`);
+          rulesContext = this.rulesManager.formatRulesForPrompt(applicableRules);
+          
+          // Log which rules were matched for debugging
+          applicableRules.forEach(rule => {
+            console.log(`[Rules] Matched rule: ${rule.id}${rule.description ? ` (${rule.description})` : ""}`);
+          });
+        }
       }
 
-      console.log(`[Harmony] Final prompt: ${finalPrompt.substring(0, 100)}...`);
+      // Apply Jinja template if specified
+      // Rules should be injected BEFORE the template so they appear prominently
+      let finalPrompt: string;
+      if (templateName && applyTemplate) {
+        // Pass rules and tools separately so template can structure them properly
+        const basePrompt = await applyTemplate(templateName, { 
+          prompt: prompt + toolsContext,
+          rules: rulesContext || "",
+          tools: this.mcpManager?.getAllTools() || []
+        });
+        // If template doesn't use {{rules}}, prepend them
+        if (!basePrompt.includes("{{rules}}") && rulesContext) {
+          finalPrompt = rulesContext + basePrompt;
+        } else {
+          finalPrompt = basePrompt;
+        }
+      } else {
+        // No template - just combine everything, with rules first
+        finalPrompt = rulesContext + prompt + toolsContext;
+      }
+
+      // Log more of the prompt for debugging (especially rules)
+      const previewLength = 500;
+      console.log(`[Harmony] Final prompt (first ${previewLength} chars): ${finalPrompt.substring(0, previewLength)}...`);
+      if (rulesContext) {
+        console.log(`[Rules] Rules context length: ${rulesContext.length} characters`);
+      }
 
       const response = await axios.post(
         endpoint,
@@ -147,7 +181,54 @@ export class LlamaClient {
         console.log(`[Harmony] Found ${uniqueToolCalls.length} tool call(s)`);
         const executedToolCalls = await this.executeToolCalls(uniqueToolCalls);
         
-        // Format tool results into the response
+        // Check if we have applicable rules that require JSON formatting
+        let applicableRules: Rule[] = [];
+        if (this.rulesManager) {
+          // First, check rules based on the original prompt
+          applicableRules = this.rulesManager.getApplicableRules(prompt);
+          console.log(`[Rules] After tool execution, checking rules for prompt: "${prompt}"`);
+          console.log(`[Rules] Found ${applicableRules.length} applicable rule(s) from prompt`);
+          
+          // If no rules found, check if any executed tools match rule tool requirements
+          if (applicableRules.length === 0) {
+            applicableRules = this.rulesManager.getRulesForTools(executedToolCalls.map(tc => tc.name));
+            if (applicableRules.length > 0) {
+              console.log(`[Rules] Found ${applicableRules.length} applicable rule(s) based on tool calls`);
+            }
+          }
+          
+          console.log(`[Rules] Total applicable rules for formatting: ${applicableRules.length}`);
+        }
+        
+        // If rules require JSON formatting, format the tool results accordingly
+        if (applicableRules.length > 0) {
+          console.log(`[Rules] Formatting tool results according to ${applicableRules.length} rule(s)`);
+          try {
+            const formattedContent = await this.formatToolResultsWithRules(
+              executedToolCalls,
+              applicableRules,
+              prompt,
+              templateName,
+              applyTemplate
+            );
+            
+            console.log(`[Rules] Formatted content length: ${formattedContent.length} chars`);
+            console.log(`[Rules] Formatted content preview: ${formattedContent.substring(0, 200)}...`);
+            
+            return {
+              content: formattedContent,
+              reasoning: cleaned.reasoning,
+              toolCalls: executedToolCalls,
+            };
+          } catch (formatError: any) {
+            console.error(`[Rules] Error in formatToolResultsWithRules:`, formatError);
+            // Fall through to default formatting
+          }
+        } else {
+          console.log(`[Rules] No applicable rules found, using default tool result formatting`);
+        }
+        
+        // No rules - just format tool results normally
         let toolResultsText = "\n\n**Tool Results:**\n";
         executedToolCalls.forEach((toolCall) => {
           toolResultsText += `\n**${toolCall.name}**:\n`;
@@ -188,6 +269,9 @@ export class LlamaClient {
       /<\|reasoning\|>(.*?)(?:<\|end\|>|<\|eoa\|>|<\|assistant\|>)/s,
       /<\|channel\|>thinking<\|message\|>(.*?)(?:<\|end\|>|<\|eoa\|>|<\|assistant\|>)/s,
       /<\|channel\|>analysis<\|message\|>(.*?)(?:<\|end\|>|<\|eoa\|>|<\|assistant\|>)/s,
+      /<\|analysis<\|message\|>(.*?)(?:<\|end\|>|<\|eoa\|>|<\|assistant\|>)/s,  // More flexible pattern
+      /<\|channel\|>thinking<\|message\|>(.*?)(?:<\|end\|>|<\|eoa\|>)/s,
+      /<\|channel\|>analysis<\|message\|>(.*?)(?:<\|end\|>|<\|eoa\|>)/s,
     ];
 
     for (const pattern of reasoningPatterns) {
@@ -394,6 +478,128 @@ export class LlamaClient {
     }
 
     return results;
+  }
+
+  /**
+   * Format tool results according to applicable rules
+   * Makes a follow-up API call to format results as JSON per rules
+   */
+  private async formatToolResultsWithRules(
+    executedToolCalls: Array<{ name: string; arguments: Record<string, any>; result?: MCPToolResult }>,
+    applicableRules: Rule[],
+    originalPrompt: string,
+    templateName?: string,
+    applyTemplate?: (templateName: string, context: any) => Promise<string>
+  ): Promise<string> {
+    // Extract tool results text
+    let toolResultsText = "";
+    executedToolCalls.forEach((toolCall) => {
+      if (toolCall.result?.isError) {
+        toolResultsText += `\n**${toolCall.name}** Error: ${toolCall.result.content[0]?.text || "Unknown error"}\n`;
+      } else {
+        toolCall.result?.content.forEach((content) => {
+          if (content.type === "text" && content.text) {
+            toolResultsText += `${content.text}\n`;
+          }
+        });
+      }
+    });
+
+    console.log(`[Rules] Tool results extracted (${toolResultsText.length} chars): ${toolResultsText.substring(0, 300)}...`);
+
+    // Get rules context
+    let rulesContext = "";
+    if (this.rulesManager) {
+      rulesContext = this.rulesManager.formatRulesForPrompt(applicableRules);
+    }
+
+    // Create formatting prompt - simpler, without template wrapper for formatting
+    const formattingPrompt = `User request: "${originalPrompt}"
+
+Tool results have been obtained. Format these results as JSON according to the rules below.
+
+${rulesContext}
+
+Tool Results:
+${toolResultsText}
+
+CRITICAL: You MUST output ONLY valid JSON that follows the rules above. Do not include any explanation, commentary, or text outside the JSON. Start with [ or { and end with ] or }.
+
+JSON Output:`;
+
+    try {
+      // Make follow-up API call to format results
+      const endpoint = `${this.config.serverUrl}/v1/completions`;
+      console.log(`[Rules] Making follow-up call to format tool results as JSON`);
+
+      // For JSON formatting, don't use the chat template - use a simpler prompt structure
+      // This ensures the model focuses on generating JSON, not conversational text
+      const finalPrompt = `<|start|>user<|channel|>final<|message|>
+${formattingPrompt}
+<|end|>
+<|start|>assistant<|channel|>final<|message|>`;
+
+      const response = await axios.post(
+        endpoint,
+        {
+          model: this.config.model,
+          prompt: finalPrompt,
+          temperature: 0.3, // Lower temperature for more consistent JSON
+          max_tokens: this.config.maxTokens,
+          stream: false,
+        },
+        {
+          headers: {
+            "Content-Type": "application/json",
+            ...(this.config.apiKey && {
+              Authorization: `Bearer ${this.config.apiKey}`,
+            }),
+          },
+        }
+      );
+
+      // Extract response
+      let rawResponse: string | undefined;
+      if (response.data?.choices?.[0]?.text) {
+        rawResponse = response.data.choices[0].text;
+      } else if (response.data?.choices?.[0]?.message?.content) {
+        rawResponse = response.data.choices[0].message.content;
+      } else if (response.data?.text) {
+        rawResponse = response.data.text;
+      } else if (response.data?.content) {
+        rawResponse = response.data.content;
+      }
+
+      if (rawResponse) {
+        console.log(`[Rules] Raw formatting response: ${rawResponse.substring(0, 300)}...`);
+        const cleaned = this.cleanHarmonyResponse(rawResponse);
+        console.log(`[Rules] Cleaned formatting response: ${cleaned.content.substring(0, 300)}...`);
+        
+        // Extract JSON from response (in case there's extra text)
+        // Try to find JSON objects or arrays
+        const jsonMatch = cleaned.content.match(/(\[[\s\S]*\]|\{[\s\S]*\})/);
+        if (jsonMatch) {
+          console.log(`[Rules] Successfully extracted JSON from formatted response`);
+          return jsonMatch[1];
+        }
+        
+        // If no JSON found but content exists, return it (might be valid JSON already)
+        if (cleaned.content.trim()) {
+          console.log(`[Rules] No JSON pattern match, returning cleaned content as-is`);
+          return cleaned.content.trim();
+        }
+        
+        console.warn(`[Rules] Formatted response is empty`);
+      }
+
+      // Fallback to raw tool results if formatting fails
+      console.warn(`[Rules] Failed to format tool results, returning raw results`);
+      return toolResultsText;
+    } catch (error: any) {
+      console.error(`[Rules] Error formatting tool results:`, error);
+      // Fallback to raw tool results
+      return toolResultsText;
+    }
   }
 }
 

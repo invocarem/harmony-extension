@@ -133,6 +133,14 @@
               "command"
             ]
           }
+        },
+        "harmony.rulesPaths": {
+          "type": "array",
+          "default": [],
+          "description": "Paths to rules files (.md) to include in prompts. Supports ${workspaceFolder} variable and absolute paths.",
+          "items": {
+            "type": "string"
+          }
         }
       }
     }
