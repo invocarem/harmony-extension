@@ -9,6 +9,7 @@
 import { MCPToolCall } from "../mcpClient";
 import { HtmlEntityDecoder } from "./htmlEntityDecoder";
 import { JsonProcessor } from './jsonProcessor';
+import { XmlProcessor } from './xmlProcessor';
 
 export interface ExtractedToolCall {
   raw: string;
@@ -20,7 +21,6 @@ export class ToolCallExtractor {
   /**
    * Check if text looks like a tool call (MCP format or other patterns)
    */
-
   static looksLikeToolCall(text: string): boolean {
     const trimmed = text.trim();
     
@@ -34,10 +34,8 @@ export class ToolCallExtractor {
       return true;
     }
     
-    // Note: XML patterns are checked separately in extraction logic
     return false;
   }
-
 
   /**
    * Extract tool calls from text
@@ -52,199 +50,53 @@ export class ToolCallExtractor {
     
     console.log(`[ToolCallExtractor] extractFromText called with text (${text.length} chars): "${text.substring(0, 300)}${text.length > 300 ? '...' : ''}"`);
     
-    // Pattern 1: Self-closing <tool_call name="..." args='...' />
-    const selfClosingRegex = /<tool_call\s+([^>]+)\s*\/>/gs;
-    
-    // Pattern 1b: Variant pattern like <|analysis tool_call name="..." args='...' />
-    const variantPrefixRegex = /<\|[^>]*tool_call\s+([^>]+)\s*\/>/gs;
-    
-    // Pattern 1c: Variant pattern starting with | (missing <)
-    const variantPipeRegex = /(?:^|[^<])\|[^>]*tool_call\s+([^>]+)\s*\/>/gm;
-    
-    // Pattern 2: Full element <tool_call>...</tool_call>
-    const fullElementRegex = /<tool_call[^>]*>([\s\S]*?)<\/tool_call>/g;
-    
-    // Track which patterns we've already matched to avoid duplicates
-    const matchedPositions = new Set<number>();
     // Track ranges of full elements that have been processed to avoid duplicate JSON extraction
     const matchedFullElementRanges: Array<{ start: number; end: number }> = [];
     
-    let match: RegExpExecArray | null;
-    
-    // Try variant patterns first (they're more specific)
-    // Pattern 1b: <|...tool_call
-    while ((match = variantPrefixRegex.exec(text)) !== null) {
-      const startPos = match.index;
-      if (matchedPositions.has(startPos)) continue;
+    // First, extract XML tool calls using XmlProcessor
+    const xmlResults = XmlProcessor.extractToolCalls(text);
+    for (const xmlResult of xmlResults) {
+      results.push({
+        raw: xmlResult.raw,
+        name: xmlResult.name,
+        args: xmlResult.args
+      });
       
-      const attributes = match[1];
-      const raw = match[0];
-      
-      console.log(`[ToolCallExtractor] Found tool call (variant prefix): ${raw.substring(0, 100)}...`);
-      
-      try {
-        const parsed = this.parseToolCallAttributes(attributes, raw);
-        if (parsed) {
-          results.push(parsed);
-          matchedPositions.add(startPos);
-        }
-      } catch (error) {
-        console.error(`[ToolCallExtractor] Failed to parse variant tool call: ${raw.substring(0, 100)}`, error);
+      // Track XML element positions to avoid duplicate JSON extraction
+      const xmlStartPos = text.indexOf(xmlResult.raw);
+      if (xmlStartPos !== -1) {
+        matchedFullElementRanges.push({
+          start: xmlStartPos,
+          end: xmlStartPos + xmlResult.raw.length
+        });
       }
     }
     
-    // Pattern 1c: |...tool_call (at start of string or line)
-    while ((match = variantPipeRegex.exec(text)) !== null) {
-      const startPos = match.index;
-      if (matchedPositions.has(startPos)) continue;
-      
-      const attributes = match[1];
-      const raw = match[0];
-      
-      console.log(`[ToolCallExtractor] Found tool call (variant pipe): ${raw.substring(0, 100)}...`);
-      
-      try {
-        const parsed = this.parseToolCallAttributes(attributes, raw);
-        if (parsed) {
-          results.push(parsed);
-          matchedPositions.add(startPos);
-        }
-      } catch (error) {
-        console.error(`[ToolCallExtractor] Failed to parse variant tool call: ${raw.substring(0, 100)}`, error);
-      }
-    }
-    
-    // Try clean self-closing format (only if not already matched as variant)
-    while ((match = selfClosingRegex.exec(text)) !== null) {
-      const startPos = match.index;
-      // Skip if this position was already matched as a variant pattern
-      if (matchedPositions.has(startPos)) continue;
-      
-      // Also skip if it's actually a variant pattern (starts with <|)
-      if (text.substring(Math.max(0, startPos - 2), startPos) === '<|') {
-        continue;
-      }
-      
-      const attributes = match[1];
-      const raw = match[0];
-      
-      console.log(`[ToolCallExtractor] Found tool call (self-closing): ${raw.substring(0, 100)}...`);
-      
-      try {
-        const parsed = this.parseToolCallAttributes(attributes, raw);
-        if (parsed) {
-          results.push(parsed);
-          matchedPositions.add(startPos);
-        }
-      } catch (error) {
-        console.error(`[ToolCallExtractor] Failed to parse tool call: ${raw.substring(0, 100)}`, error);
-      }
-    }
-    
-    // Try full element format
-    while ((match = fullElementRegex.exec(text)) !== null) {
-      const raw = match[0];
-      const content = match[1].trim();
-      const elementStart = match.index;
-      const elementEnd = match.index + raw.length;
-      
-      console.log(`[ToolCallExtractor] Found tool call (full element): ${raw.substring(0, 100)}...`);
-      
-      try {
-        // Try to parse as JSON first
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          const toolData = JSON.parse(jsonMatch[0]);
-          // Support both "args" and "arguments" fields
-          const args = toolData.arguments !== undefined ? toolData.arguments : toolData.args;
-          if (toolData.name && args !== undefined) {
-            results.push({
-              raw,
-              name: toolData.name,
-              args
-            });
-            // Track this full element range to avoid duplicate JSON extraction
-            matchedFullElementRanges.push({ start: elementStart, end: elementEnd });
-            continue;
-          }
-        }
-        
-        // Otherwise try to extract from attributes
-        const attrMatch = raw.match(/<tool_call\s+([^>]+)>/);
-        if (attrMatch) {
-          const parsed = this.parseToolCallAttributes(attrMatch[1], raw);
-          if (parsed) {
-            results.push(parsed);
-            // Track this full element range to avoid duplicate JSON extraction
-            matchedFullElementRanges.push({ start: elementStart, end: elementEnd });
-          }
-        }
-      } catch (error) {
-        console.error(`[ToolCallExtractor] Failed to parse tool call: ${raw.substring(0, 100)}`, error);
-      }
-    }
-    
-    // Try JSON format - use a more robust extraction method
-    // Handle both "arguments" and "args" formats
-    // Allow optional whitespace after opening brace for multiline JSON
-    const jsonPattern = /\{\s*"name"\s*:\s*"([^"]+)"\s*,\s*"(?:arguments|args)"\s*:\s*/g;
-    while ((match = jsonPattern.exec(text)) !== null) {
-      const startPos = match.index;
-      const name = match[1];
-      const argsStartPos = match.index + match[0].length;
-      
-      // Skip if this JSON is inside a full element that was already processed
-      const isInsideMatchedElement = matchedFullElementRanges.some(
-        range => startPos >= range.start && startPos < range.end
+    // Then, extract JSON tool calls using JsonProcessor
+    const jsonResults = JsonProcessor.extractAllToolCalls(text);
+    for (const jsonResult of jsonResults) {
+      // Skip if this JSON is inside an XML element that was already processed
+      const jsonStartPos = text.indexOf(jsonResult.raw);
+      const isInsideXmlElement = matchedFullElementRanges.some(
+        range => jsonStartPos >= range.start && jsonStartPos < range.end
       );
-      if (isInsideMatchedElement) {
-        continue;
-      }
       
-      // Find the matching closing brace for the arguments/args object
-      let braceCount = 1;
-      let i = argsStartPos;
-      let argsEndPos = -1;
-      
-      while (i < text.length && braceCount > 0) {
-        if (text[i] === '{') braceCount++;
-        else if (text[i] === '}') braceCount--;
-        if (braceCount === 0) {
-          argsEndPos = i;
-          break;
-        }
-        i++;
-      }
-      
-      if (argsEndPos !== -1) {
-        // Parse the full JSON object to extract both name and args/arguments
-        const fullJsonStr = text.substring(startPos, argsEndPos + 1);
-        const raw = fullJsonStr;
-        
-        console.log(`[ToolCallExtractor] Found tool call (JSON): ${name}`);
-        
-        try {
-          const parsed = JSON.parse(fullJsonStr);
-          // Support both "args" and "arguments" fields
-          const args = parsed.arguments !== undefined ? parsed.arguments : parsed.args;
-          if (args !== undefined) {
-            results.push({
-              raw,
-              name,
-              args
-            });
-          }
-        } catch (error) {
-          console.error(`[ToolCallExtractor] Failed to parse JSON tool call: ${fullJsonStr.substring(0, 100)}`, error);
-        }
+      if (!isInsideXmlElement) {
+        results.push({
+          raw: jsonResult.raw,
+          name: jsonResult.name,
+          args: jsonResult.arguments
+        });
       }
     }
     
+    console.log(`[ToolCallExtractor] Found ${results.length} tool calls`);
     return results;
   }
 
   /**
    * Parse tool call attributes from a string
+   * Note: This is now primarily used by XmlProcessor, but kept here for backward compatibility
    */
   private static parseToolCallAttributes(attributes: string, raw: string): ExtractedToolCall | null {
     // Extract name
@@ -258,7 +110,7 @@ export class ToolCallExtractor {
     let argsStr: string | null = null;
     
     // Manually parse the args attribute value to handle HTML entities correctly
-    // Look for args=" or args='
+    // Look for args=" or args=''
     const argsDoubleQuoteMatch = attributes.match(/args\s*=\s*"/);
     const argsSingleQuoteMatch = attributes.match(/args\s*=\s*'/);
     
@@ -349,7 +201,7 @@ export class ToolCallExtractor {
       // Log the raw tool call string for debugging
       console.log(`[ToolCallExtractor] Processing raw tool call (${raw.length} chars): "${raw.substring(0, 200)}${raw.length > 200 ? '...' : ''}"`);
       
-      // First try to extract as <tool_call> pattern
+      // First try to extract as <tool_call> pattern using extractFromText
       const extracted = this.extractFromText(raw);
       console.log(`[ToolCallExtractor] extractFromText found ${extracted.length} tool call(s)`);
       extracted.forEach(item => {
@@ -395,48 +247,15 @@ export class ToolCallExtractor {
           }
         }
         
-        // Try to find JSON tool call format directly in the raw string
-        // Pattern: {"name": "...", "arguments": {...}} or {"name": "...", "args": {...}}
-        // Use the same brace-counting approach as extractFromText to handle multiline JSON
-        // Allow optional whitespace after opening brace for multiline JSON
-        const jsonPattern = /\{\s*"name"\s*:\s*"([^"]+)"\s*,\s*"(?:arguments|args)"\s*:\s*/;
-        const jsonMatch = raw.match(jsonPattern);
-        if (jsonMatch) {
-          try {
-            const startPos = jsonMatch.index!;
-            const argsStartPos = startPos + jsonMatch[0].length;
-            
-            // Find the matching closing brace for the arguments/args object
-            let braceCount = 1;
-            let i = argsStartPos;
-            let argsEndPos = -1;
-            
-            while (i < raw.length && braceCount > 0) {
-              if (raw[i] === '{') braceCount++;
-              else if (raw[i] === '}') braceCount--;
-              if (braceCount === 0) {
-                argsEndPos = i;
-                break;
-              }
-              i++;
-            }
-            
-            if (argsEndPos !== -1) {
-              // Parse the full JSON object to handle both "args" and "arguments"
-              const fullJsonStr = raw.substring(startPos, argsEndPos + 1);
-              const parsed = JSON.parse(fullJsonStr);
-              // Support both "args" and "arguments" fields, normalize to "arguments"
-              const args = parsed.arguments !== undefined ? parsed.arguments : parsed.args;
-              toolCalls.push({
-                name: parsed.name,
-                arguments: args
-              });
-              console.log(`[ToolCallExtractor] Extracted from JSON format: ${parsed.name}`);
-              continue;
-            }
-          } catch (error) {
-            console.error(`[ToolCallExtractor] Failed to parse JSON tool call: ${raw.substring(0, 100)}`, error);
-          }
+        // Use JsonProcessor for JSON tool call format
+        const jsonToolCall = JsonProcessor.extractToolCall(raw);
+        if (jsonToolCall) {
+          toolCalls.push({
+            name: jsonToolCall.name,
+            arguments: jsonToolCall.arguments
+          });
+          console.log(`[ToolCallExtractor] Extracted from JSON format: ${jsonToolCall.name}`);
+          continue;
         }
         
         // If still nothing found, only warn if it looked like it should be a tool call
@@ -450,4 +269,3 @@ export class ToolCallExtractor {
     return toolCalls;
   }
 }
-
