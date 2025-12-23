@@ -4,7 +4,12 @@ import { MCPManager } from "./mcpManager";
 import { MCPToolCall, MCPToolResult } from "./mcpClient";
 import { RulesManager, Rule } from "./rulesManager";
 import { NativeToolsManager, NativeTool } from "./nativeTools";
-
+import { 
+  logLongMessage, 
+  logApiRequest, 
+  logToolCalls, 
+  logRules 
+} from "./utils/logger"; 
 export interface LlamaResponse {
   content: string;
   reasoning?: string;
@@ -30,8 +35,8 @@ export class LlamaClient {
   ): Promise<LlamaResponse> {
     try {
       const endpoint = `${this.config.serverUrl}/v1/completions`;
-      console.log(`[Harmony] Calling endpoint: ${endpoint}`);
-      console.log(`[Harmony] Prompt: ${prompt.substring(0, 100)}...`);
+ 
+      logApiRequest(endpoint, prompt, 100);
 
       // Get available tools (MCP + Native) and add them to context
       let toolsContext = "";
@@ -82,9 +87,8 @@ export class LlamaClient {
           rulesContext = this.rulesManager.formatRulesForPrompt(applicableRules);
           
           // Log which rules were matched for debugging
-          applicableRules.forEach(rule => {
-            console.log(`[Rules] Matched rule: ${rule.id}${rule.description ? ` (${rule.description})` : ""}`);
-          });
+          logRules(applicableRules);
+          
         }
       }
 
@@ -169,9 +173,8 @@ export class LlamaClient {
 
       console.log(`[Harmony] Raw response length: ${rawResponse?.length || 0}`);
       if (rawResponse && rawResponse.length > 0) {
-        console.log(
-          `[Harmony] Raw response: ${rawResponse.substring(0, 200)}...`
-        );
+        // 使用新的日志方法
+        logLongMessage(`[Harmony] Raw response`, rawResponse);
       } else {
         console.warn(`[Harmony] Raw response is empty or undefined!`);
         throw new Error("Received empty response from API");
@@ -184,7 +187,7 @@ export class LlamaClient {
       );
       if (cleaned.content && cleaned.content.length > 0) {
         console.log(
-          `[Harmony] Cleaned content preview: ${cleaned.content.substring(0, 100)}...`
+          `[Harmony] Cleaned content preview: ${cleaned.content.substring(0, 500)}...`
         );
       }
 
@@ -201,7 +204,7 @@ export class LlamaClient {
       );
 
       if (uniqueToolCalls.length > 0 && this.mcpManager) {
-        console.log(`[Harmony] Found ${uniqueToolCalls.length} tool call(s)`);
+        logToolCalls(uniqueToolCalls.map(tc => ({ name: tc.name })));
         const executedToolCalls = await this.executeToolCalls(uniqueToolCalls);
         
         // Check if we have applicable rules that require JSON formatting
@@ -236,7 +239,7 @@ export class LlamaClient {
             );
             
             console.log(`[Rules] Formatted content length: ${formattedContent.length} chars`);
-            console.log(`[Rules] Formatted content preview: ${formattedContent.substring(0, 200)}...`);
+            console.log(`[Rules] Formatted content preview: ${formattedContent.substring(0, 2000)}...`);
             
             return {
               content: formattedContent,
@@ -280,167 +283,227 @@ export class LlamaClient {
     }
   }
 
+
   cleanHarmonyResponse(response: string): LlamaResponse {
-    if (!response) return { content: response || "" };
+      if (!response) return { content: response || "" };
 
-    console.log(`[Harmony] Before cleaning: ${response.substring(0, 200)}...`);
-
-    // Extract reasoning/thinking/analysis sections first (before cleaning)
-    let reasoning: string | undefined;
-    const reasoningPatterns = [
-      /<\|thinking\|>(.*?)(?:<\|end\|>|<\|eoa\|>|<\|assistant\|>)/s,
-      /<\|reasoning\|>(.*?)(?:<\|end\|>|<\|eoa\|>|<\|assistant\|>)/s,
-      /<\|channel\|>thinking<\|message\|>(.*?)(?:<\|end\|>|<\|eoa\|>|<\|assistant\|>)/s,
-      /<\|channel\|>analysis<\|message\|>(.*?)(?:<\|end\|>|<\|eoa\|>|<\|assistant\|>)/s,
-      /<\|analysis<\|message\|>(.*?)(?:<\|end\|>|<\|eoa\|>|<\|assistant\|>)/s,  // More flexible pattern
-      /<\|channel\|>thinking<\|message\|>(.*?)(?:<\|end\|>|<\|eoa\|>)/s,
-      /<\|channel\|>analysis<\|message\|>(.*?)(?:<\|end\|>|<\|eoa\|>)/s,
-    ];
-
-    for (const pattern of reasoningPatterns) {
-      const match = response.match(pattern);
-      if (match && match[1]) {
-        reasoning = match[1]
-          .trim()
-          .replace(/<\|[^>]+\|>/g, "") // Remove any remaining tokens
-          .replace(/\n{3,}/g, "\n\n"); // Clean up multiple newlines
-        console.log(
-          `[Harmony] Extracted reasoning: ${reasoning.substring(0, 200)}...`
-        );
-        break;
+      console.log(`[Harmony] Starting response cleaning, length: ${response.length}`);
+      
+      let reasoning: string | undefined;
+      let content = response;
+      
+      // 第一步：尝试提取 reasoning（如果存在）
+      // 使用更简单的模式，只找明显的 reasoning/analysis 部分
+      const reasoningPatterns = [
+          /<\|channel\|>analysis<\|message\|>(.*?)<\|end\|>/s,
+          /<\|channel\|>thinking<\|message\|>(.*?)<\|end\|>/s,
+          /<\|analysis\|>(.*?)<\|end\|>/s,
+          /<\|thinking\|>(.*?)<\|end\|>/s,
+      ];
+      
+      for (const pattern of reasoningPatterns) {
+          const match = content.match(pattern);
+          if (match && match[1]) {
+              reasoning = match[1].trim();
+              console.log(`[Harmony] Extracted reasoning (${reasoning.length} chars): ${reasoning.substring(0, 100)}...`);
+              // 移除已提取的 reasoning 部分，避免重复
+              content = content.replace(pattern, '');
+              break;
+          }
       }
-    }
-
-    // First, try to extract content between <|message|> and <|end|> or <|eoa|>
-    let cleaned = response;
-    let extracted = false;
-
-    // Pattern 1: Extract content from final message channel
-    const finalMessagePattern =
-      /<\|channel\|>final<\|message\|>(.*?)(?:<\|end\|>|<\|eoa\|>|$)/s;
-    const finalMatch = cleaned.match(finalMessagePattern);
-
-    if (finalMatch && finalMatch[1]) {
-      cleaned = finalMatch[1].trim();
-      extracted = true;
-      console.log(
-        `[Harmony] Extracted final message: ${cleaned.substring(0, 200)}...`
-      );
-    }
-
-    // Pattern 2: Extract content from assistant message
-    if (!extracted) {
-      const assistantPattern =
-        /<\|assistant\|>(?:<\|channel\|>final<\|message\|>)?(.*?)(?:<\|end\|>|<\|eoa\|>|$)/s;
-      const assistantMatch = cleaned.match(assistantPattern);
-
-      if (assistantMatch && assistantMatch[1]) {
-        cleaned = assistantMatch[1].trim();
-        extracted = true;
-        console.log(
-          `[Harmony] Extracted assistant message: ${cleaned.substring(0, 200)}...`
-        );
+      
+      // 第二步：提取最终回答内容
+      // 优先找 final 频道的内容
+      const finalMatch = content.match(/<\|channel\|>final<\|message\|>(.*?)<\|end\|>/s);
+      if (finalMatch && finalMatch[1]) {
+          content = finalMatch[1].trim();
+          console.log(`[Harmony] Found final channel content (${content.length} chars)`);
+      } else {
+          // 如果没有 final 频道，找 assistant 内容
+          const assistantMatch = content.match(/<\|assistant\|>(.*?)<\|end\|>/s);
+          if (assistantMatch && assistantMatch[1]) {
+              content = assistantMatch[1].trim();
+              console.log(`[Harmony] Found assistant content (${content.length} chars)`);
+          }
       }
-    }
-
-    // Remove ALL remaining Harmony tokens (comprehensive)
-    cleaned = cleaned
-      .replace(/<\|[^>]+\|>/g, "") // Remove all <|token|> patterns
-      .replace(/^\s+|\s+$/g, "") // Trim whitespace
-      .replace(/\n{3,}/g, "\n\n"); // Clean up multiple newlines
-
-    // Ensure we always return valid content
-    if (!cleaned || cleaned.trim().length === 0) {
-      console.warn(
-        `[Harmony] Warning: Cleaned response is empty. Original response: ${response.substring(0, 200)}...`
-      );
-      // Fallback: return original response with tokens removed as last resort
-      cleaned = response.replace(/<\|[^>]+\|>/g, "").trim();
-      if (!cleaned) {
-        cleaned = response.trim(); // Last resort: return original
+      
+      // 第三步：基础清理 - 移除所有 Harmony 标记，但保持内容完整
+      // 注意：不要移除 JSON 中的括号和引号
+      const harmonyTokens = [
+          /<\|start\|>/g,
+          /<\|end\|>/g,
+          /<\|channel\|>/g,
+          /<\|message\|>/g,
+          /<\|assistant\|>/g,
+          /<\|user\|>/g,
+          /<\|eoa\|>/g,
+          /<\|eom\|>/g,
+      ];
+      
+      harmonyTokens.forEach(token => {
+          content = content.replace(token, '');
+      });
+      
+      // 移除通用的 <|...|> 模式（但小心不要破坏 JSON）
+      // 先保存可能包含重要内容的行（比如 JSON）
+      const lines = content.split('\n');
+      const cleanedLines = lines.map(line => {
+          // 如果这一行看起来包含 JSON（有 {, }, :, " 等），尽量保持原样
+          if (line.includes('{') || line.includes('}') || line.includes('"name"') || line.includes('"args"')) {
+              // 只移除明确的 <|...|> 标记，但保留其他内容
+              return line.replace(/<\|[^>]+\|>/g, '').trim();
+          }
+          // 对于非 JSON 行，可以更积极地清理
+          return line.replace(/<\|[^>]+\|>/g, '').trim();
+      });
+      
+      content = cleanedLines
+          .filter(line => line.length > 0) // 移除空行
+          .join('\n')
+          .replace(/\n{3,}/g, '\n\n') // 清理多余空行
+          .trim();
+      
+      // 第四步：如果清理后内容为空，使用原始响应作为后备
+      if (!content || content.trim().length === 0) {
+          console.warn(`[Harmony] Content empty after cleaning, using original response (cleaned of tokens)`);
+          // 只移除标记，保持所有内容
+          content = response.replace(/<\|[^>]+\|>/g, ' ').trim();
       }
-    }
-
-    console.log(`[Harmony] After cleaning: ${cleaned.substring(0, 200)}...`);
-
-    return { content: cleaned || "", reasoning };
+      
+      console.log(`[Harmony] Final content length: ${content.length}`);
+      console.log(`[Harmony] Content preview: ${content.substring(0, 300)}...`);
+      if (reasoning) {
+          console.log(`[Harmony] Reasoning length: ${reasoning.length}`);
+      }
+      
+      return { 
+          content, 
+          reasoning 
+      };
   }
 
   private extractToolCalls(response: string): MCPToolCall[] {
-    const toolCalls: MCPToolCall[] = [];
-    
-    // Pattern 1: <tool_call name="tool_name" args="{...}" />
-    // Use a more flexible approach: match the tag, then extract name and args separately
-    const toolCallTagPattern = /<tool_call\s+([^>]+)\s*\/>/g;
-    let match;
-    while ((match = toolCallTagPattern.exec(response)) !== null) {
-      try {
-        const attributes = match[1];
-        console.log(`[Harmony] Found tool call tag with attributes: ${attributes}`);
-        
-        // Extract name attribute
-        const nameMatch = attributes.match(/name=["']([^"']+)["']/);
-        if (!nameMatch) {
-          console.warn(`[Harmony] Tool call missing name attribute: ${attributes}`);
-          continue;
-        }
-        const toolName = nameMatch[1];
-        
-        // Extract args attribute - handle both single and double quotes
-        // First, find which quote type is used for the args attribute
-        const argsDoubleQuoteMatch = attributes.match(/args="((?:[^"\\]|\\.)*)"/);
-        const argsSingleQuoteMatch = attributes.match(/args='((?:[^'\\]|\\.)*)'/);
-        
-        let argsStr: string | null = null;
-        if (argsDoubleQuoteMatch) {
-          argsStr = argsDoubleQuoteMatch[1];
-        } else if (argsSingleQuoteMatch) {
-          argsStr = argsSingleQuoteMatch[1];
-        }
-        
-        if (!argsStr) {
-          console.warn(`[Harmony] Tool call missing args attribute: ${attributes}`);
-          continue;
-        }
-        
-        // Unescape the JSON string
-        argsStr = argsStr
-          .replace(/\\"/g, '"')  // Unescape quotes
-          .replace(/\\'/g, "'")  // Unescape single quotes
-          .replace(/&quot;/g, '"')  // Handle HTML entities
-          .replace(/&apos;/g, "'")  // Handle HTML entities for single quotes
-          .replace(/\\n/g, '\n')  // Unescape newlines
-          .replace(/\\t/g, '\t')  // Unescape tabs
-          .replace(/\\\\/g, '\\'); // Unescape backslashes
-        
-        console.log(`[Harmony] Extracted tool call: name="${toolName}", args="${argsStr}"`);
-        const args = JSON.parse(argsStr);
-        toolCalls.push({
-          name: toolName,
-          arguments: args,
-        });
-        console.log(`[Harmony] Parsed tool call: ${toolName} with args:`, args);
-      } catch (error) {
-        console.error(`[Harmony] Failed to parse tool call: ${match[0]}`, error);
-      }
-    }
+      const toolCalls: MCPToolCall[] = [];
+      
+      console.log(`[Harmony] Searching for tool calls in response...`);
+      
+      // Pattern 1: JSON tool call format from Harmony (your current output)
+      // Looks like: { "name": "tool_name", "args": {...} }
+      // Might be wrapped in various Harmony tokens
+      const jsonToolCallPatterns = [
+          // Pattern for the format you're seeing
+          /\{[^{]*?"name":\s*"([^"]+)"[^{]*?"args":\s*(\{[^}]+\})[^}]*\}/s,
+          // Pattern that includes potential Harmony tokens around it
+          /<\|[^>]+\|>\s*\{[^{]*?"name":\s*"([^"]+)"[^{]*?"args":\s*(\{[^}]+\})[^}]*\}\s*<\|[^>]+\|>/s,
+          // More general pattern
+          /\{[\s\S]*?"name":\s*"([^"]+)"[\s\S]*?"args":\s*(\{[^}]+(?:\{[^}]*\}[^}]*)*\})[\s\S]*\}/s,
+      ];
 
-    // Pattern 2: JSON tool call format
-    const jsonToolCallPattern = /```json\s*\{\s*"tool":\s*"([^"]+)",\s*"arguments":\s*(\{[^}]+\})\s*\}\s*```/g;
-    while ((match = jsonToolCallPattern.exec(response)) !== null) {
-      try {
-        const args = JSON.parse(match[2]);
-        toolCalls.push({
-          name: match[1],
-          arguments: args,
-        });
-      } catch (error) {
-        console.error(`[Harmony] Failed to parse JSON tool call: ${match[0]}`, error);
+      for (const pattern of jsonToolCallPatterns) {
+          const matches = response.match(new RegExp(pattern, "g"));
+          if (matches) {
+              console.log(`[Harmony] Found ${matches.length} JSON tool call(s) with pattern`);
+              for (const match of matches) {
+                  try {
+                      console.log(`[Harmony] Attempting to parse JSON tool call: ${match.substring(0, 200)}...`);
+                      
+                      // Extract the JSON object
+                      const jsonMatch = match.match(/\{[\s\S]*\}/);
+                      if (!jsonMatch) {
+                          console.warn(`[Harmony] No JSON found in match`);
+                          continue;
+                      }
+                      
+                      const parsed = JSON.parse(jsonMatch[0]);
+                      
+                      if (parsed.name && parsed.args) {
+                          console.log(`[Harmony] Successfully parsed tool call: ${parsed.name}`, parsed.args);
+                          toolCalls.push({
+                              name: parsed.name,
+                              arguments: parsed.args,
+                          });
+                      }
+                  } catch (error) {
+                      console.error(`[Harmony] Failed to parse JSON tool call:`, error);
+                  }
+              }
+          }
       }
-    }
+      
+      // Pattern 2: <tool_call name="tool_name" args="{...}" /> (original pattern)
+      const toolCallTagPattern = /<tool_call\s+([^>]+)\s*\/>/g;
+      let match;
+      while ((match = toolCallTagPattern.exec(response)) !== null) {
+          try {
+              const attributes = match[1];
+              console.log(`[Harmony] Found tool call tag with attributes: ${attributes}`);
+              
+              // Extract name attribute
+              const nameMatch = attributes.match(/name=["']([^"']+)["']/);
+              if (!nameMatch) {
+                  console.warn(`[Harmony] Tool call missing name attribute: ${attributes}`);
+                  continue;
+              }
+              const toolName = nameMatch[1];
+              
+              // Extract args attribute - handle both single and double quotes
+              const argsDoubleQuoteMatch = attributes.match(/args="((?:[^"\\]|\\.)*)"/);
+              const argsSingleQuoteMatch = attributes.match(/args='((?:[^'\\]|\\.)*)'/);
+              
+              let argsStr: string | null = null;
+              if (argsDoubleQuoteMatch) {
+                  argsStr = argsDoubleQuoteMatch[1];
+              } else if (argsSingleQuoteMatch) {
+                  argsStr = argsSingleQuoteMatch[1];
+              }
+              
+              if (!argsStr) {
+                  console.warn(`[Harmony] Tool call missing args attribute: ${attributes}`);
+                  continue;
+              }
+              
+              // Unescape the JSON string
+              argsStr = argsStr
+                  .replace(/\\"/g, '"')
+                  .replace(/\\'/g, "'")
+                  .replace(/&quot;/g, '"')
+                  .replace(/&apos;/g, "'")
+                  .replace(/\\n/g, '\n')
+                  .replace(/\\t/g, '\t')
+                  .replace(/\\\\/g, '\\');
+              
+              console.log(`[Harmony] Extracted tool call: name="${toolName}", args="${argsStr}"`);
+              const args = JSON.parse(argsStr);
+              toolCalls.push({
+                  name: toolName,
+                  arguments: args,
+              });
+              console.log(`[Harmony] Parsed tool call: ${toolName} with args:`, args);
+          } catch (error) {
+              console.error(`[Harmony] Failed to parse tool call: ${match[0]}`, error);
+          }
+      }
 
-    return toolCalls;
+      // Pattern 3: Old JSON tool call format
+      const oldJsonToolCallPattern = /```json\s*\{\s*"tool":\s*"([^"]+)",\s*"arguments":\s*(\{[^}]+\})\s*\}\s*```/g;
+      let oldMatch;
+      while ((oldMatch = oldJsonToolCallPattern.exec(response)) !== null) {
+          try {
+              const args = JSON.parse(oldMatch[2]);
+              toolCalls.push({
+                  name: oldMatch[1],
+                  arguments: args,
+              });
+          } catch (error) {
+              console.error(`[Harmony] Failed to parse JSON tool call: ${oldMatch[0]}`, error);
+          }
+      }
+
+      console.log(`[Harmony] Total tool calls found: ${toolCalls.length}`);
+      return toolCalls;
   }
+
+
 
   private async executeToolCalls(
     toolCalls: MCPToolCall[]
@@ -659,4 +722,3 @@ ${formattingPrompt}
     }
   }
 }
-
