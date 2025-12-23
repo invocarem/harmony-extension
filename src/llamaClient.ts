@@ -4,12 +4,14 @@ import { MCPManager } from "./mcpManager";
 import { MCPToolCall, MCPToolResult } from "./mcpClient";
 import { RulesManager, Rule } from "./rulesManager";
 import { NativeToolsManager, NativeTool } from "./nativeTools";
+import { HarmonyProcessor, HarmonyParseResult } from "./harmonyProcessor";
 import { 
   logLongMessage, 
   logApiRequest, 
   logToolCalls, 
   logRules 
-} from "./utils/logger"; 
+} from "./utils/logger";
+
 export interface LlamaResponse {
   content: string;
   reasoning?: string;
@@ -20,7 +22,12 @@ export interface LlamaResponse {
   }>;
 }
 
+/**
+ * Main LlamaClient with HarmonyProcessor integration
+ */
 export class LlamaClient {
+  private harmonyProcessor = new HarmonyProcessor();
+
   constructor(
     private config: LlamaConfig,
     private mcpManager?: MCPManager,
@@ -38,11 +45,10 @@ export class LlamaClient {
  
       logApiRequest(endpoint, prompt, 100);
 
-      // Get available tools (MCP + Native) and add them to context
+      // Build tools context
       let toolsContext = "";
       const allTools: Array<{ name: string; description?: string; inputSchema: any; type: "mcp" | "native" }> = [];
       
-      // Get MCP tools
       if (this.mcpManager) {
         const mcpTools = this.mcpManager.getAllTools();
         mcpTools.forEach((tool) => {
@@ -50,7 +56,6 @@ export class LlamaClient {
         });
       }
       
-      // Get Native tools
       if (this.nativeToolsManager) {
         const nativeTools = this.nativeToolsManager.getAvailableTools();
         nativeTools.forEach((tool) => {
@@ -78,25 +83,20 @@ export class LlamaClient {
         toolsContext += "\nTo call a tool, use the format: <tool_call name=\"tool_name\" args=\"{...}\" />\n";
       }
 
-      // Get applicable rules based on the query
+      // Get applicable rules
       let rulesContext = "";
       if (this.rulesManager) {
         const applicableRules = this.rulesManager.getApplicableRules(prompt);
         if (applicableRules.length > 0) {
           console.log(`[Rules] Found ${applicableRules.length} applicable rule(s) for query`);
           rulesContext = this.rulesManager.formatRulesForPrompt(applicableRules);
-          
-          // Log which rules were matched for debugging
           logRules(applicableRules);
-          
         }
       }
 
-      // Apply Jinja template if specified
-      // Rules should be injected BEFORE the template so they appear prominently
+      // Apply template if specified
       let finalPrompt: string;
       if (templateName && applyTemplate) {
-        // Pass rules and tools separately so template can structure them properly
         const mcpTools = this.mcpManager?.getAllTools() || [];
         const nativeTools = this.nativeToolsManager?.getAvailableTools() || [];
         const basePrompt = await applyTemplate(templateName, { 
@@ -104,24 +104,24 @@ export class LlamaClient {
           rules: rulesContext || "",
           tools: [...mcpTools, ...nativeTools]
         });
-        // If template doesn't use {{rules}}, prepend them
+        
         if (!basePrompt.includes("{{rules}}") && rulesContext) {
           finalPrompt = rulesContext + basePrompt;
         } else {
           finalPrompt = basePrompt;
         }
       } else {
-        // No template - just combine everything, with rules first
         finalPrompt = rulesContext + prompt + toolsContext;
       }
 
-      // Log more of the prompt for debugging (especially rules)
+      // Log prompt preview
       const previewLength = 500;
       console.log(`[Harmony] Final prompt (first ${previewLength} chars): ${finalPrompt.substring(0, previewLength)}...`);
       if (rulesContext) {
         console.log(`[Rules] Rules context length: ${rulesContext.length} characters`);
       }
 
+      // Make API call
       const response = await axios.post(
         endpoint,
         {
@@ -142,18 +142,12 @@ export class LlamaClient {
       );
 
       console.log(`[Harmony] API response status: ${response.status}`);
-      console.log(
-        `[Harmony] API response data structure:`,
-        JSON.stringify(Object.keys(response.data || {})).substring(0, 200)
-      );
 
-      // Check for different response formats
+      // Extract response text
       let rawResponse: string | undefined;
-
       if (response.data?.choices?.[0]?.text) {
         rawResponse = response.data.choices[0].text;
       } else if (response.data?.choices?.[0]?.message?.content) {
-        // OpenAI-compatible format
         rawResponse = response.data.choices[0].message.content;
       } else if (response.data?.text) {
         rawResponse = response.data.text;
@@ -171,62 +165,45 @@ export class LlamaClient {
         );
       }
 
-      console.log(`[Harmony] Raw response length: ${rawResponse?.length || 0}`);
-      if (rawResponse && rawResponse.length > 0) {
-        // 使用新的日志方法
-        logLongMessage(`[Harmony] Raw response`, rawResponse);
-      } else {
-        console.warn(`[Harmony] Raw response is empty or undefined!`);
+      if (!rawResponse) {
         throw new Error("Received empty response from API");
       }
 
-      // Clean up Harmony format tokens and extract reasoning
-      const cleaned = this.cleanHarmonyResponse(rawResponse);
-      console.log(
-        `[Harmony] Cleaned response - content length: ${cleaned.content?.length || 0}, has reasoning: ${!!cleaned.reasoning}`
-      );
-      if (cleaned.content && cleaned.content.length > 0) {
-        console.log(
-          `[Harmony] Cleaned content preview: ${cleaned.content.substring(0, 500)}...`
-        );
+      console.log(`[Harmony] Raw response length: ${rawResponse.length}`);
+      logLongMessage(`[Harmony] Raw response`, rawResponse);
+
+      // Use HarmonyProcessor to parse the response
+      const parsed = this.harmonyProcessor.parseResponse(rawResponse);
+      
+      console.log(`[Harmony] Parsed - content: ${parsed.content.length} chars, reasoning: ${parsed.reasoning?.length || 0} chars`);
+      console.log(`[Harmony] Content preview: ${parsed.content.substring(0, 300)}...`);
+
+      // Extract tool calls
+      let toolCalls: MCPToolCall[] = [];
+      if (parsed.rawToolCalls && parsed.rawToolCalls.length > 0) {
+        toolCalls = this.harmonyProcessor.extractToolCalls(parsed.rawToolCalls);
+      }
+      
+      // Also check content for tool calls as fallback
+      if (toolCalls.length === 0) {
+        toolCalls = this.extractToolCallsFromContent(parsed.content);
       }
 
-      // Check for tool calls in the response (check both raw and cleaned)
-      const toolCalls = this.extractToolCalls(rawResponse);
-      const cleanedToolCalls = this.extractToolCalls(cleaned.content);
-      const allToolCalls = [...toolCalls, ...cleanedToolCalls];
-      
-      // Remove duplicates based on tool name and args
-      const uniqueToolCalls = allToolCalls.filter((call, index, self) =>
-        index === self.findIndex((c) => 
-          c.name === call.name && JSON.stringify(c.arguments) === JSON.stringify(call.arguments)
-        )
-      );
-
-      if (uniqueToolCalls.length > 0 && this.mcpManager) {
-        logToolCalls(uniqueToolCalls.map(tc => ({ name: tc.name })));
-        const executedToolCalls = await this.executeToolCalls(uniqueToolCalls);
+      if (toolCalls.length > 0 && (this.mcpManager || this.nativeToolsManager)) {
+        logToolCalls(toolCalls.map(tc => ({ name: tc.name })));
+        const executedToolCalls = await this.executeToolCalls(toolCalls);
         
-        // Check if we have applicable rules that require JSON formatting
+        // Check for applicable rules
         let applicableRules: Rule[] = [];
         if (this.rulesManager) {
-          // First, check rules based on the original prompt
           applicableRules = this.rulesManager.getApplicableRules(prompt);
-          console.log(`[Rules] After tool execution, checking rules for prompt: "${prompt}"`);
-          console.log(`[Rules] Found ${applicableRules.length} applicable rule(s) from prompt`);
-          
-          // If no rules found, check if any executed tools match rule tool requirements
           if (applicableRules.length === 0) {
             applicableRules = this.rulesManager.getRulesForTools(executedToolCalls.map(tc => tc.name));
-            if (applicableRules.length > 0) {
-              console.log(`[Rules] Found ${applicableRules.length} applicable rule(s) based on tool calls`);
-            }
           }
-          
-          console.log(`[Rules] Total applicable rules for formatting: ${applicableRules.length}`);
         }
         
-        // If rules require JSON formatting, format the tool results accordingly
+        // Format tool results
+        let finalContent = parsed.content;
         if (applicableRules.length > 0) {
           console.log(`[Rules] Formatting tool results according to ${applicableRules.length} rule(s)`);
           try {
@@ -237,274 +214,42 @@ export class LlamaClient {
               templateName,
               applyTemplate
             );
-            
-            console.log(`[Rules] Formatted content length: ${formattedContent.length} chars`);
-            console.log(`[Rules] Formatted content preview: ${formattedContent.substring(0, 2000)}...`);
-            
-            return {
-              content: formattedContent,
-              reasoning: cleaned.reasoning,
-              toolCalls: executedToolCalls,
-            };
+            finalContent = formattedContent;
           } catch (formatError: any) {
-            console.error(`[Rules] Error in formatToolResultsWithRules:`, formatError);
-            // Fall through to default formatting
+            console.error(`[Rules] Error formatting tool results:`, formatError);
+            finalContent += this.formatToolResults(executedToolCalls);
           }
         } else {
-          console.log(`[Rules] No applicable rules found, using default tool result formatting`);
+          finalContent += this.formatToolResults(executedToolCalls);
         }
         
-        // No rules - just format tool results normally
-        let toolResultsText = "\n\n**Tool Results:**\n";
-        executedToolCalls.forEach((toolCall) => {
-          toolResultsText += `\n**${toolCall.name}**:\n`;
-          if (toolCall.result?.isError) {
-            toolResultsText += `❌ Error: ${toolCall.result.content[0]?.text || "Unknown error"}\n`;
-          } else {
-            toolCall.result?.content.forEach((content) => {
-              if (content.type === "text" && content.text) {
-                toolResultsText += `${content.text}\n`;
-              }
-            });
-          }
-        });
-        
         return {
-          content: cleaned.content + toolResultsText,
-          reasoning: cleaned.reasoning,
+          content: finalContent,
+          reasoning: parsed.reasoning,
           toolCalls: executedToolCalls,
         };
       }
 
-      return cleaned;
+      return {
+        content: parsed.content,
+        reasoning: parsed.reasoning,
+      };
     } catch (error: any) {
       console.error("Error calling Harmony server:", error);
       throw new Error(`Failed to call Harmony server: ${error.message}`);
     }
   }
 
-
-  cleanHarmonyResponse(response: string): LlamaResponse {
-      if (!response) return { content: response || "" };
-
-      console.log(`[Harmony] Starting response cleaning, length: ${response.length}`);
-      
-      let reasoning: string | undefined;
-      let content = response;
-      
-      // 第一步：尝试提取 reasoning（如果存在）
-      // 使用更简单的模式，只找明显的 reasoning/analysis 部分
-      const reasoningPatterns = [
-          /<\|channel\|>analysis<\|message\|>(.*?)<\|end\|>/s,
-          /<\|channel\|>thinking<\|message\|>(.*?)<\|end\|>/s,
-          /<\|analysis\|>(.*?)<\|end\|>/s,
-          /<\|thinking\|>(.*?)<\|end\|>/s,
-      ];
-      
-      for (const pattern of reasoningPatterns) {
-          const match = content.match(pattern);
-          if (match && match[1]) {
-              reasoning = match[1].trim();
-              console.log(`[Harmony] Extracted reasoning (${reasoning.length} chars): ${reasoning.substring(0, 100)}...`);
-              // 移除已提取的 reasoning 部分，避免重复
-              content = content.replace(pattern, '');
-              break;
-          }
-      }
-      
-      // 第二步：提取最终回答内容
-      // 优先找 final 频道的内容
-      const finalMatch = content.match(/<\|channel\|>final<\|message\|>(.*?)<\|end\|>/s);
-      if (finalMatch && finalMatch[1]) {
-          content = finalMatch[1].trim();
-          console.log(`[Harmony] Found final channel content (${content.length} chars)`);
-      } else {
-          // 如果没有 final 频道，找 assistant 内容
-          const assistantMatch = content.match(/<\|assistant\|>(.*?)<\|end\|>/s);
-          if (assistantMatch && assistantMatch[1]) {
-              content = assistantMatch[1].trim();
-              console.log(`[Harmony] Found assistant content (${content.length} chars)`);
-          }
-      }
-      
-      // 第三步：基础清理 - 移除所有 Harmony 标记，但保持内容完整
-      // 注意：不要移除 JSON 中的括号和引号
-      const harmonyTokens = [
-          /<\|start\|>/g,
-          /<\|end\|>/g,
-          /<\|channel\|>/g,
-          /<\|message\|>/g,
-          /<\|assistant\|>/g,
-          /<\|user\|>/g,
-          /<\|eoa\|>/g,
-          /<\|eom\|>/g,
-      ];
-      
-      harmonyTokens.forEach(token => {
-          content = content.replace(token, '');
-      });
-      
-      // 移除通用的 <|...|> 模式（但小心不要破坏 JSON）
-      // 先保存可能包含重要内容的行（比如 JSON）
-      const lines = content.split('\n');
-      const cleanedLines = lines.map(line => {
-          // 如果这一行看起来包含 JSON（有 {, }, :, " 等），尽量保持原样
-          if (line.includes('{') || line.includes('}') || line.includes('"name"') || line.includes('"args"')) {
-              // 只移除明确的 <|...|> 标记，但保留其他内容
-              return line.replace(/<\|[^>]+\|>/g, '').trim();
-          }
-          // 对于非 JSON 行，可以更积极地清理
-          return line.replace(/<\|[^>]+\|>/g, '').trim();
-      });
-      
-      content = cleanedLines
-          .filter(line => line.length > 0) // 移除空行
-          .join('\n')
-          .replace(/\n{3,}/g, '\n\n') // 清理多余空行
-          .trim();
-      
-      // 第四步：如果清理后内容为空，使用原始响应作为后备
-      if (!content || content.trim().length === 0) {
-          console.warn(`[Harmony] Content empty after cleaning, using original response (cleaned of tokens)`);
-          // 只移除标记，保持所有内容
-          content = response.replace(/<\|[^>]+\|>/g, ' ').trim();
-      }
-      
-      console.log(`[Harmony] Final content length: ${content.length}`);
-      console.log(`[Harmony] Content preview: ${content.substring(0, 300)}...`);
-      if (reasoning) {
-          console.log(`[Harmony] Reasoning length: ${reasoning.length}`);
-      }
-      
-      return { 
-          content, 
-          reasoning 
-      };
+  /**
+   * Fallback method to extract tool calls from content
+   */
+  private extractToolCallsFromContent(content: string): MCPToolCall[] {
+    return this.harmonyProcessor.extractToolCalls([content]);
   }
 
-  private extractToolCalls(response: string): MCPToolCall[] {
-      const toolCalls: MCPToolCall[] = [];
-      
-      console.log(`[Harmony] Searching for tool calls in response...`);
-      
-      // Pattern 1: JSON tool call format from Harmony (your current output)
-      // Looks like: { "name": "tool_name", "args": {...} }
-      // Might be wrapped in various Harmony tokens
-      const jsonToolCallPatterns = [
-          // Pattern for the format you're seeing
-          /\{[^{]*?"name":\s*"([^"]+)"[^{]*?"args":\s*(\{[^}]+\})[^}]*\}/s,
-          // Pattern that includes potential Harmony tokens around it
-          /<\|[^>]+\|>\s*\{[^{]*?"name":\s*"([^"]+)"[^{]*?"args":\s*(\{[^}]+\})[^}]*\}\s*<\|[^>]+\|>/s,
-          // More general pattern
-          /\{[\s\S]*?"name":\s*"([^"]+)"[\s\S]*?"args":\s*(\{[^}]+(?:\{[^}]*\}[^}]*)*\})[\s\S]*\}/s,
-      ];
-
-      for (const pattern of jsonToolCallPatterns) {
-          const matches = response.match(new RegExp(pattern, "g"));
-          if (matches) {
-              console.log(`[Harmony] Found ${matches.length} JSON tool call(s) with pattern`);
-              for (const match of matches) {
-                  try {
-                      console.log(`[Harmony] Attempting to parse JSON tool call: ${match.substring(0, 200)}...`);
-                      
-                      // Extract the JSON object
-                      const jsonMatch = match.match(/\{[\s\S]*\}/);
-                      if (!jsonMatch) {
-                          console.warn(`[Harmony] No JSON found in match`);
-                          continue;
-                      }
-                      
-                      const parsed = JSON.parse(jsonMatch[0]);
-                      
-                      if (parsed.name && parsed.args) {
-                          console.log(`[Harmony] Successfully parsed tool call: ${parsed.name}`, parsed.args);
-                          toolCalls.push({
-                              name: parsed.name,
-                              arguments: parsed.args,
-                          });
-                      }
-                  } catch (error) {
-                      console.error(`[Harmony] Failed to parse JSON tool call:`, error);
-                  }
-              }
-          }
-      }
-      
-      // Pattern 2: <tool_call name="tool_name" args="{...}" /> (original pattern)
-      const toolCallTagPattern = /<tool_call\s+([^>]+)\s*\/>/g;
-      let match;
-      while ((match = toolCallTagPattern.exec(response)) !== null) {
-          try {
-              const attributes = match[1];
-              console.log(`[Harmony] Found tool call tag with attributes: ${attributes}`);
-              
-              // Extract name attribute
-              const nameMatch = attributes.match(/name=["']([^"']+)["']/);
-              if (!nameMatch) {
-                  console.warn(`[Harmony] Tool call missing name attribute: ${attributes}`);
-                  continue;
-              }
-              const toolName = nameMatch[1];
-              
-              // Extract args attribute - handle both single and double quotes
-              const argsDoubleQuoteMatch = attributes.match(/args="((?:[^"\\]|\\.)*)"/);
-              const argsSingleQuoteMatch = attributes.match(/args='((?:[^'\\]|\\.)*)'/);
-              
-              let argsStr: string | null = null;
-              if (argsDoubleQuoteMatch) {
-                  argsStr = argsDoubleQuoteMatch[1];
-              } else if (argsSingleQuoteMatch) {
-                  argsStr = argsSingleQuoteMatch[1];
-              }
-              
-              if (!argsStr) {
-                  console.warn(`[Harmony] Tool call missing args attribute: ${attributes}`);
-                  continue;
-              }
-              
-              // Unescape the JSON string
-              argsStr = argsStr
-                  .replace(/\\"/g, '"')
-                  .replace(/\\'/g, "'")
-                  .replace(/&quot;/g, '"')
-                  .replace(/&apos;/g, "'")
-                  .replace(/\\n/g, '\n')
-                  .replace(/\\t/g, '\t')
-                  .replace(/\\\\/g, '\\');
-              
-              console.log(`[Harmony] Extracted tool call: name="${toolName}", args="${argsStr}"`);
-              const args = JSON.parse(argsStr);
-              toolCalls.push({
-                  name: toolName,
-                  arguments: args,
-              });
-              console.log(`[Harmony] Parsed tool call: ${toolName} with args:`, args);
-          } catch (error) {
-              console.error(`[Harmony] Failed to parse tool call: ${match[0]}`, error);
-          }
-      }
-
-      // Pattern 3: Old JSON tool call format
-      const oldJsonToolCallPattern = /```json\s*\{\s*"tool":\s*"([^"]+)",\s*"arguments":\s*(\{[^}]+\})\s*\}\s*```/g;
-      let oldMatch;
-      while ((oldMatch = oldJsonToolCallPattern.exec(response)) !== null) {
-          try {
-              const args = JSON.parse(oldMatch[2]);
-              toolCalls.push({
-                  name: oldMatch[1],
-                  arguments: args,
-              });
-          } catch (error) {
-              console.error(`[Harmony] Failed to parse JSON tool call: ${oldMatch[0]}`, error);
-          }
-      }
-
-      console.log(`[Harmony] Total tool calls found: ${toolCalls.length}`);
-      return toolCalls;
-  }
-
-
-
+  /**
+   * Execute tool calls (MCP or Native)
+   */
   private async executeToolCalls(
     toolCalls: MCPToolCall[]
   ): Promise<Array<{ name: string; arguments: Record<string, any>; result?: MCPToolResult }>> {
@@ -524,7 +269,6 @@ export class LlamaClient {
               toolCall.arguments || {}
             );
             
-            // Convert NativeToolResult to MCPToolResult format
             const mcpResult: MCPToolResult = {
               content: result.content,
               isError: result.isError,
@@ -535,20 +279,18 @@ export class LlamaClient {
               arguments: toolCall.arguments || {},
               result: mcpResult,
             });
-
-            console.log(`[Harmony] Native tool "${toolCall.name}" executed successfully`);
             continue;
           }
         }
         
-        // Otherwise, try MCP tools
+        // Try MCP tools
         if (!this.mcpManager) {
           throw new Error("MCP Manager not available");
         }
         
         const serverName = this.mcpManager.findToolServer(toolCall.name);
         if (!serverName) {
-          console.error(`[Harmony] Tool "${toolCall.name}" not found in any MCP server or native tools`);
+          console.error(`[Harmony] Tool "${toolCall.name}" not found`);
           results.push({
             name: toolCall.name,
             arguments: toolCall.arguments || {},
@@ -601,8 +343,34 @@ export class LlamaClient {
   }
 
   /**
+   * Format tool results as plain text
+   */
+  private formatToolResults(
+    executedToolCalls: Array<{ name: string; arguments: Record<string, any>; result?: MCPToolResult }>
+  ): string {
+    if (executedToolCalls.length === 0) {
+      return '';
+    }
+
+    let toolResultsText = "\n\n**Tool Results:**\n";
+    executedToolCalls.forEach((toolCall) => {
+      toolResultsText += `\n**${toolCall.name}**:\n`;
+      if (toolCall.result?.isError) {
+        toolResultsText += `❌ Error: ${toolCall.result.content[0]?.text || "Unknown error"}\n`;
+      } else {
+        toolCall.result?.content.forEach((content) => {
+          if (content.type === "text" && content.text) {
+            toolResultsText += `${content.text}\n`;
+          }
+        });
+      }
+    });
+    
+    return toolResultsText;
+  }
+
+  /**
    * Format tool results according to applicable rules
-   * Makes a follow-up API call to format results as JSON per rules
    */
   private async formatToolResultsWithRules(
     executedToolCalls: Array<{ name: string; arguments: Record<string, any>; result?: MCPToolResult }>,
@@ -625,15 +393,13 @@ export class LlamaClient {
       }
     });
 
-    console.log(`[Rules] Tool results extracted (${toolResultsText.length} chars): ${toolResultsText.substring(0, 300)}...`);
-
     // Get rules context
     let rulesContext = "";
     if (this.rulesManager) {
       rulesContext = this.rulesManager.formatRulesForPrompt(applicableRules);
     }
 
-    // Create formatting prompt - simpler, without template wrapper for formatting
+    // Create formatting prompt
     const formattingPrompt = `User request: "${originalPrompt}"
 
 Tool results have been obtained. Format these results as JSON according to the rules below.
@@ -648,23 +414,18 @@ CRITICAL: You MUST output ONLY valid JSON that follows the rules above. Do not i
 JSON Output:`;
 
     try {
-      // Make follow-up API call to format results
+      // Make follow-up API call
       const endpoint = `${this.config.serverUrl}/v1/completions`;
-      console.log(`[Rules] Making follow-up call to format tool results as JSON`);
-
-      // For JSON formatting, don't use the chat template - use a simpler prompt structure
-      // This ensures the model focuses on generating JSON, not conversational text
-      const finalPrompt = `<|start|>user<|channel|>final<|message|>
-${formattingPrompt}
-<|end|>
-<|start|>assistant<|channel|>final<|message|>`;
+      
+      // Use HarmonyProcessor to format the prompt
+      const finalPrompt = this.harmonyProcessor.formatPrompt(formattingPrompt);
 
       const response = await axios.post(
         endpoint,
         {
           model: this.config.model,
           prompt: finalPrompt,
-          temperature: 0.3, // Lower temperature for more consistent JSON
+          temperature: 0.3,
           max_tokens: this.config.maxTokens,
           stream: false,
         },
@@ -691,34 +452,34 @@ ${formattingPrompt}
       }
 
       if (rawResponse) {
-        console.log(`[Rules] Raw formatting response: ${rawResponse.substring(0, 300)}...`);
-        const cleaned = this.cleanHarmonyResponse(rawResponse);
-        console.log(`[Rules] Cleaned formatting response: ${cleaned.content.substring(0, 300)}...`);
-        
-        // Extract JSON from response (in case there's extra text)
-        // Try to find JSON objects or arrays
-        const jsonMatch = cleaned.content.match(/(\[[\s\S]*\]|\{[\s\S]*\})/);
+        const parsed = this.harmonyProcessor.parseResponse(rawResponse);
+        // Try to extract JSON
+        const jsonMatch = parsed.content.match(/(\[[\s\S]*\]|\{[\s\S]*\})/);
         if (jsonMatch) {
-          console.log(`[Rules] Successfully extracted JSON from formatted response`);
           return jsonMatch[1];
         }
         
-        // If no JSON found but content exists, return it (might be valid JSON already)
-        if (cleaned.content.trim()) {
-          console.log(`[Rules] No JSON pattern match, returning cleaned content as-is`);
-          return cleaned.content.trim();
+        if (parsed.content.trim()) {
+          return parsed.content.trim();
         }
-        
-        console.warn(`[Rules] Formatted response is empty`);
       }
 
-      // Fallback to raw tool results if formatting fails
-      console.warn(`[Rules] Failed to format tool results, returning raw results`);
+      // Fallback to raw tool results
       return toolResultsText;
     } catch (error: any) {
       console.error(`[Rules] Error formatting tool results:`, error);
-      // Fallback to raw tool results
       return toolResultsText;
     }
+  }
+
+  /**
+   * Legacy method for backward compatibility
+   */
+  cleanHarmonyResponse(response: string): LlamaResponse {
+    const parsed = this.harmonyProcessor.parseResponse(response);
+    return {
+      content: parsed.content,
+      reasoning: parsed.reasoning,
+    };
   }
 }
