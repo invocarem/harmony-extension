@@ -9,6 +9,7 @@ import { MCPManager } from "./mcpManager";
 import { RulesManager } from "./rulesManager";
 import { NativeToolsManager, NativeToolResult } from "./nativeToolManager";
 import { ConversationManager, ChatMessage } from "./conversationManager";
+import { FileContextExtractor } from "./utils/fileContextExtractor";
 
 export class HarmonyAssistant {
   private webviewManager: WebviewManager;
@@ -122,6 +123,18 @@ export class HarmonyAssistant {
       console.log(`[DEBUG] Handling getCodeContext`);
       await this.sendCodeContext();
     });
+
+    // Request file list for autocomplete handler
+    this.webviewManager.registerMessageHandler("requestFileList", async () => {
+      console.log(`[DEBUG] Handling requestFileList`);
+      await this.sendFileList();
+    });
+
+    // Insert file reference handler
+    this.webviewManager.registerMessageHandler("insertFileReference", async () => {
+      console.log(`[DEBUG] Handling insertFileReference`);
+      await this.showFilePicker();
+    });
   }
 
   public async openChat(): Promise<void> {
@@ -134,22 +147,37 @@ export class HarmonyAssistant {
       text?.substring(0, 100)
     );
 
-    // Add user message to history
-    const userMessage: ChatMessage = {
-      role: 'user',
-      content: text,
-    };
-    this.conversationManager.addMessage(userMessage);
-
     try {
+      // Extract file references and clean the message
+      const { cleanMessage, fileContexts } = await FileContextExtractor.extractFileReferences(text);
+      
+      let finalMessage = cleanMessage;
+      let fileContextText = '';
+      
+      if (fileContexts.length > 0) {
+        fileContextText = FileContextExtractor.formatFileContexts(fileContexts);
+        console.log(`[Harmony] Added ${fileContexts.length} file context(s) to message`);
+        
+        // Add file context to the message
+        finalMessage = fileContextText + '\n\n' + 'USER REQUEST:\n' + finalMessage;
+      }
+
+      // Add user message to history (store original message)
+      const userMessage: ChatMessage = {
+        role: 'user',
+        content: text, // Store original message with @file references
+      };
+      this.conversationManager.addMessage(userMessage);
+
       console.log(`[DEBUG] Calling Harmony server with ${this.conversationManager.getLength()} messages in history...`);
       const response = await this.llamaClient.callServer(
-        text,
+        finalMessage, // Use message with file context
         "chat",
         (name, ctx) => this.templateRenderer.applyTemplate(name, ctx, this.conversationManager.getHistoryForTemplate()),
         false,
-        this.conversationManager.getHistoryForTemplate() // Pass history for rule matching
+        this.conversationManager.getHistoryForTemplate()
       );
+      
       console.log(
         `[Harmony] Sending response to webview. Content length: ${response.content?.length || 0}`
       );
@@ -164,14 +192,98 @@ export class HarmonyAssistant {
       await this.webviewManager.sendMessage(response);
     } catch (error: any) {
       console.error(`[Harmony] Error in handleChatMessage:`, error);
-
-      // Remove the user message from history since the request failed
-      // (it was already added above, but we want to keep history consistent with successful requests only)
-      this.conversationManager.removeMessage(userMessage);
-
       await this.webviewManager.sendMessage({
         content: `❌ Error: ${error.message}`,
       });
+    }
+  }
+
+  /**
+   * Send file list to webview for autocomplete
+   */
+  private async sendFileList(): Promise<void> {
+    try {
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      if (!workspaceFolders || workspaceFolders.length === 0) {
+        return;
+      }
+
+      // Get files from workspace (excluding large directories)
+      const excludePatterns = '**/node_modules/**,**/.git/**,**/dist/**,**/build/**,**/*.min.*,**/*.bundle.*';
+      const files = await vscode.workspace.findFiles('**/*', excludePatterns);
+      
+      // Format files for display (limit to 50 for performance)
+      const fileItems = files.slice(0, 50).map(file => ({
+        label: vscode.workspace.asRelativePath(file),
+        path: vscode.workspace.asRelativePath(file)
+      }));
+
+      console.log(`[Harmony] Sending ${fileItems.length} files for autocomplete`);
+      await this.webviewManager.sendFileList(fileItems);
+    } catch (error) {
+      console.error(`[Harmony] Error getting file list:`, error);
+    }
+  }
+
+  /**
+   * Show file picker for inserting file references
+   */
+  async showFilePicker(): Promise<void> {
+    try {
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      if (!workspaceFolders || workspaceFolders.length === 0) {
+        vscode.window.showWarningMessage('No workspace folder open');
+        return;
+      }
+
+      // Open quick pick to select a file
+      //const excludePatterns = '**/node_modules/**,**/.git/**,**/dist/**,**/build/**,**/*.min.*,**/*.bundle.*';
+
+      const excludePatterns = [
+        '**/node_modules/**',
+        '**/.git/**',
+        '**/dist/**',
+        '**/build/**',
+        '**/.build/**',
+        '**/out/**',
+        '**/.next/**',
+        '**/target/**',
+        '**/*.min.*',
+        '**/*.bundle.*',
+        '**/.cache/**',
+        '**/coverage/**',
+        '**/.vscode-test/**'
+      ].join(',');
+      
+
+      const files = await vscode.workspace.findFiles('**/*', excludePatterns);
+      
+      const items = files.map(file => ({
+        label: vscode.workspace.asRelativePath(file),
+        description: '',
+        detail: file.fsPath,
+        filePath: vscode.workspace.asRelativePath(file)
+      }));
+
+      // Sort alphabetically
+      items.sort((a, b) => a.label.localeCompare(b.label));
+
+      const selected = await vscode.window.showQuickPick(items, {
+        placeHolder: 'Select a file to reference',
+        matchOnDescription: true,
+        matchOnDetail: true,
+        canPickMany: false
+      });
+      
+      if (selected) {
+        // Insert @file reference into webview input
+        const reference = `@file:${selected.filePath}`;
+        await this.webviewManager.insertTextIntoInput(reference);
+        console.log(`[Harmony] Inserted file reference: ${selected.filePath}`);
+      }
+    } catch (error) {
+      console.error(`[Harmony] Error showing file picker:`, error);
+      vscode.window.showErrorMessage(`Failed to select file: ${error}`);
     }
   }
 
@@ -258,6 +370,14 @@ export function activate(context: vscode.ExtensionContext) {
     }),
     vscode.commands.registerCommand("harmony.test", () => {
       assistant.testReadFile();
+    }),
+    vscode.commands.registerCommand("harmony.clearHistory", () => {
+      assistant.clearConversationHistory();
+      vscode.window.showInformationMessage('Conversation history cleared');
+    }),
+    // Add a command to insert file reference directly
+    vscode.commands.registerCommand("harmony.insertFileReference", async () => {
+      await assistant.showFilePicker();
     }),
     assistant
   );

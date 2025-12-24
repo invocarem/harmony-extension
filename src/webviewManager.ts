@@ -63,6 +63,7 @@ const webviewStyles = `
             gap: 10px;
             padding-top: 10px;
             border-top: 1px solid var(--vscode-input-border);
+            position: relative;
         }
         input {
             flex: 1;
@@ -226,139 +227,224 @@ const webviewStyles = `
         tr:nth-child(even) {
             background: var(--vscode-textBlockQuote-background);
         }
+        /* Autocomplete dropdown */
+        .autocomplete-dropdown {
+            position: absolute;
+            bottom: 100%;
+            left: 0;
+            right: 0;
+            background: var(--vscode-editor-background);
+            border: 1px solid var(--vscode-input-border);
+            border-radius: 5px;
+            max-height: 300px;
+            overflow-y: auto;
+            z-index: 1000;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            display: none;
+        }
+        .autocomplete-item {
+            padding: 8px 12px;
+            cursor: pointer;
+            border-bottom: 1px solid var(--vscode-input-border);
+        }
+        .autocomplete-item:last-child {
+            border-bottom: none;
+        }
+        .autocomplete-item:hover {
+            background: var(--vscode-list-hoverBackground);
+        }
+        .autocomplete-item.active {
+            background: var(--vscode-list-activeSelectionBackground);
+            color: var(--vscode-list-activeSelectionForeground);
+        }
+        .autocomplete-header {
+            padding: 8px 12px;
+            font-weight: 600;
+            background: var(--vscode-textBlockQuote-background);
+            border-bottom: 1px solid var(--vscode-input-border);
+            color: var(--vscode-editor-foreground);
+        }
+        .file-icon {
+            margin-right: 8px;
+            font-size: 14px;
+        }
+        .shortcut-hint {
+            position: absolute;
+            right: 10px;
+            top: -25px;
+            font-size: 11px;
+            color: var(--vscode-descriptionForeground);
+            background: var(--vscode-textBlockQuote-background);
+            padding: 2px 6px;
+            border-radius: 3px;
+            border: 1px solid var(--vscode-input-border);
+        }
 `;
 
 export interface WebviewMessage {
-  command: string;
-  text?: string;
-  context?: string;
-  reasoning?: string;
+    command: string;
+    text?: string;
+    context?: string;
+    reasoning?: string;
+    files?: Array<{ label: string; path: string }>;
 }
 
 export class WebviewManager {
-  private panel: vscode.WebviewPanel | undefined;
-  private messageHandlerDisposable: vscode.Disposable | undefined;
-  private messageHandlers: Map<
-    string,
-    (message: WebviewMessage) => Promise<void> | void
-  > = new Map();
+    private panel: vscode.WebviewPanel | undefined;
+    private messageHandlerDisposable: vscode.Disposable | undefined;
+    private messageHandlers: Map<
+        string,
+        (message: WebviewMessage) => Promise<void> | void
+    > = new Map();
 
-  constructor(private context: vscode.ExtensionContext) {}
+    constructor(private context: vscode.ExtensionContext) { }
 
-  registerMessageHandler(
-    command: string,
-    handler: (message: WebviewMessage) => Promise<void> | void
-  ): void {
-    this.messageHandlers.set(command, handler);
-  }
-
-  async openChat(): Promise<void> {
-    console.log(`[DEBUG] openChat called`);
-
-    if (this.panel) {
-      console.log(`[DEBUG] Panel already exists, revealing...`);
-      this.panel.reveal();
-      return;
+    registerMessageHandler(
+        command: string,
+        handler: (message: WebviewMessage) => Promise<void> | void
+    ): void {
+        this.messageHandlers.set(command, handler);
     }
 
-    console.log(`[DEBUG] Creating new panel...`);
-    this.panel = vscode.window.createWebviewPanel(
-      "harmonyChat",
-      "Harmony",
-      vscode.ViewColumn.Two,
-      {
-        enableScripts: true,
-        retainContextWhenHidden: true,
-      }
-    );
 
-    console.log(`[DEBUG] Setting webview HTML...`);
-    this.panel.webview.html = this.getWebviewContent();
+    async openChat(viewColumn: vscode.ViewColumn = vscode.ViewColumn.Two): Promise<void> {
+        console.log(`[DEBUG] openChat called with viewColumn: ${viewColumn}`);
 
-    this.panel.onDidDispose(() => {
-      console.log(`[DEBUG] Panel disposed`);
-      this.panel = undefined;
-      if (this.messageHandlerDisposable) {
-        this.messageHandlerDisposable.dispose();
-        this.messageHandlerDisposable = undefined;
-      }
-    });
+        if (this.panel) {
+            console.log(`[DEBUG] Panel already exists, revealing...`);
+            this.panel.reveal(viewColumn); // Reveal in specified column
+            return;
+        }
 
-    this.setupMessageHandler();
-  }
+        console.log(`[DEBUG] Creating new panel...`);
+        this.panel = vscode.window.createWebviewPanel(
+            "harmonyChat",
+            "Harmony",
+            viewColumn, // Use the specified column
+            {
+                enableScripts: true,
+                retainContextWhenHidden: true,
+            }
+        );
 
-  private setupMessageHandler(): void {
-    if (!this.panel) {
-      console.error(`[DEBUG] Cannot setup message handler - panel is undefined`);
-      return;
+        console.log(`[DEBUG] Setting webview HTML...`);
+        this.panel.webview.html = this.getWebviewContent();
+
+        this.panel.onDidDispose(() => {
+            console.log(`[DEBUG] Panel disposed`);
+            this.panel = undefined;
+            if (this.messageHandlerDisposable) {
+                this.messageHandlerDisposable.dispose();
+                this.messageHandlerDisposable = undefined;
+            }
+        });
+
+        this.setupMessageHandler();
     }
 
-    // Dispose previous handler if it exists
-    if (this.messageHandlerDisposable) {
-      this.messageHandlerDisposable.dispose();
+    private setupMessageHandler(): void {
+        if (!this.panel) {
+            console.error(`[DEBUG] Cannot setup message handler - panel is undefined`);
+            return;
+        }
+
+        // Dispose previous handler if it exists
+        if (this.messageHandlerDisposable) {
+            this.messageHandlerDisposable.dispose();
+        }
+
+        console.log(`[DEBUG] Setting up message handler...`);
+        this.messageHandlerDisposable = this.panel.webview.onDidReceiveMessage(
+            async (message: WebviewMessage) => {
+                console.log(`[DEBUG] Webview message received:`, message);
+
+                if (!message || !message.command) {
+                    console.error(`[DEBUG] Invalid message received:`, message);
+                    return;
+                }
+
+                try {
+                    const handler = this.messageHandlers.get(message.command);
+                    if (handler) {
+                        await handler(message);
+                    } else {
+                        console.warn(`[DEBUG] Unknown command:`, message.command);
+                    }
+                } catch (error: any) {
+                    console.error(`[DEBUG] Error handling message:`, error);
+                    if (this.panel) {
+                        this.panel.webview.postMessage({
+                            command: "receiveMessage",
+                            text: `❌ Error processing request: ${error.message}`,
+                        });
+                    }
+                }
+            }
+        );
     }
 
-    console.log(`[DEBUG] Setting up message handler...`);
-    this.messageHandlerDisposable = this.panel.webview.onDidReceiveMessage(
-      async (message: WebviewMessage) => {
-        console.log(`[DEBUG] Webview message received:`, message);
+    async sendMessage(response: LlamaResponse): Promise<void> {
+        if (!this.panel) {
+            console.error(`[DEBUG] Panel is undefined!`);
+            return;
+        }
 
-        if (!message || !message.command) {
-          console.error(`[DEBUG] Invalid message received:`, message);
-          return;
+        const content = response.content || "No response received from the model.";
+        const reasoning = response.reasoning;
+
+        console.log(`[DEBUG] Posting message to webview`);
+        this.panel.webview.postMessage({
+            command: "receiveMessage",
+            text: content,
+            reasoning: reasoning,
+        });
+        console.log(`[DEBUG] Message posted successfully`);
+    }
+
+    async sendCodeContext(context: string): Promise<void> {
+        if (!this.panel) {
+            return;
+        }
+
+        this.panel.webview.postMessage({
+            command: "updateContext",
+            context: context,
+        });
+    }
+
+    async sendFileList(files: Array<{ label: string; path: string }>): Promise<void> {
+        if (!this.panel) {
+            return;
+        }
+
+        this.panel.webview.postMessage({
+            command: "showFileAutocomplete",
+            files: files,
+        });
+    }
+
+
+    async insertTextIntoInput(text: string): Promise<boolean> {
+        if (!this.panel) {
+            console.warn('[WebviewManager] Cannot insert text: panel is closed');
+            return false;
         }
 
         try {
-          const handler = this.messageHandlers.get(message.command);
-          if (handler) {
-            await handler(message);
-          } else {
-            console.warn(`[DEBUG] Unknown command:`, message.command);
-          }
-        } catch (error: any) {
-          console.error(`[DEBUG] Error handling message:`, error);
-          if (this.panel) {
             this.panel.webview.postMessage({
-              command: "receiveMessage",
-              text: `❌ Error processing request: ${error.message}`,
+                command: "insertText",
+                text: text
             });
-          }
+            return true;
+        } catch (error) {
+            console.error('[WebviewManager] Error inserting text:', error);
+            return false;
         }
-      }
-    );
-  }
-
-  async sendMessage(response: LlamaResponse): Promise<void> {
-    if (!this.panel) {
-      console.error(`[DEBUG] Panel is undefined!`);
-      return;
     }
 
-    const content = response.content || "No response received from the model.";
-    const reasoning = response.reasoning;
 
-    console.log(`[DEBUG] Posting message to webview`);
-    this.panel.webview.postMessage({
-      command: "receiveMessage",
-      text: content,
-      reasoning: reasoning,
-    });
-    console.log(`[DEBUG] Message posted successfully`);
-  }
-
-  async sendCodeContext(context: string): Promise<void> {
-    if (!this.panel) {
-      return;
-    }
-
-    this.panel.webview.postMessage({
-      command: "updateContext",
-      context: context,
-    });
-  }
-
-  private getWebviewContent(): string {
-    return `<!DOCTYPE html>
+    private getWebviewContent(): string {
+        return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -370,9 +456,12 @@ export class WebviewManager {
     <div class="chat-container">
         <div id="messages" class="messages"></div>
         <div class="input-container">
-            <input id="messageInput" type="text" placeholder="Type your message..." autofocus>
+            <div class="shortcut-hint" id="shortcutHint">Ctrl+F to insert file</div>
+            <input id="messageInput" type="text" placeholder="Type your message... Use @file to include file context..." autofocus>
             <button id="sendButton">Send</button>
             <button id="contextButton" title="Send current file context">📄</button>
+            <button id="fileButton" title="Insert file reference">📁</button>
+            <div id="autocompleteDropdown" class="autocomplete-dropdown"></div>
         </div>
     </div>
     <script>
@@ -383,13 +472,22 @@ export class WebviewManager {
         const messageInput = document.getElementById('messageInput');
         const sendButton = document.getElementById('sendButton');
         const contextButton = document.getElementById('contextButton');
+        const fileButton = document.getElementById('fileButton');
+        const autocompleteDropdown = document.getElementById('autocompleteDropdown');
+        const shortcutHint = document.getElementById('shortcutHint');
         
         console.log('Webview: Elements initialized:', {
             messagesDiv: !!messagesDiv,
             messageInput: !!messageInput,
             sendButton: !!sendButton,
-            contextButton: !!contextButton
+            contextButton: !!contextButton,
+            fileButton: !!fileButton,
+            autocompleteDropdown: !!autocompleteDropdown
         });
+        
+        let autocompleteItems = [];
+        let selectedAutocompleteIndex = -1;
+        let autocompleteTimer = null;
         
         // Send test message to verify communication
         setTimeout(() => {
@@ -511,6 +609,120 @@ export class WebviewManager {
             }
         }
         
+        // Autocomplete functions
+        function showAutocomplete() {
+            autocompleteDropdown.style.display = 'block';
+            selectedAutocompleteIndex = -1;
+            updateAutocompleteSelection();
+        }
+        
+        function hideAutocomplete() {
+            autocompleteDropdown.style.display = 'none';
+            selectedAutocompleteIndex = -1;
+        }
+        
+        function updateAutocompleteSelection() {
+            const items = autocompleteDropdown.querySelectorAll('.autocomplete-item');
+            items.forEach((item, index) => {
+                if (index === selectedAutocompleteIndex) {
+                    item.classList.add('active');
+                    item.scrollIntoView({ block: 'nearest' });
+                } else {
+                    item.classList.remove('active');
+                }
+            });
+        }
+        
+        function selectAutocompleteItem(index) {
+            if (index >= 0 && index < autocompleteItems.length) {
+                const item = autocompleteItems[index];
+                insertFileReference(item.path);
+                hideAutocomplete();
+            }
+        }
+        
+        function insertFileReference(filePath) {
+            const cursorPos = messageInput.selectionStart;
+            const textBefore = messageInput.value.substring(0, cursorPos);
+            const textAfter = messageInput.value.substring(cursorPos);
+            
+            // Check if we're in the middle of typing @file
+            const atFileMatch = textBefore.match(/@(?:file|file_context)[:(\s]*$/);
+            if (atFileMatch) {
+                // Replace the @file reference with complete reference
+                const beforeAtFile = textBefore.substring(0, textBefore.lastIndexOf('@'));
+                messageInput.value = beforeAtFile + \`@file:\${filePath} \` + textAfter;
+                messageInput.selectionStart = beforeAtFile.length + \`@file:\${filePath} \`.length;
+                messageInput.selectionEnd = messageInput.selectionStart;
+            } else {
+                // Insert new @file reference
+                messageInput.value = textBefore + \` @file:\${filePath} \` + textAfter;
+                messageInput.selectionStart = cursorPos + \` @file:\${filePath} \`.length;
+                messageInput.selectionEnd = messageInput.selectionStart;
+            }
+            
+            messageInput.focus();
+        }
+        
+        function checkForAutocomplete() {
+            const value = messageInput.value;
+            const cursorPos = messageInput.selectionStart || 0;
+            const textBeforeCursor = value.substring(0, cursorPos);
+            
+            // Check if user typed @file
+            const lastAtSymbol = textBeforeCursor.lastIndexOf('@');
+            if (lastAtSymbol !== -1) {
+                const textAfterAt = textBeforeCursor.substring(lastAtSymbol);
+                if (textAfterAt.startsWith('@file') || textAfterAt.startsWith('@file_context')) {
+                    // Request file list for autocomplete
+                    if (autocompleteTimer) {
+                        clearTimeout(autocompleteTimer);
+                    }
+                    autocompleteTimer = setTimeout(() => {
+                        vscode.postMessage({
+                            command: 'requestFileList'
+                        });
+                    }, 300);
+                    return;
+                }
+            }
+            
+            // Hide autocomplete if not typing @file
+            hideAutocomplete();
+        }
+        
+        function populateAutocomplete(files) {
+            autocompleteItems = files || [];
+            autocompleteDropdown.innerHTML = '';
+            
+            if (autocompleteItems.length === 0) {
+                hideAutocomplete();
+                return;
+            }
+            
+            // Add header
+            const header = document.createElement('div');
+            header.className = 'autocomplete-header';
+            header.textContent = \`Select a file (\${autocompleteItems.length} found)\`;
+            autocompleteDropdown.appendChild(header);
+            
+            // Add file items
+            autocompleteItems.forEach((file, index) => {
+                const item = document.createElement('div');
+                item.className = 'autocomplete-item';
+                item.innerHTML = \`<span class="file-icon">📄</span> \${file.label}\`;
+                item.dataset.index = index;
+                
+                item.addEventListener('click', () => {
+                    selectAutocompleteItem(index);
+                });
+                
+                autocompleteDropdown.appendChild(item);
+            });
+            
+            showAutocomplete();
+        }
+        
         // Send button click handler
         sendButton.addEventListener('click', () => {
             const text = messageInput.value.trim();
@@ -523,6 +735,7 @@ export class WebviewManager {
                     text: text
                 });
                 messageInput.value = '';
+                hideAutocomplete();
                 messageInput.focus();
             }
         });
@@ -535,10 +748,65 @@ export class WebviewManager {
             }
         });
         
+        // Input event for autocomplete
+        messageInput.addEventListener('input', (e) => {
+            checkForAutocomplete();
+        });
+        
+        // Keyboard navigation for autocomplete
+        messageInput.addEventListener('keydown', (e) => {
+            if (autocompleteDropdown.style.display === 'block') {
+                switch (e.key) {
+                    case 'ArrowDown':
+                        e.preventDefault();
+                        selectedAutocompleteIndex = Math.min(selectedAutocompleteIndex + 1, autocompleteItems.length - 1);
+                        updateAutocompleteSelection();
+                        break;
+                    case 'ArrowUp':
+                        e.preventDefault();
+                        selectedAutocompleteIndex = Math.max(selectedAutocompleteIndex - 1, 0);
+                        updateAutocompleteSelection();
+                        break;
+                    case 'Enter':
+                        e.preventDefault();
+                        if (selectedAutocompleteIndex >= 0) {
+                            selectAutocompleteItem(selectedAutocompleteIndex);
+                        }
+                        break;
+                    case 'Escape':
+                        e.preventDefault();
+                        hideAutocomplete();
+                        break;
+                }
+            }
+            
+            // Ctrl+F shortcut to insert file reference
+            if (e.ctrlKey && e.key === 'f') {
+                e.preventDefault();
+                vscode.postMessage({
+                    command: 'insertFileReference'
+                });
+            }
+        });
+        
+        // Click outside to hide autocomplete
+        document.addEventListener('click', (e) => {
+            if (!autocompleteDropdown.contains(e.target) && e.target !== messageInput) {
+                hideAutocomplete();
+            }
+        });
+        
         // Context button
         contextButton.addEventListener('click', () => {
             vscode.postMessage({
                 command: 'getCodeContext'
+            });
+        });
+        
+        // File button
+        fileButton.addEventListener('click', () => {
+            vscode.postMessage({
+                command: 'insertFileReference'
             });
         });
         
@@ -558,18 +826,47 @@ export class WebviewManager {
                         messageInput.focus();
                     }
                     break;
+                case 'showFileAutocomplete':
+                    console.log('Webview: Received file list with', (message.files || []).length, 'files');
+                    populateAutocomplete(message.files);
+                    break;
+                case 'insertText':
+                    if (message.text) {
+                        const cursorPos = messageInput.selectionStart;
+                        const textBefore = messageInput.value.substring(0, cursorPos);
+                        const textAfter = messageInput.value.substring(cursorPos);
+                        
+                        messageInput.value = textBefore + message.text + textAfter;
+                        messageInput.focus();
+                        messageInput.selectionStart = cursorPos + message.text.length;
+                        messageInput.selectionEnd = cursorPos + message.text.length;
+                        
+                        // Trigger autocomplete check if it's a file reference
+                        if (message.text.includes('@file')) {
+                            setTimeout(checkForAutocomplete, 100);
+                        }
+                    }
+                    break;
             }
         });
         
-        // Focus input on load
+        // Focus input on load and add hint
         messageInput.focus();
+        
+        // Show/hide shortcut hint
+        messageInput.addEventListener('focus', () => {
+            shortcutHint.style.display = 'block';
+        });
+        
+        messageInput.addEventListener('blur', () => {
+            shortcutHint.style.display = 'none';
+        });
     </script>
 </body>
 </html>`;
-  }
+    }
 
-  dispose(): void {
-    this.panel?.dispose();
-  }
+    dispose(): void {
+        this.panel?.dispose();
+    }
 }
-
