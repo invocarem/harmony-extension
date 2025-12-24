@@ -141,6 +141,11 @@
           "items": {
             "type": "string"
           }
+        },
+        "harmony.harmonyMode": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable Harmony protocol token parsing. When false, expects plain jinja output and filters out harmony tokens from templates."
         }
       }
     }

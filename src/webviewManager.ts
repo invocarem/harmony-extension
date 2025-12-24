@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import * as path from "path";
-import { LlamaResponse } from "./llamaClient";
+import { HarmonyResponse } from "./harmonyClient";
 
 const webviewStyles = `
         body {
@@ -57,6 +57,47 @@ const webviewStyles = `
             margin-bottom: 8px;
             color: var(--vscode-editor-foreground);
             font-size: 0.95em;
+        }
+        .context-summary {
+            background: var(--vscode-textBlockQuote-background);
+            border-left: 3px solid var(--vscode-textLink-foreground);
+            padding: 8px 12px;
+            margin: 8px 0;
+            border-radius: 4px;
+            font-size: 0.85em;
+            color: var(--vscode-descriptionForeground);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .context-summary-row {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .context-summary-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .context-summary-label {
+            font-weight: 600;
+            color: var(--vscode-editor-foreground);
+        }
+        .context-summary-files {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 4px;
+        }
+        .context-summary-file {
+            background: var(--vscode-textCodeBlock-background);
+            padding: 4px 8px;
+            border-radius: 3px;
+            font-size: 0.8em;
+            font-family: var(--vscode-editor-font-family);
+            color: var(--vscode-textLink-foreground);
         }
         .input-container {
             display: flex;
@@ -287,6 +328,7 @@ export interface WebviewMessage {
     context?: string;
     reasoning?: string;
     files?: Array<{ label: string; path: string }>;
+    contextSummary?: { rulesCount?: number; mcpToolsCount?: number; files?: string[] };
 }
 
 export class WebviewManager {
@@ -383,7 +425,7 @@ export class WebviewManager {
         );
     }
 
-    async sendMessage(response: LlamaResponse): Promise<void> {
+    async sendMessage(response: HarmonyResponse): Promise<void> {
         if (!this.panel) {
             console.error(`[DEBUG] Panel is undefined!`);
             return;
@@ -442,6 +484,17 @@ export class WebviewManager {
         }
     }
 
+    async updateContextSummary(contextSummary: { rulesCount?: number; mcpToolsCount?: number; files?: string[] }): Promise<void> {
+        if (!this.panel) {
+            return;
+        }
+
+        this.panel.webview.postMessage({
+            command: "updateContextSummary",
+            contextSummary: contextSummary,
+        });
+    }
+
 
     private getWebviewContent(): string {
         return `<!DOCTYPE html>
@@ -488,6 +541,7 @@ export class WebviewManager {
         let autocompleteItems = [];
         let selectedAutocompleteIndex = -1;
         let autocompleteTimer = null;
+        let lastUserMessageElement = null;
         
         // Send test message to verify communication
         setTimeout(() => {
@@ -563,9 +617,42 @@ export class WebviewManager {
             return div.innerHTML;
         }
         
-        function addMessage(text, isUser, reasoning) {
+        function addMessage(text, isUser, reasoning, contextSummary) {
             const messageDiv = document.createElement('div');
             messageDiv.className = \`message \${isUser ? 'user-message' : 'assistant-message'}\`;
+            
+            // Add context summary section if present (for user messages)
+            if (contextSummary && isUser) {
+                const contextDiv = document.createElement('div');
+                contextDiv.className = 'context-summary';
+                
+                const rowDiv = document.createElement('div');
+                rowDiv.className = 'context-summary-row';
+                const items = [];
+                if (contextSummary.rulesCount !== undefined) {
+                    items.push(\`<div class="context-summary-item"><span class="context-summary-label">Rules:</span> <span>\${contextSummary.rulesCount}</span></div>\`);
+                }
+                if (contextSummary.mcpToolsCount !== undefined) {
+                    items.push(\`<div class="context-summary-item"><span class="context-summary-label">MCP Tools:</span> <span>\${contextSummary.mcpToolsCount}</span></div>\`);
+                }
+                if (items.length > 0) {
+                    rowDiv.innerHTML = items.join('');
+                    contextDiv.appendChild(rowDiv);
+                }
+                
+                // Add files if present
+                if (contextSummary.files && contextSummary.files.length > 0) {
+                    const filesDiv = document.createElement('div');
+                    filesDiv.className = 'context-summary-files';
+                    filesDiv.innerHTML = '<span class="context-summary-label">Files:</span> ' + 
+                        contextSummary.files.map(file => \`<span class="context-summary-file">📄 \${escapeHtml(file)}</span>\`).join('');
+                    contextDiv.appendChild(filesDiv);
+                }
+                
+                if (contextDiv.children.length > 0) {
+                    messageDiv.appendChild(contextDiv);
+                }
+            }
             
             // Add reasoning section if present
             if (reasoning && !isUser && reasoning.trim()) {
@@ -584,12 +671,63 @@ export class WebviewManager {
             messagesDiv.appendChild(messageDiv);
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
             
-            // Add timestamp for user messages
+            // Store reference to last user message for contextSummary updates
             if (isUser) {
+                lastUserMessageElement = messageDiv;
+                // Add timestamp for user messages
                 const timestamp = document.createElement('div');
                 timestamp.className = 'timestamp';
                 timestamp.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                 messageDiv.appendChild(timestamp);
+            }
+        }
+        
+        function updateLastUserMessageContextSummary(contextSummary) {
+            if (!lastUserMessageElement) {
+                return;
+            }
+            
+            // Remove existing context summary if any
+            const existingContext = lastUserMessageElement.querySelector('.context-summary');
+            if (existingContext) {
+                existingContext.remove();
+            }
+            
+            // Add new context summary
+            const contextDiv = document.createElement('div');
+            contextDiv.className = 'context-summary';
+            
+            const rowDiv = document.createElement('div');
+            rowDiv.className = 'context-summary-row';
+            const items = [];
+            if (contextSummary.rulesCount !== undefined) {
+                items.push(\`<div class="context-summary-item"><span class="context-summary-label">Rules:</span> <span>\${contextSummary.rulesCount}</span></div>\`);
+            }
+            if (contextSummary.mcpToolsCount !== undefined) {
+                items.push(\`<div class="context-summary-item"><span class="context-summary-label">MCP Tools:</span> <span>\${contextSummary.mcpToolsCount}</span></div>\`);
+            }
+            if (items.length > 0) {
+                rowDiv.innerHTML = items.join('');
+                contextDiv.appendChild(rowDiv);
+            }
+            
+            // Add files if present
+            if (contextSummary.files && contextSummary.files.length > 0) {
+                const filesDiv = document.createElement('div');
+                filesDiv.className = 'context-summary-files';
+                filesDiv.innerHTML = '<span class="context-summary-label">Files:</span> ' + 
+                    contextSummary.files.map(file => \`<span class="context-summary-file">📄 \${escapeHtml(file)}</span>\`).join('');
+                contextDiv.appendChild(filesDiv);
+            }
+            
+            if (contextDiv.children.length > 0) {
+                // Insert before the content div
+                const contentDiv = lastUserMessageElement.querySelector('div:not(.context-summary):not(.timestamp)');
+                if (contentDiv) {
+                    lastUserMessageElement.insertBefore(contextDiv, contentDiv);
+                } else {
+                    lastUserMessageElement.insertBefore(contextDiv, lastUserMessageElement.firstChild);
+                }
             }
         }
         
@@ -728,7 +866,7 @@ export class WebviewManager {
             const text = messageInput.value.trim();
             console.log('Webview: Send button clicked, text:', text);
             if (text) {
-                addMessage(text, true);
+                addMessage(text, true, null, null);
                 addTypingIndicator();
                 vscode.postMessage({
                     command: 'sendMessage',
@@ -818,12 +956,17 @@ export class WebviewManager {
             switch (message.command) {
                 case 'receiveMessage':
                     removeTypingIndicator();
-                    addMessage(message.text, false, message.reasoning);
+                    addMessage(message.text, false, message.reasoning, null);
                     break;
                 case 'updateContext':
                     if (message.context) {
                         messageInput.value = 'Context: ' + message.context + '\\n\\n' + messageInput.value;
                         messageInput.focus();
+                    }
+                    break;
+                case 'updateContextSummary':
+                    if (message.contextSummary) {
+                        updateLastUserMessageContextSummary(message.contextSummary);
                     }
                     break;
                 case 'showFileAutocomplete':

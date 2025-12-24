@@ -1,4 +1,4 @@
-import { LlamaClient, LlamaResponse } from '../../llamaClient';
+import { HarmonyClient, HarmonyResponse } from '../../harmonyClient';
 import { LlamaConfig } from '../../config';
 import { MCPManager } from '../../mcpManager';
 import { RulesManager, Rule } from '../../rulesManager';
@@ -12,8 +12,8 @@ jest.mock('axios');
 
 const mockedAxios = axios as jest.Mocked<typeof axios>;
 
-describe('LlamaClient', () => {
-  let client: LlamaClient;
+describe('HarmonyClient', () => {
+  let client: HarmonyClient;
   let mockConfig: LlamaConfig;
   let mockMCPManager: jest.Mocked<MCPManager>;
   let mockRulesManager: jest.Mocked<RulesManager>;
@@ -33,6 +33,7 @@ describe('LlamaClient', () => {
       maxTokens: 2048,
       mcpServers: [],
       rulesPaths: [],
+      harmonyMode: true,
     };
 
     // Setup HarmonyProcessor mock - create a proper mock instance
@@ -73,7 +74,7 @@ describe('LlamaClient', () => {
     } as any;
 
     // Create client
-    client = new LlamaClient(
+    client = new HarmonyClient(
       mockConfig,
       mockMCPManager,
       mockRulesManager,
@@ -927,7 +928,7 @@ describe('LlamaClient', () => {
     });
 
     it('should handle continuation without MCP or Native tools manager', async () => {
-      const clientWithoutManagers = new LlamaClient(mockConfig);
+      const clientWithoutManagers = new HarmonyClient(mockConfig);
 
       const mockResponse = {
         status: 200,
@@ -955,7 +956,7 @@ describe('LlamaClient', () => {
 
     it('should handle API key absence', async () => {
       const configWithoutKey = { ...mockConfig, apiKey: '' };
-      const clientWithoutKey = new LlamaClient(configWithoutKey);
+      const clientWithoutKey = new HarmonyClient(configWithoutKey);
 
       const mockResponse = {
         status: 200,

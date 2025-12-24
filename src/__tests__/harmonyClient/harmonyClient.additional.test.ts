@@ -1,4 +1,4 @@
-import { LlamaClient } from '../../llamaClient';
+import { HarmonyClient } from '../../harmonyClient';
 import { LlamaConfig } from '../../config';
 import { MCPManager } from '../../mcpManager';
 import { RulesManager, Rule } from '../../rulesManager';
@@ -11,8 +11,8 @@ import axios from 'axios';
 jest.mock('axios');
 const mockedAxios = axios as jest.Mocked<typeof axios>;
 
-describe('LlamaClient - Additional Test Cases', () => {
-  let client: LlamaClient;
+describe('HarmonyClient - Additional Test Cases', () => {
+  let client: HarmonyClient;
   let mockConfig: LlamaConfig;
   let mockMCPManager: jest.Mocked<MCPManager>;
   let mockRulesManager: jest.Mocked<RulesManager>;
@@ -32,6 +32,7 @@ describe('LlamaClient - Additional Test Cases', () => {
       maxTokens: 2048,
       mcpServers: [],
       rulesPaths: [],
+      harmonyMode: true,
     };
 
     // Setup HarmonyProcessor mock
@@ -72,7 +73,7 @@ describe('LlamaClient - Additional Test Cases', () => {
     } as any;
 
     // Create client
-    client = new LlamaClient(
+    client = new HarmonyClient(
       mockConfig,
       mockMCPManager,
       mockRulesManager,

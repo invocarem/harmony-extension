@@ -18,7 +18,7 @@ import {
   logConversationContext
 } from "./utils/logger";
 
-export interface LlamaResponse {
+export interface HarmonyResponse {
   content: string;
   reasoning?: string;
   toolCalls?: Array<{
@@ -31,10 +31,10 @@ export interface LlamaResponse {
 }
 
 /**
- * Main LlamaClient with HarmonyProcessor integration and multi-step continuation
+ * Main HarmonyClient with HarmonyProcessor integration and multi-step continuation
  */
-export class LlamaClient {
-  private harmonyProcessor = new HarmonyProcessor();
+export class HarmonyClient {
+  private harmonyProcessor: HarmonyProcessor;
   private conversationContext: {
     originalPrompt: string;
     steps: Array<{
@@ -51,7 +51,9 @@ export class LlamaClient {
     private mcpManager?: MCPManager,
     private rulesManager?: RulesManager,
     private nativeToolsManager?: NativeToolsManager
-  ) {}
+  ) {
+    this.harmonyProcessor = new HarmonyProcessor(config.harmonyMode);
+  }
 
   async callServer(
     prompt: string,
@@ -59,7 +61,7 @@ export class LlamaClient {
     applyTemplate?: (templateName: string, context: any, history?: readonly ChatMessage[]) => Promise<string>,
     isContinuation: boolean = false,
     conversationHistory?: readonly ChatMessage[]
-  ): Promise<LlamaResponse> {
+  ): Promise<HarmonyResponse> {
     try {
       // If this is not a continuation, start a new conversation context
       if (!isContinuation) {
@@ -274,37 +276,37 @@ export class LlamaClient {
       // Extract tool calls
       let toolCalls: MCPToolCall[] = [];
       if (parsed.rawToolCalls && parsed.rawToolCalls.length > 0) {
-        console.log(`[LlamaClient] Processing ${parsed.rawToolCalls.length} raw tool call(s)`);
+        console.log(`[HarmonyClient] Processing ${parsed.rawToolCalls.length} raw tool call(s)`);
         // Filter out items that don't look like tool calls before processing
         // This prevents unnecessary processing of regular content that was incorrectly added to rawToolCalls
         const validToolCalls = parsed.rawToolCalls.filter(raw => {
           const looksLike = ToolCallExtractor.looksLikeToolCall(raw) || raw.includes('<tool_call');
-          console.log(`[LlamaClient] Checking raw tool call: looksLike=${looksLike}, length=${raw.length}, preview="${raw.substring(0, 100)}..."`);
+          console.log(`[HarmonyClient] Checking raw tool call: looksLike=${looksLike}, length=${raw.length}, preview="${raw.substring(0, 100)}..."`);
           return looksLike;
         });
         
-        console.log(`[LlamaClient] After filtering: ${validToolCalls.length} valid tool call(s) out of ${parsed.rawToolCalls.length}`);
+        console.log(`[HarmonyClient] After filtering: ${validToolCalls.length} valid tool call(s) out of ${parsed.rawToolCalls.length}`);
         
         if (validToolCalls.length > 0) {
-          console.log(`[LlamaClient] Extracting tool calls from ${validToolCalls.length} valid raw tool call(s)...`);
+          console.log(`[HarmonyClient] Extracting tool calls from ${validToolCalls.length} valid raw tool call(s)...`);
           try {
             toolCalls = this.harmonyProcessor.extractToolCalls(validToolCalls);
-            console.log(`[LlamaClient] Extracted ${toolCalls.length} tool call(s):`, toolCalls.map(tc => ({ name: tc.name, argsKeys: Object.keys(tc.arguments || {}) })));
+            console.log(`[HarmonyClient] Extracted ${toolCalls.length} tool call(s):`, toolCalls.map(tc => ({ name: tc.name, argsKeys: Object.keys(tc.arguments || {}) })));
             if (toolCalls.length === 0 && validToolCalls.length > 0) {
-              console.error(`[LlamaClient] ⚠️ Extraction returned 0 tool calls but we had ${validToolCalls.length} valid raw tool calls!`);
+              console.error(`[HarmonyClient] ⚠️ Extraction returned 0 tool calls but we had ${validToolCalls.length} valid raw tool calls!`);
               validToolCalls.forEach((raw, idx) => {
-                console.error(`[LlamaClient] Failed to extract from rawToolCalls[${idx}]: "${raw.substring(0, 300)}..."`);
+                console.error(`[HarmonyClient] Failed to extract from rawToolCalls[${idx}]: "${raw.substring(0, 300)}..."`);
               });
             }
           } catch (error: any) {
-            console.error(`[LlamaClient] Error extracting tool calls:`, error);
-            console.error(`[LlamaClient] Raw tool calls that failed:`, validToolCalls);
+            console.error(`[HarmonyClient] Error extracting tool calls:`, error);
+            console.error(`[HarmonyClient] Raw tool calls that failed:`, validToolCalls);
           }
         } else if (parsed.rawToolCalls.length > 0) {
           // Log if we filtered out all items - this indicates a bug in the parser
-          console.warn(`[LlamaClient] Found ${parsed.rawToolCalls.length} item(s) in rawToolCalls but none looked like tool calls. This may indicate a parsing issue.`);
+          console.warn(`[HarmonyClient] Found ${parsed.rawToolCalls.length} item(s) in rawToolCalls but none looked like tool calls. This may indicate a parsing issue.`);
           parsed.rawToolCalls.forEach((raw, idx) => {
-            console.warn(`[LlamaClient] rawToolCalls[${idx}]: "${raw.substring(0, 200)}..."`);
+            console.warn(`[HarmonyClient] rawToolCalls[${idx}]: "${raw.substring(0, 200)}..."`);
           });
         }
       }
@@ -324,10 +326,10 @@ export class LlamaClient {
       }
 
       if (toolCalls.length > 0 && (this.mcpManager || this.nativeToolsManager)) {
-        console.log(`[LlamaClient] Executing ${toolCalls.length} tool call(s)...`);
+        console.log(`[HarmonyClient] Executing ${toolCalls.length} tool call(s)...`);
         logToolCalls(toolCalls.map(tc => ({ name: tc.name })));
         const executedToolCalls = await this.executeToolCalls(toolCalls);
-        console.log(`[LlamaClient] Completed execution of ${executedToolCalls.length} tool call(s)`);
+        console.log(`[HarmonyClient] Completed execution of ${executedToolCalls.length} tool call(s)`);
         
         // Check for applicable rules
         let applicableRules: Rule[] = [];
@@ -680,16 +682,28 @@ export class LlamaClient {
     // Create formatting prompt
     const formattingPrompt = `User request: "${originalPrompt}"
 
-Tool results have been obtained. Format these results as JSON according to the rules below.
+Tool results have been obtained. Format these results according to the rules below.
+
+## Always Clarify the problem
+
+Before providing the formatted results, you **MUST**:
+
+- **Restate my problem** - Paraphrase my request in your own words to show understanding
+- **Brief my code** - Briefly mention any assumptions you are making about my code context (if applicable)
+- **Proceed to solution** - provide the formatted results after clarification
 
 ${rulesContext}
 
 Tool Results:
 ${toolResultsText}
 
-CRITICAL: You MUST output ONLY valid JSON that follows the rules above. Do not include any explanation, commentary, or text outside the JSON. Start with [ or { and end with ] or }.
+IMPORTANT: 
+1. First, restate the problem and provide any brief context
+2. Then, output the formatted results as JSON that follows the rules above
+3. The JSON should start with [ or { and end with ] or }
+4. You may include the JSON in a code block (\`\`\`json ... \`\`\`) for clarity
 
-JSON Output:`;
+Response:`;
 
     try {
       // Make follow-up API call
@@ -731,12 +745,8 @@ JSON Output:`;
 
       if (rawResponse) {
         const parsed = this.harmonyProcessor.parseResponse(rawResponse);
-        // Try to extract JSON
-        const jsonMatch = parsed.content.match(/(\[[\s\S]*\]|\{[\s\S]*\})/);
-        if (jsonMatch) {
-          return jsonMatch[1];
-        }
-        
+        // Return the full content (including restatement and JSON)
+        // The content may include a restatement followed by JSON
         if (parsed.content.trim()) {
           return parsed.content.trim();
         }

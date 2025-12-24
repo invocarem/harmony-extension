@@ -9,6 +9,7 @@ export interface LlamaConfig {
   maxTokens: number;
   mcpServers: MCPServerConfig[];
   rulesPaths: string[];
+  harmonyMode: boolean;
 }
 
 /**
@@ -81,6 +82,7 @@ export function loadConfig(): LlamaConfig {
     maxTokens: config.get("maxTokens", 2048),
     mcpServers,
     rulesPaths,
+    harmonyMode: config.get("harmonyMode", true),
   };
 }
 

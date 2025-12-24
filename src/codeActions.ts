@@ -1,10 +1,10 @@
 import * as vscode from "vscode";
-import { LlamaClient } from "./llamaClient";
+import { HarmonyClient } from "./harmonyClient";
 import { TemplateRenderer } from "./templateRenderer";
 
 export class CodeActions {
   constructor(
-    private llamaClient: LlamaClient,
+    private harmonyClient: HarmonyClient,
     private templateRenderer: TemplateRenderer
   ) {}
 
@@ -74,7 +74,7 @@ export class CodeActions {
         progress.report({ increment: 0 });
 
         try {
-          const response = await this.llamaClient.callServer(
+          const response = await this.harmonyClient.callServer(
             prompt,
             templateName,
             (name, ctx) => this.templateRenderer.applyTemplate(name, ctx)

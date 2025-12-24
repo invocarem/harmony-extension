@@ -482,6 +482,132 @@ The verb is defective, meaning it lacks those forms entirely.<|end|>`;
     });
   });
 
+  describe("Plain text (jinja-only) responses", () => {
+    it("should parse simple plain text response", () => {
+      const response = ">I want to clarify your problem. You've simply said \"hi\" without specifying what you need help with.";
+      const result = processor.parseResponse(response);
+
+      expect(result.content).toBe(response.trim());
+      expect(result.reasoning).toBeUndefined();
+      expect(result.rawToolCalls).toEqual([]);
+    });
+
+    it("should parse plain text response with leading/trailing whitespace", () => {
+      const response = "   Hello! How can I assist you today?   ";
+      const result = processor.parseResponse(response);
+
+      expect(result.content).toBe("Hello! How can I assist you today?");
+      expect(result.reasoning).toBeUndefined();
+      expect(result.rawToolCalls).toEqual([]);
+    });
+
+    it("should parse plain text response with multiline content", () => {
+      const response = `I want to clarify your problem. You've simply said "hi" without specifying what you need help with. For example:
+
+- Do you need help with coding?
+- Are you looking for information about a specific topic?
+- Do you want assistance with file operations?`;
+      const result = processor.parseResponse(response);
+
+      expect(result.content).toBe(response.trim());
+      expect(result.content).toContain("I want to clarify");
+      expect(result.content).toContain("- Do you need help with coding?");
+      expect(result.reasoning).toBeUndefined();
+      expect(result.rawToolCalls).toEqual([]);
+    });
+
+    it("should parse plain text response that looks like a tool call", () => {
+      const response = '<tool_call name="analyze_latin" args=\'{"word": "amo"}\' />';
+      const result = processor.parseResponse(response);
+
+      // Should detect it as a tool call even without Harmony tokens
+      expect(result.content).toBe("");
+      expect(result.rawToolCalls?.length).toBeGreaterThan(0);
+      expect(result.rawToolCalls?.[0]).toBe(response.trim());
+    });
+
+    it("should parse plain text response with MCP tool call format", () => {
+      const response = 'to=analyze_latin {"word": "amo"}';
+      const result = processor.parseResponse(response);
+
+      // Should detect it as a tool call
+      expect(result.content).toBe("");
+      expect(result.rawToolCalls?.length).toBeGreaterThan(0);
+      expect(result.rawToolCalls?.[0]).toBe(response.trim());
+    });
+
+    it("should parse plain text response with JSON tool call format", () => {
+      const response = '{"name": "analyze_latin", "arguments": {"word": "amo"}}';
+      const result = processor.parseResponse(response);
+
+      // Should detect it as a tool call
+      expect(result.content).toBe("");
+      expect(result.rawToolCalls?.length).toBeGreaterThan(0);
+      expect(result.rawToolCalls?.[0]).toBe(response.trim());
+    });
+
+    it("should handle empty plain text response", () => {
+      const response = "";
+      const result = processor.parseResponse(response);
+
+      expect(result.content).toBe("");
+      expect(result.reasoning).toBeUndefined();
+      expect(result.rawToolCalls).toEqual([]);
+    });
+
+    it("should handle plain text response with only whitespace", () => {
+      const response = "   \n\n   ";
+      const result = processor.parseResponse(response);
+
+      expect(result.content).toBe("");
+      expect(result.reasoning).toBeUndefined();
+      expect(result.rawToolCalls).toEqual([]);
+    });
+
+    it("should preserve code blocks in plain text response", () => {
+      const response = `Here's some code:
+
+\`\`\`python
+def hello():
+    print("Hello World!")
+\`\`\`
+
+This is a code example.`;
+      const result = processor.parseResponse(response);
+
+      expect(result.content).toContain("```python");
+      expect(result.content).toContain("def hello():");
+      expect(result.content).toContain('print("Hello World!")');
+      expect(result.content).toContain("```");
+      expect(result.content).toContain("This is a code example.");
+    });
+
+    it("should handle plain text response that starts with > character", () => {
+      // This matches the actual response format from the user's logs
+      const response = ">I want to clarify your problem. You've simply said \"hi\" without specifying what you need help with.";
+      const result = processor.parseResponse(response);
+
+      expect(result.content).toBe(response.trim());
+      expect(result.content).toContain(">I want to clarify");
+      expect(result.reasoning).toBeUndefined();
+      expect(result.rawToolCalls).toEqual([]);
+    });
+
+    it("should distinguish between plain text content and tool calls", () => {
+      // Regular text should be content
+      const textResponse = "Hello! How can I help you today?";
+      const textResult = processor.parseResponse(textResponse);
+      expect(textResult.content).toBe(textResponse);
+      expect(textResult.rawToolCalls).toEqual([]);
+
+      // Tool call should be detected
+      const toolCallResponse = '<tool_call name="test" args=\'{"arg": "value"}\' />';
+      const toolCallResult = processor.parseResponse(toolCallResponse);
+      expect(toolCallResult.content).toBe("");
+      expect(toolCallResult.rawToolCalls?.length).toBeGreaterThan(0);
+    });
+  });
+
   describe("Integration scenarios", () => {
     it("should parse response with tool calls in final channel", () => {
       const response = `<|channel|>final<|message|><tool_call name="analyze_latin" args='{"word": "amo"}' /><|end|>`;

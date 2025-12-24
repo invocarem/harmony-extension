@@ -20,7 +20,9 @@ export class FileContextExtractor {
         fileContexts: FileReference[];
     }> {
         // Pattern to match @file references like @file:path or @file(path)
-        const filePattern = /@(?:file|file_context)[:(\s]+([^)\s]+)(?:[)\s]|$)/g;
+        // The capture group stops at whitespace, @ (new reference), ), or end of string
+        // Handles both @file:path and @file(path) syntax
+        const filePattern = /@(?:file|file_context)(?::\s*([^\s@)]+)|\(\s*([^\s@)]+?)\))/g;
         const matches = Array.from(message.matchAll(filePattern));
         
         const fileContexts: FileReference[] = [];
@@ -28,7 +30,12 @@ export class FileContextExtractor {
         
         for (const match of matches) {
             const fullMatch = match[0];
-            const filePath = match[1];
+            // match[1] is for @file:path syntax, match[2] is for @file(path) syntax
+            const filePath = match[1] || match[2];
+            
+            if (!filePath) {
+                continue; // Skip if no file path captured
+            }
             
             try {
                 const context = await this.getFileContext(filePath);

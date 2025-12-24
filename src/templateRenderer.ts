@@ -4,7 +4,18 @@ import * as vscode from "vscode";
 import { ChatMessage } from "./conversationManager";
 
 export class TemplateRenderer {
-  constructor(private context: vscode.ExtensionContext) {}
+  constructor(
+    private context: vscode.ExtensionContext,
+    private harmonyMode: boolean = true
+  ) {}
+
+  /**
+   * Filter out harmony tokens from text
+   */
+  private filterHarmonyTokens(text: string): string {
+    // Remove all harmony tokens: <|...|>
+    return text.replace(/<\|[^|]+\|>/g, '');
+  }
 
   async applyTemplate(
     templateName: string,
@@ -23,21 +34,24 @@ export class TemplateRenderer {
     } catch (error) {
       console.warn(`Template ${templateName} not found, using default prompt`);
 
-      // Default Harmony format prompt with history support
+      // Default prompt with history support
       const historyText = conversationHistory && conversationHistory.length > 0
         ? this.formatConversationHistory(conversationHistory)
         : '';
       
-      return `${historyText}<|start|>user<|channel|>final<|message|>
+      const defaultPrompt = `${historyText}<|start|>user<|channel|>final<|message|>
 {{prompt}}
 
 <|end|>
 <|start|>assistant<|channel|>final<|message|>`;
+      
+      // Filter harmony tokens if harmonyMode is false
+      return this.harmonyMode ? defaultPrompt : this.filterHarmonyTokens(defaultPrompt);
     }
   }
 
   /**
-   * Format conversation history using Harmony protocol tokens
+   * Format conversation history using Harmony protocol tokens (or plain text if harmonyMode is false)
    */
   private formatConversationHistory(
     history: readonly ChatMessage[]
@@ -46,10 +60,14 @@ export class TemplateRenderer {
     
     for (const message of history) {
       if (message.role === 'user') {
-        historyText += `<|start|>user<|channel|>final<|message|>
+        if (this.harmonyMode) {
+          historyText += `<|start|>user<|channel|>final<|message|>
 ${message.content}
 <|end|>
 `;
+        } else {
+          historyText += `User: ${message.content}\n\n`;
+        }
       } else if (message.role === 'assistant') {
         // Include reasoning if present
         let assistantContent = message.content;
@@ -57,10 +75,14 @@ ${message.content}
           assistantContent = `Reasoning: ${message.reasoning}\n\n${assistantContent}`;
         }
         
-        historyText += `<|start|>assistant<|channel|>final<|message|>
+        if (this.harmonyMode) {
+          historyText += `<|start|>assistant<|channel|>final<|message|>
 ${assistantContent}
 <|end|>
 `;
+        } else {
+          historyText += `Assistant: ${assistantContent}\n\n`;
+        }
       }
     }
     
@@ -77,9 +99,12 @@ ${assistantContent}
       ? this.formatConversationHistory(conversationHistory)
       : '';
     
+    // Filter harmony tokens from template if harmonyMode is false
+    let templateToRender = this.harmonyMode ? template : this.filterHarmonyTokens(template);
+    
     // Simple template rendering - replace {{variable}} with values
     // Handle both {{variable}} and {variable} patterns
-    let rendered = template
+    let rendered = templateToRender
       .replace(/{{(\w+)}}/g, (match, key) => {
         const value = context[key];
         if (value === undefined || value === null) {
@@ -96,10 +121,15 @@ ${assistantContent}
       });
     
     // Insert conversation history before the user message
-    // Look for the first occurrence of <|start|>user to insert history before it
-    if (historyText && rendered.includes('<|start|>user')) {
-      const userIndex = rendered.indexOf('<|start|>user');
-      rendered = historyText + rendered.substring(userIndex);
+    // Look for the first occurrence of <|start|>user to insert history before it (only if harmonyMode is true)
+    if (historyText) {
+      if (this.harmonyMode && rendered.includes('<|start|>user')) {
+        const userIndex = rendered.indexOf('<|start|>user');
+        rendered = historyText + rendered.substring(userIndex);
+      } else if (!this.harmonyMode) {
+        // For plain jinja mode, prepend history
+        rendered = historyText + rendered;
+      }
     }
     
     return rendered;

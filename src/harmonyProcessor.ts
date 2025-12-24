@@ -12,12 +12,76 @@ export interface HarmonyParseResult {
 }
 
 export class HarmonyProcessor {
+  constructor(private harmonyMode: boolean = true) {}
+
+  /**
+   * Filter out harmony tokens from text
+   */
+  private filterHarmonyTokens(text: string): string {
+    // Remove all harmony tokens: <|...|>
+    return text.replace(/<\|[^|]+\|>/g, '').replace(/\s+/g, ' ').trim();
+  }
+
   /**
    * Parse Harmony response using token-based approach
+   * Falls back to plain text if no Harmony tokens are detected
+   * When harmonyMode is false, treats response as plain jinja and filters tokens
    */
   parseResponse(response: string): HarmonyParseResult {
+    // If harmony mode is disabled, treat as plain jinja output
+    if (!this.harmonyMode) {
+      console.log(`[HarmonyProcessor] Harmony mode disabled, treating as plain jinja output`);
+      const filtered = this.filterHarmonyTokens(response);
+      const trimmed = filtered.trim();
+      
+      // Check if it looks like a tool call even without tokens
+      if (trimmed && (ToolCallExtractor.looksLikeToolCall(trimmed) || trimmed.includes('<tool_call'))) {
+        console.log(`[HarmonyProcessor] Plain jinja response appears to be a tool call`);
+        return {
+          content: '',
+          rawToolCalls: [trimmed],
+          remaining: response
+        };
+      }
+      
+      // Otherwise, return as content
+      console.log(`[HarmonyProcessor] Plain jinja response treated as content (${trimmed.length} chars)`);
+      return {
+        content: trimmed,
+        rawToolCalls: [],
+        remaining: response
+      };
+    }
     console.log(`[HarmonyProcessor] Parsing ${response.length} chars`);
     
+    // Check if response contains Harmony tokens
+    const hasHarmonyTokens = this.validateResponse(response);
+    
+    if (!hasHarmonyTokens) {
+      // Plain text response (jinja-only model) - treat entire response as content
+      console.log(`[HarmonyProcessor] No Harmony tokens detected, treating as plain text`);
+      const trimmed = response.trim();
+      
+      // Check if it looks like a tool call even without tokens
+      if (trimmed && (ToolCallExtractor.looksLikeToolCall(trimmed) || trimmed.includes('<tool_call'))) {
+        console.log(`[HarmonyProcessor] Plain text response appears to be a tool call`);
+        return {
+          content: '',
+          rawToolCalls: [trimmed],
+          remaining: response
+        };
+      }
+      
+      // Otherwise, return as content
+      console.log(`[HarmonyProcessor] Plain text response treated as content (${trimmed.length} chars)`);
+      return {
+        content: trimmed,
+        rawToolCalls: [],
+        remaining: response
+      };
+    }
+    
+    // Harmony token-based parsing (existing logic)
     let content = '';
     let reasoning: string | undefined;
     const rawToolCalls: string[] = [];
@@ -423,9 +487,13 @@ export class HarmonyProcessor {
   }
   
   /**
-   * Format a prompt with Harmony tokens
+   * Format a prompt with Harmony tokens (or plain text if harmonyMode is false)
    */
   formatPrompt(userMessage: string): string {
+    if (!this.harmonyMode) {
+      // Return plain text without harmony tokens
+      return userMessage;
+    }
     return `<|start|>user<|channel|>final<|message|>
 ${userMessage}
 <|end|>

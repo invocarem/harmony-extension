@@ -119,7 +119,7 @@ AI: It's 72°F and sunny in San Francisco!
 
 ### Core Components
 - **`HarmonyAssistant`**: Main extension class coordinating all components
-- **`LlamaClient`**: Handles communication with AI servers
+- **`HarmonyClient`**: Handles communication with AI servers
 - **`TemplateRenderer`**: Manages Jinja2 template rendering
 - **`CodeActions`**: Implements code-specific functionality
 - **`WebviewManager`**: Manages chat interface webview

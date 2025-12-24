@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import { loadConfig, LlamaConfig } from "./config";
-import { LlamaClient } from "./llamaClient";
+import { HarmonyClient } from "./harmonyClient";
 import { TemplateRenderer } from "./templateRenderer";
 import { WebviewManager, WebviewMessage } from "./webviewManager";
 import { CodeActions } from "./codeActions";
@@ -13,7 +13,7 @@ import { FileContextExtractor } from "./utils/fileContextExtractor";
 
 export class HarmonyAssistant {
   private webviewManager: WebviewManager;
-  private llamaClient: LlamaClient;
+  private harmonyClient: HarmonyClient;
   private templateRenderer: TemplateRenderer;
   private codeActions: CodeActions;
   private config: LlamaConfig;
@@ -29,10 +29,10 @@ export class HarmonyAssistant {
     this.rulesManager = new RulesManager();
     this.nativeToolsManager = new NativeToolsManager();
     this.conversationManager = new ConversationManager();
-    this.llamaClient = new LlamaClient(this.config, this.mcpManager, this.rulesManager, this.nativeToolsManager);
-    this.templateRenderer = new TemplateRenderer(context);
+    this.harmonyClient = new HarmonyClient(this.config, this.mcpManager, this.rulesManager, this.nativeToolsManager);
+    this.templateRenderer = new TemplateRenderer(context, this.config.harmonyMode);
     this.codeActions = new CodeActions(
-      this.llamaClient,
+      this.harmonyClient,
       this.templateRenderer
     );
 
@@ -78,17 +78,27 @@ export class HarmonyAssistant {
         console.log("[Rules] Rules paths configuration changed, reloading...");
         this.config = loadConfig();
         await this.initializeRules();
-        this.llamaClient = new LlamaClient(this.config, this.mcpManager, this.rulesManager, this.nativeToolsManager);
+        this.harmonyClient = new HarmonyClient(this.config, this.mcpManager, this.rulesManager, this.nativeToolsManager);
         this.codeActions = new CodeActions(
-          this.llamaClient,
+          this.harmonyClient,
+          this.templateRenderer
+        );
+      } else if (event.affectsConfiguration("harmony.harmonyMode")) {
+        // Reload config and recreate components that depend on harmonyMode
+        console.log("[Harmony] Harmony mode configuration changed, reinitializing...");
+        this.config = loadConfig();
+        this.templateRenderer = new TemplateRenderer(context, this.config.harmonyMode);
+        this.harmonyClient = new HarmonyClient(this.config, this.mcpManager, this.rulesManager, this.nativeToolsManager);
+        this.codeActions = new CodeActions(
+          this.harmonyClient,
           this.templateRenderer
         );
       } else if (event.affectsConfiguration("harmony")) {
         // Reload other config
         this.config = loadConfig();
-        this.llamaClient = new LlamaClient(this.config, this.mcpManager, this.rulesManager, this.nativeToolsManager);
+        this.harmonyClient = new HarmonyClient(this.config, this.mcpManager, this.rulesManager, this.nativeToolsManager);
         this.codeActions = new CodeActions(
-          this.llamaClient,
+          this.harmonyClient,
           this.templateRenderer
         );
       }
@@ -115,6 +125,35 @@ export class HarmonyAssistant {
         `[DEBUG] Handling sendMessage with text:`,
         message.text?.substring(0, 100)
       );
+      
+      // Extract file references to get file list
+      const { fileContexts } = await FileContextExtractor.extractFileReferences(message.text || "");
+      
+      // Enhance contextSummary with rules, MCP tools count, and files
+      const contextSummary = message.contextSummary || {};
+      
+      // Get rules count
+      const rules = this.rulesManager.getAllRules();
+      contextSummary.rulesCount = rules.length;
+      
+      // Get MCP tools count
+      const mcpTools = this.mcpManager.getAllTools();
+      contextSummary.mcpToolsCount = mcpTools.length;
+      
+      // Add file paths (using relative paths for display)
+      if (fileContexts.length > 0) {
+        contextSummary.files = fileContexts.map(fc => {
+          try {
+            return vscode.workspace.asRelativePath(fc.path, false);
+          } catch {
+            return path.basename(fc.path);
+          }
+        });
+      }
+      
+      // Send enhanced contextSummary back to webview
+      await this.webviewManager.updateContextSummary(contextSummary);
+      
       await this.handleChatMessage(message.text || "");
     });
 
@@ -170,7 +209,7 @@ export class HarmonyAssistant {
       this.conversationManager.addMessage(userMessage);
 
       console.log(`[DEBUG] Calling Harmony server with ${this.conversationManager.getLength()} messages in history...`);
-      const response = await this.llamaClient.callServer(
+      const response = await this.harmonyClient.callServer(
         finalMessage, // Use message with file context
         "chat",
         (name, ctx) => this.templateRenderer.applyTemplate(name, ctx, this.conversationManager.getHistoryForTemplate()),
