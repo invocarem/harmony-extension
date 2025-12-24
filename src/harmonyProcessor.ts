@@ -390,9 +390,56 @@ export class HarmonyProcessor {
   /**
    * Extract file update from content that claims to have updated/created a file
    * but doesn't make an explicit tool call
+   * Also extracts when code block with file name is present (even without explicit claims)
    */
   private extractFileUpdateFromContent(content: string): { raw: string; name: string; arguments: { file_path: string; content: string } } | null {
-    // Check for file update claims
+    // First, try to extract code block content
+    const codeBlockPattern = /```(?:\w+)?\s*\n([\s\S]*?)```/;
+    const codeBlockMatch = content.match(codeBlockPattern);
+    if (!codeBlockMatch || !codeBlockMatch[1]) {
+      return null; // No code block found
+    }
+    
+    const codeContent = codeBlockMatch[1].trim();
+    if (!codeContent || codeContent.length < 10) {
+      return null; // Code block too short or empty
+    }
+    
+    // Extract file name - look for backticked file names or file extensions
+    // Try multiple patterns to find file paths
+    const filePathPatterns = [
+      /`([^`]+\.(?:py|js|ts|jsx|tsx|java|cpp|c|h|hpp|html|css|json|md|txt|xml|yaml|yml|sh|bat|ps1))`/i,
+      /(?:file|filename|path)[:\s]+`?([^\s`]+\.(?:py|js|ts|jsx|tsx|java|cpp|c|h|hpp|html|css|json|md|txt|xml|yaml|yml|sh|bat|ps1))`?/i,
+      /(?:updated|created|wrote|modified|save|save as|named)\s+`?([^\s`]+\.(?:py|js|ts|jsx|tsx|java|cpp|c|h|hpp|html|css|json|md|txt|xml|yaml|yml|sh|bat|ps1))`?/i,
+      // Also look for file names in the content text itself (like "animation.py")
+      /\b([a-zA-Z0-9_\-/]+\.(?:py|js|ts|jsx|tsx|java|cpp|c|h|hpp|html|css|json|md|txt|xml|yaml|yml|sh|bat|ps1))\b/i,
+    ];
+    
+    let filePath: string | null = null;
+    for (const pattern of filePathPatterns) {
+      // Make sure pattern is global for matchAll
+      const globalPattern = new RegExp(pattern.source, pattern.flags + (pattern.global ? '' : 'g'));
+      const matches = Array.from(content.matchAll(globalPattern));
+      // Prefer backticked filenames or explicit mentions over generic matches
+      for (const match of matches) {
+        if (match[1] && match[1].length > 0) {
+          // Skip common false positives (like "import json" matching "json")
+          const candidate = match[1];
+          if (!/(?:^import|^from|require\(|\.includes\()/i.test(candidate) && 
+              !/(?:package\.json|tsconfig\.json|webpack\.config)/i.test(candidate)) {
+            filePath = candidate;
+            break;
+          }
+        }
+      }
+      if (filePath) break;
+    }
+    
+    if (!filePath) {
+      return null; // No file path found
+    }
+    
+    // Check for file update claims (for determining create vs replace)
     const fileUpdatePhrases = [
       /(?:I've|I have|I|we've|we have).*(?:replaced|updated|created|wrote|modified|generated).*(?:file|contents?)/i,
       /(?:file|contents?).*(?:has been|was|have been).*(?:replaced|updated|created|written|modified|generated)/i,
@@ -400,41 +447,23 @@ export class HarmonyProcessor {
     ];
     
     const hasFileUpdateClaim = fileUpdatePhrases.some(phrase => phrase.test(content));
-    if (!hasFileUpdateClaim) {
-      return null;
+    
+    // Check if file name is mentioned anywhere in content (even without explicit claims)
+    // If we have a code block and a file name, that's a strong signal to extract it
+    const fileMentioned = new RegExp(filePath.replace(/\./g, '\\.'), 'i').test(content);
+    
+    // Extract if:
+    // 1. There's an explicit file update claim, OR
+    // 2. There's a file name mentioned in the content (even without explicit claim)
+    // This handles cases where model provides code as explanation/description
+    if (!hasFileUpdateClaim && !fileMentioned) {
+      return null; // No file mentioned and no explicit claim
     }
     
-    // Extract file name - look for backticked file names or file extensions
-    const filePathPatterns = [
-      /`([^`]+\.(?:py|js|ts|jsx|tsx|java|cpp|c|h|hpp|html|css|json|md|txt|xml|yaml|yml|sh|bat|ps1))`/i,
-      /(?:file|filename|path)[:\s]+`?([^\s`]+\.(?:py|js|ts|jsx|tsx|java|cpp|c|h|hpp|html|css|json|md|txt|xml|yaml|yml|sh|bat|ps1))`?/i,
-      /(?:updated|created|wrote|modified)\s+`?([^\s`]+\.(?:py|js|ts|jsx|tsx|java|cpp|c|h|hpp|html|css|json|md|txt|xml|yaml|yml|sh|bat|ps1))`?/i,
-    ];
-    
-    let filePath: string | null = null;
-    for (const pattern of filePathPatterns) {
-      const match = content.match(pattern);
-      if (match && match[1]) {
-        filePath = match[1];
-        break;
-      }
-    }
-    
-    if (!filePath) {
-      return null;
-    }
-    
-    // Extract code block content
-    const codeBlockPattern = /```(?:\w+)?\s*\n([\s\S]*?)```/;
-    const codeBlockMatch = content.match(codeBlockPattern);
-    if (!codeBlockMatch || !codeBlockMatch[1]) {
-      return null;
-    }
-    
-    const codeContent = codeBlockMatch[1].trim();
-    
-    // Determine if it's create_file or replace_file based on claim
-    const isCreate = /(?:created|generated|new)/i.test(content);
+    // Determine if it's create_file or replace_file
+    // Default to create_file if unclear (new files are more common)
+    const isCreate = /(?:created|generated|new|write|save)/i.test(content) || 
+                     !/(?:updated|replaced|modified|edit)/i.test(content);
     const toolName = isCreate ? 'create_file' : 'replace_file';
     
     // Create tool call JSON

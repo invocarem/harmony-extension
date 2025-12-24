@@ -165,6 +165,18 @@ export class XmlProcessor {
             }
         }
         
+        // If quote-based extraction failed, try brace matching as fallback
+        if (!argsStr) {
+            console.log(`[XmlProcessor] Quote-based extraction failed, trying brace matching fallback...`);
+            argsStr = this.extractArgsUsingBraceMatching(attributes);
+        }
+        
+        // If quote-based extraction failed, try brace matching as fallback
+        if (!argsStr) {
+            console.log(`[XmlProcessor] Quote-based extraction failed, trying brace matching fallback...`);
+            argsStr = this.extractArgsUsingBraceMatching(attributes);
+        }
+        
         if (!argsStr) {
             console.warn(`[XmlProcessor] No args in tool call: ${raw.substring(0, 100)}`);
             return null;
@@ -173,7 +185,7 @@ export class XmlProcessor {
         console.log(`[XmlProcessor] Extracted args string (${argsStr.length} chars): "${argsStr.substring(0, 200)}${argsStr.length > 200 ? '...' : ''}"`);
         
         // Decode HTML entities (e.g., &quot; -> ", &amp; -> &, &lt; -> <, &gt; -> >)
-        const decodedArgsStr = HtmlEntityDecoder.decode(argsStr);
+        let decodedArgsStr = HtmlEntityDecoder.decode(argsStr);
         console.log(`[XmlProcessor] After HTML entity decoding (${decodedArgsStr.length} chars): "${decodedArgsStr.substring(0, 200)}${decodedArgsStr.length > 200 ? '...' : ''}"`);
         
         // Parse JSON arguments
@@ -181,8 +193,22 @@ export class XmlProcessor {
         try {
             args = JSON.parse(decodedArgsStr);
         } catch (error) {
-            console.error(`[XmlProcessor] Failed to parse JSON args: ${decodedArgsStr.substring(0, 200)}`, error);
-            return null;
+            // If parsing fails, try brace matching as fallback (in case quote extraction got wrong boundaries)
+            console.log(`[XmlProcessor] JSON parse failed with quote-based extraction, trying brace matching fallback...`);
+            const braceMatchStr = this.extractArgsUsingBraceMatching(attributes);
+            if (braceMatchStr && braceMatchStr !== argsStr) {
+                decodedArgsStr = HtmlEntityDecoder.decode(braceMatchStr);
+                try {
+                    args = JSON.parse(decodedArgsStr);
+                    console.log(`[XmlProcessor] Successfully parsed JSON using brace matching fallback`);
+                } catch (braceError) {
+                    console.error(`[XmlProcessor] Failed to parse JSON args even with brace matching: ${decodedArgsStr.substring(0, 200)}`, braceError);
+                    return null;
+                }
+            } else {
+                console.error(`[XmlProcessor] Failed to parse JSON args: ${decodedArgsStr.substring(0, 200)}`, error);
+                return null;
+            }
         }
         
         console.log(`[XmlProcessor] Successfully parsed tool: ${nameMatch[1]}`, args);
@@ -192,6 +218,95 @@ export class XmlProcessor {
             name: nameMatch[1],
             args
         };
+    }
+    
+    /**
+     * Extract args attribute value using JSON brace matching (fallback method)
+     * This is used when quote-based extraction fails, especially for complex JSON
+     * with lots of escaped quotes or special characters.
+     */
+    private static extractArgsUsingBraceMatching(attributes: string): string | null {
+        // Look for args=" or args=' followed by {
+        const argsPattern = /args\s*=\s*(["'])\s*\{/;
+        const match = attributes.match(argsPattern);
+        
+        if (!match) {
+            return null;
+        }
+        
+        const quoteChar = match[1];
+        const jsonStartPos = match.index! + match[0].length - 1; // Position of the {
+        
+        console.log(`[XmlProcessor] Brace matching: Found JSON start at position ${jsonStartPos} (quote: ${quoteChar})`);
+        
+        // Use brace matching to find the closing brace
+        // We need to properly handle strings, escaped characters, and HTML entities
+        let braceCount = 1; // We've already seen the opening {
+        let pos = jsonStartPos + 1;
+        
+        while (pos < attributes.length && braceCount > 0) {
+            const char = attributes[pos];
+            
+            // Check for HTML entities first (they don't affect JSON structure)
+            if (char === '&') {
+                const entityMatch = attributes.substring(pos).match(/&(?:quot|apos|amp|lt|gt|#\d+|#x[0-9a-fA-F]+);/i);
+                if (entityMatch) {
+                    pos += entityMatch[0].length;
+                    continue;
+                }
+            }
+            
+            // Handle string literals - skip entire string content
+            if (char === '"' || char === "'") {
+                const stringStartQuote = char;
+                pos++; // Skip opening quote
+                
+                // Find the matching closing quote, handling escapes and HTML entities
+                while (pos < attributes.length) {
+                    if (attributes[pos] === '\\' && pos + 1 < attributes.length) {
+                        // Skip escaped character (could be \" or \' or other escapes)
+                        pos += 2;
+                        continue;
+                    }
+                    
+                    if (attributes[pos] === '&') {
+                        // Skip HTML entities
+                        const entityMatch = attributes.substring(pos).match(/&(?:quot|apos|amp|lt|gt|#\d+|#x[0-9a-fA-F]+);/i);
+                        if (entityMatch) {
+                            pos += entityMatch[0].length;
+                            continue;
+                        }
+                    }
+                    
+                    if (attributes[pos] === stringStartQuote) {
+                        // Found closing quote - skip it and break
+                        pos++;
+                        break;
+                    }
+                    
+                    pos++;
+                }
+                continue;
+            }
+            
+            // Handle braces (we're outside any string at this point)
+            if (char === '{') {
+                braceCount++;
+            } else if (char === '}') {
+                braceCount--;
+                if (braceCount === 0) {
+                    // Found the matching closing brace
+                    const jsonStr = attributes.substring(jsonStartPos, pos + 1);
+                    console.log(`[XmlProcessor] Brace matching: Extracted JSON (${jsonStr.length} chars)`);
+                    return jsonStr;
+                }
+            }
+            
+            pos++;
+        }
+        
+        console.warn(`[XmlProcessor] Brace matching: Could not find matching closing brace for JSON in args attribute`);
+        return null;
     }
     
     /**
