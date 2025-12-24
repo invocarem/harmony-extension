@@ -154,10 +154,12 @@ export class HarmonyProcessor {
     
     console.log(`[HarmonyProcessor] Result: content=${content.length} chars, reasoning=${reasoning?.length || 0} chars, toolCalls=${rawToolCalls.length}`);
     
-    // Debug: Log what's in rawToolCalls if it doesn't look like tool calls
+    // Debug: Log what's in rawToolCalls
     if (rawToolCalls.length > 0) {
       rawToolCalls.forEach((raw, idx) => {
         const looksLikeToolCall = ToolCallExtractor.looksLikeToolCall(raw) || raw.includes('<tool_call');
+        console.log(`[HarmonyProcessor] rawToolCalls[${idx}]: ${raw.length} chars, looksLikeToolCall=${looksLikeToolCall}`);
+        console.log(`[HarmonyProcessor] rawToolCalls[${idx}] content: "${raw}"`);
         if (!looksLikeToolCall) {
           console.warn(`[HarmonyProcessor] ⚠️ rawToolCalls[${idx}] doesn't look like a tool call (${raw.length} chars): "${raw.substring(0, 100)}..."`);
         }
@@ -238,16 +240,36 @@ export class HarmonyProcessor {
         let toolCallText: string | null = null;
         
         // First check for XML-style tool calls
-        const cleanMatch = trimmed.match(/<tool_call[^>]*\/?>/);
+        // Try multiple patterns to catch different formats
+        const selfClosingPattern = /<tool_call\s+[^>]*\/\s*>/;
+        const selfClosingPatternLoose = /<tool_call[^>]*\/>/;
+        const openingTagPattern = /<tool_call\s+[^>]*>/;
         const variantMatch = trimmed.match(/<\|?[^>]*tool_call[^>]*\/?>/);
         const fullElementMatch = trimmed.match(/<tool_call[^>]*>[\s\S]*?<\/tool_call>/);
         
-        if (cleanMatch || variantMatch || fullElementMatch) {
+        // Try self-closing first (most common)
+        let match = trimmed.match(selfClosingPattern);
+        if (!match) {
+          match = trimmed.match(selfClosingPatternLoose);
+        }
+        if (!match) {
+          match = trimmed.match(openingTagPattern);
+        }
+        if (!match && variantMatch) {
+          match = variantMatch;
+        }
+        if (!match && fullElementMatch) {
+          match = fullElementMatch;
+        }
+        
+        if (match) {
           // It's an XML-style tool call
-          toolCallText = (cleanMatch || variantMatch || fullElementMatch)![0];
+          toolCallText = match[0];
+          console.log(`[HarmonyProcessor] Matched XML tool call pattern, length: ${toolCallText.length}`);
         } else if (ToolCallExtractor.looksLikeToolCall(trimmed)) {
           // It's a non-XML tool call (MCP or JSON format)
           toolCallText = trimmed;
+          console.log(`[HarmonyProcessor] Matched non-XML tool call pattern`);
         } else {
           // Check if this is JSON arguments without a name field, and we have a pending tool name
           try {
@@ -272,6 +294,7 @@ export class HarmonyProcessor {
         
         if (toolCallText) {
           console.log(`[HarmonyProcessor] Detected tool call in final channel: ${toolCallText.substring(0, 100)}...`);
+          console.log(`[HarmonyProcessor] Full tool call text (${toolCallText.length} chars): "${toolCallText}"`);
           setters.rawToolCalls(toolCallText);
         } else {
           // Check if content contains file update claims with code blocks

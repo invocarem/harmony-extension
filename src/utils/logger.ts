@@ -63,3 +63,74 @@ export function logRules(applicableRules: Array<{ id: string; description?: stri
     });
   }
 }
+
+
+// Add these logging functions to your logger.ts file or create them inline in llamaClient.ts
+
+/**
+ * Log step information for multi-step continuations
+ */
+export function logStepInfo(stepNumber: number, maxSteps: number, originalPrompt: string): void {
+  console.log(`[Harmony] Step ${stepNumber}/${maxSteps} for task: "${originalPrompt.substring(0, 100)}${originalPrompt.length > 100 ? '...' : ''}"`);
+}
+
+/**
+ * Log continuation decision details
+ */
+export function logContinuationDecision(
+  shouldContinue: boolean,
+  reason: string,
+  hasFileModification: boolean,
+  hasCompletionPhrase: boolean,
+  onlyDiscoveryTools: boolean
+): void {
+  console.log(`[Harmony] Continuation decision: ${shouldContinue ? 'CONTINUE' : 'STOP'}`);
+  console.log(`[Harmony] Reason: ${reason}`);
+  console.log(`[Harmony] Factors: hasFileModification=${hasFileModification}, hasCompletionPhrase=${hasCompletionPhrase}, onlyDiscoveryTools=${onlyDiscoveryTools}`);
+}
+
+/**
+ * Log tool execution results
+ */
+export function logToolExecutionResults(
+  executedToolCalls: Array<{ name: string; result?: any }>
+): void {
+  if (executedToolCalls.length === 0) return;
+  
+  console.log(`[Harmony] Tool execution results:`);
+  executedToolCalls.forEach((toolCall, index) => {
+    if (toolCall.result?.isError) {
+      console.log(`  ${index + 1}. ❌ ${toolCall.name}: Error - ${toolCall.result.content?.[0]?.text || 'Unknown error'}`);
+    } else {
+      console.log(`  ${index + 1}. ✅ ${toolCall.name}: Success`);
+      // Log first 200 chars of result if available
+      if (toolCall.result?.content?.[0]?.text) {
+        const text = toolCall.result.content[0].text;
+        const preview = text.length > 200 ? `${text.substring(0, 200)}...` : text;
+        console.log(`       Result preview: ${preview}`);
+      }
+    }
+  });
+}
+
+/**
+ * Log conversation context state
+ */
+export function logConversationContext(context: any): void {
+  if (!context) {
+    console.log(`[Harmony] No active conversation context`);
+    return;
+  }
+  
+  console.log(`[Harmony] Conversation context:`);
+  console.log(`  Original prompt: "${context.originalPrompt.substring(0, 100)}${context.originalPrompt.length > 100 ? '...' : ''}"`);
+  console.log(`  Steps: ${context.steps.length}/${context.maxSteps}`);
+  console.log(`  Current step: ${context.currentStep}`);
+  
+  if (context.steps.length > 0) {
+    console.log(`  Previous steps summary:`);
+    context.steps.forEach((step: any, index: number) => {
+      console.log(`    Step ${index + 1}: ${step.toolCalls.length} tool calls, ${step.reasoning?.length || 0} chars reasoning`);
+    });
+  }
+}

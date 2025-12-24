@@ -11,7 +11,11 @@ import {
   logLongMessage, 
   logApiRequest, 
   logToolCalls, 
-  logRules 
+  logRules,
+  logStepInfo,
+  logContinuationDecision,
+  logToolExecutionResults,
+  logConversationContext
 } from "./utils/logger";
 
 export interface LlamaResponse {
@@ -67,7 +71,16 @@ export class LlamaClient {
         };
       }
 
-      // If we're at max steps, stop continuing
+      if (this.conversationContext && isContinuation) {
+        logStepInfo(
+          this.conversationContext.currentStep,
+          this.conversationContext.maxSteps,
+          this.conversationContext.originalPrompt
+        );
+      }
+
+      // If we're past max steps, stop continuing
+      // Use > instead of >= to allow the final step (e.g., step 5 when maxSteps is 5) to run
       if (this.conversationContext && this.conversationContext.currentStep > this.conversationContext.maxSteps) {
         console.warn(`[Harmony] Reached maximum steps (${this.conversationContext.maxSteps}) for task: "${this.conversationContext.originalPrompt}"`);
         return {
@@ -261,17 +274,38 @@ export class LlamaClient {
       // Extract tool calls
       let toolCalls: MCPToolCall[] = [];
       if (parsed.rawToolCalls && parsed.rawToolCalls.length > 0) {
+        console.log(`[LlamaClient] Processing ${parsed.rawToolCalls.length} raw tool call(s)`);
         // Filter out items that don't look like tool calls before processing
         // This prevents unnecessary processing of regular content that was incorrectly added to rawToolCalls
-        const validToolCalls = parsed.rawToolCalls.filter(raw => 
-          ToolCallExtractor.looksLikeToolCall(raw) || raw.includes('<tool_call')
-        );
+        const validToolCalls = parsed.rawToolCalls.filter(raw => {
+          const looksLike = ToolCallExtractor.looksLikeToolCall(raw) || raw.includes('<tool_call');
+          console.log(`[LlamaClient] Checking raw tool call: looksLike=${looksLike}, length=${raw.length}, preview="${raw.substring(0, 100)}..."`);
+          return looksLike;
+        });
+        
+        console.log(`[LlamaClient] After filtering: ${validToolCalls.length} valid tool call(s) out of ${parsed.rawToolCalls.length}`);
         
         if (validToolCalls.length > 0) {
-          toolCalls = this.harmonyProcessor.extractToolCalls(validToolCalls);
+          console.log(`[LlamaClient] Extracting tool calls from ${validToolCalls.length} valid raw tool call(s)...`);
+          try {
+            toolCalls = this.harmonyProcessor.extractToolCalls(validToolCalls);
+            console.log(`[LlamaClient] Extracted ${toolCalls.length} tool call(s):`, toolCalls.map(tc => ({ name: tc.name, argsKeys: Object.keys(tc.arguments || {}) })));
+            if (toolCalls.length === 0 && validToolCalls.length > 0) {
+              console.error(`[LlamaClient] ⚠️ Extraction returned 0 tool calls but we had ${validToolCalls.length} valid raw tool calls!`);
+              validToolCalls.forEach((raw, idx) => {
+                console.error(`[LlamaClient] Failed to extract from rawToolCalls[${idx}]: "${raw.substring(0, 300)}..."`);
+              });
+            }
+          } catch (error: any) {
+            console.error(`[LlamaClient] Error extracting tool calls:`, error);
+            console.error(`[LlamaClient] Raw tool calls that failed:`, validToolCalls);
+          }
         } else if (parsed.rawToolCalls.length > 0) {
           // Log if we filtered out all items - this indicates a bug in the parser
           console.warn(`[LlamaClient] Found ${parsed.rawToolCalls.length} item(s) in rawToolCalls but none looked like tool calls. This may indicate a parsing issue.`);
+          parsed.rawToolCalls.forEach((raw, idx) => {
+            console.warn(`[LlamaClient] rawToolCalls[${idx}]: "${raw.substring(0, 200)}..."`);
+          });
         }
       }
       
@@ -290,8 +324,10 @@ export class LlamaClient {
       }
 
       if (toolCalls.length > 0 && (this.mcpManager || this.nativeToolsManager)) {
+        console.log(`[LlamaClient] Executing ${toolCalls.length} tool call(s)...`);
         logToolCalls(toolCalls.map(tc => ({ name: tc.name })));
         const executedToolCalls = await this.executeToolCalls(toolCalls);
+        console.log(`[LlamaClient] Completed execution of ${executedToolCalls.length} tool call(s)`);
         
         // Check for applicable rules
         let applicableRules: Rule[] = [];
@@ -332,7 +368,19 @@ export class LlamaClient {
         );
         
         if (shouldContinue && this.conversationContext) {
-          console.log(`[Harmony] Task incomplete, continuing to step ${this.conversationContext.currentStep + 1}...`);
+          // Check if we can continue (before incrementing)
+          const nextStep = this.conversationContext.currentStep + 1;
+          if (nextStep > this.conversationContext.maxSteps) {
+            console.warn(`[Harmony] Cannot continue: next step (${nextStep}) would exceed max steps (${this.conversationContext.maxSteps})`);
+            return {
+              content: finalContent,
+              reasoning: parsed.reasoning,
+              toolCalls: executedToolCalls,
+              isContinuation: isContinuation,
+            };
+          }
+          
+          console.log(`[Harmony] Task incomplete, continuing to step ${nextStep}...`);
           
           // Prepare continuation prompt
           const continuationPrompt = `Based on the tool results, continue working on the original task.`;
@@ -386,7 +434,13 @@ export class LlamaClient {
     isAlreadyContinuation: boolean
   ): Promise<boolean> {
     // Check if we've reached the maximum steps
-    if (this.conversationContext && this.conversationContext.currentStep >= this.conversationContext.maxSteps) {
+    // Use > instead of >= to allow the final step (e.g., step 5 when maxSteps is 5) to run
+    if (this.conversationContext && this.conversationContext.currentStep > this.conversationContext.maxSteps) {
+      return false;
+    }
+    
+    // Also check if the NEXT step would exceed maxSteps
+    if (this.conversationContext && this.conversationContext.currentStep + 1 > this.conversationContext.maxSteps) {
       return false;
     }
     
@@ -403,10 +457,13 @@ export class LlamaClient {
     
     const hasCompletionPhrase = taskCompletionPhrases.some(phrase => phrase.test(currentContent.toLowerCase()));
     
-    // Check if we've performed file modification
+    // Check if we've performed file modification OR if the model says it will/has done it
     const hasFileModification = executedToolCalls.some(tc => 
       ['create_file', 'replace_file', 'write_file', 'update_file'].includes(tc.name)
     );
+    
+    // Check if the response indicates file modification was done (even without tool calls)
+    const indicatesFileModified = /(?:I will|I'll|going to|will|should|need to).*(?:update|modify|change|edit|replace).*\.(?:md|txt|json|js|ts|py|java|cpp|c|html|css)/i.test(currentContent.toLowerCase());
     
     // Check if original prompt requested file creation/modification
     const isFileTask = /(?:update|create|write|modify|edit|generate).*\.(?:md|txt|json|js|ts|py|java|cpp|c|html|css)/i.test(originalPrompt.toLowerCase());
@@ -416,13 +473,28 @@ export class LlamaClient {
       ['list_files', 'read_file', 'grep_files', 'search', 'find'].includes(tc.name)
     );
     
+    // NEW: Check if the current content mentions specific tool calls that should be made
+    const mentionsToolCalls = /(?:will call|should call|need to call|calling|use).*(?:tool|function|method|update_file|write_file|create_file)/i.test(currentContent.toLowerCase());
+    
     // Decision logic
     if (isFileTask && onlyDiscoveryTools && !hasFileModification) {
+      // If we have discovery tools but no file modification AND the model mentions doing it
+      if (indicatesFileModified && !mentionsToolCalls) {
+        console.log(`[Harmony] Task "${originalPrompt}" - Model says it will modify file but didn't call tools. Need continuation.`);
+        return true;
+      }
+      
       console.log(`[Harmony] Task "${originalPrompt}" needs continuation: Only discovery tools used, no file modification yet`);
       return true;
     }
     
     if (isFileTask && !hasFileModification && !hasCompletionPhrase) {
+      // If the model indicates it will modify but doesn't call tools, we need to continue
+      if (indicatesFileModified && !mentionsToolCalls) {
+        console.log(`[Harmony] Task "${originalPrompt}" needs continuation: Model says it will modify but didn't call tools`);
+        return true;
+      }
+      
       console.log(`[Harmony] Task "${originalPrompt}" needs continuation: File task but no file modification or completion phrase`);
       return true;
     }
@@ -435,9 +507,16 @@ export class LlamaClient {
       return true;
     }
     
-    console.log(`[Harmony] Task "${originalPrompt}" appears complete: hasFileModification=${hasFileModification}, hasCompletionPhrase=${hasCompletionPhrase}`);
+    // NEW: If model says "I will update" but didn't actually call update tools, continue
+    if (indicatesFileModified && !hasFileModification && !mentionsToolCalls) {
+      console.log(`[Harmony] Task "${originalPrompt}" needs continuation: Model indicated file modification but didn't call appropriate tools`);
+      return true;
+    }
+    
+    console.log(`[Harmony] Task "${originalPrompt}" appears complete: hasFileModification=${hasFileModification}, hasCompletionPhrase=${hasCompletionPhrase}, indicatesFileModified=${indicatesFileModified}`);
     return false;
   }
+
 
   /**
    * Fallback method to extract tool calls from content

@@ -14,6 +14,8 @@ export class XmlProcessor {
     static extractToolCalls(text: string): XmlToolCall[] {
         const results: XmlToolCall[] = [];
         
+        console.log(`[XmlProcessor] extractToolCalls called with text (${text.length} chars): "${text.substring(0, 200)}${text.length > 200 ? '...' : ''}"`);
+        
         // Self-closing tool call pattern
         const selfClosingRegex = /<tool_call\s+([^>]+)\s*\/>/gs;
         let match: RegExpExecArray | null;
@@ -22,9 +24,14 @@ export class XmlProcessor {
             const attributes = match[1];
             const raw = match[0];
             
+            console.log(`[XmlProcessor] Found self-closing tool call, attributes: "${attributes}", raw: "${raw}"`);
+            
             const parsed = this.parseAttributes(attributes, raw);
             if (parsed) {
+                console.log(`[XmlProcessor] Successfully parsed tool call: ${parsed.name}`);
                 results.push(parsed);
+            } else {
+                console.warn(`[XmlProcessor] Failed to parse attributes from: "${attributes}"`);
             }
         }
         
@@ -89,12 +96,16 @@ export class XmlProcessor {
      * This replicates the logic from ToolCallExtractor.parseToolCallAttributes
      */
     private static parseAttributes(attributes: string, raw: string): XmlToolCall | null {
+        console.log(`[XmlProcessor] parseAttributes called with attributes: "${attributes}"`);
+        
         // Extract name
         const nameMatch = attributes.match(/name=["']([^"']+)["']/);
         if (!nameMatch) {
             console.warn(`[XmlProcessor] No name in tool call: ${raw.substring(0, 100)}`);
             return null;
         }
+        
+        console.log(`[XmlProcessor] Extracted name: "${nameMatch[1]}"`);
         
         // Extract args - handle both single and double quotes, escaped quotes, and HTML entities
         let argsStr: string | null = null;
@@ -104,10 +115,14 @@ export class XmlProcessor {
         const argsDoubleQuoteMatch = attributes.match(/args\s*=\s*"/);
         const argsSingleQuoteMatch = attributes.match(/args\s*=\s*'/);
         
+        console.log(`[XmlProcessor] argsDoubleQuoteMatch: ${argsDoubleQuoteMatch ? 'found' : 'not found'}, argsSingleQuoteMatch: ${argsSingleQuoteMatch ? 'found' : 'not found'}`);
+        
         if (argsDoubleQuoteMatch || argsSingleQuoteMatch) {
             const quoteChar = argsDoubleQuoteMatch ? '"' : "'";
             const startPos = (argsDoubleQuoteMatch?.index ?? argsSingleQuoteMatch!.index)! + (argsDoubleQuoteMatch?.[0].length ?? argsSingleQuoteMatch![0].length);
             let endPos = startPos;
+            
+            console.log(`[XmlProcessor] Looking for closing ${quoteChar} starting at position ${startPos}`);
             
             // Find the matching closing quote, accounting for HTML entities and escaped quotes
             while (endPos < attributes.length) {
@@ -129,6 +144,7 @@ export class XmlProcessor {
                 
                 // Check for closing quote
                 if (attributes[endPos] === quoteChar) {
+                    console.log(`[XmlProcessor] Found closing ${quoteChar} at position ${endPos}`);
                     break;
                 }
                 
@@ -137,12 +153,15 @@ export class XmlProcessor {
             
             if (endPos < attributes.length) {
                 argsStr = attributes.substring(startPos, endPos);
+                console.log(`[XmlProcessor] Extracted args string (${argsStr.length} chars): "${argsStr}"`);
                 // Handle escaped quotes
                 if (quoteChar === '"') {
                     argsStr = argsStr.replace(/\\"/g, '"').replace(/\\\\/g, '\\');
                 } else {
                     argsStr = argsStr.replace(/\\'/g, "'").replace(/\\\\/g, '\\');
                 }
+            } else {
+                console.warn(`[XmlProcessor] Could not find closing ${quoteChar} for args attribute`);
             }
         }
         

@@ -197,22 +197,32 @@ export class ToolCallExtractor {
     
     console.log(`[ToolCallExtractor] extractToolCalls called with ${rawToolCalls.length} raw calls`);
     
-    for (const raw of rawToolCalls) {
-      // Log the raw tool call string for debugging
-      console.log(`[ToolCallExtractor] Processing raw tool call (${raw.length} chars): "${raw.substring(0, 200)}${raw.length > 200 ? '...' : ''}"`);
+    try {
+      for (const raw of rawToolCalls) {
+        // Log the raw tool call string for debugging
+        console.log(`[ToolCallExtractor] Processing raw tool call (${raw.length} chars): "${raw.substring(0, 200)}${raw.length > 200 ? '...' : ''}"`);
+        
+        let extracted: ExtractedToolCall[] = [];
+        try {
+          // First try to extract as <tool_call> pattern using extractFromText
+          console.log(`[ToolCallExtractor] Calling extractFromText...`);
+          extracted = this.extractFromText(raw);
+          console.log(`[ToolCallExtractor] extractFromText found ${extracted.length} tool call(s)`);
+          extracted.forEach((item, idx) => {
+            console.log(`[ToolCallExtractor] Extracted tool call ${idx}: name="${item.name}", args keys: ${Object.keys(item.args || {}).join(', ')}`);
+            toolCalls.push({
+              name: item.name,
+              arguments: item.args || {}
+            });
+          });
+        } catch (extractError: any) {
+          console.error(`[ToolCallExtractor] Error in extractFromText for raw tool call:`, extractError);
+          console.error(`[ToolCallExtractor] Raw tool call that failed: "${raw.substring(0, 300)}"`);
+          extracted = []; // Reset to empty array on error
+        }
       
-      // First try to extract as <tool_call> pattern using extractFromText
-      const extracted = this.extractFromText(raw);
-      console.log(`[ToolCallExtractor] extractFromText found ${extracted.length} tool call(s)`);
-      extracted.forEach(item => {
-        toolCalls.push({
-          name: item.name,
-          arguments: item.args || {}
-        });
-      });
-      
-      // If no <tool_call> found, check for MCP commentary format: to=analyze_latin {...}
-      if (extracted.length === 0) {
+        // If no <tool_call> found, check for MCP commentary format: to=analyze_latin {...}
+        if (extracted.length === 0) {
         // Try MCP format: to=function_name {...}
         const mcpMatch = raw.match(/to=([^\s=]+)\s*(\{[\s\S]*\})/);
         if (mcpMatch) {
@@ -258,11 +268,15 @@ export class ToolCallExtractor {
           continue;
         }
         
-        // If still nothing found, only warn if it looked like it should be a tool call
-        if (toolCalls.length === 0 && this.looksLikeToolCall(raw)) {
-          console.warn(`[ToolCallExtractor] Could not extract tool call from raw string that looked like a tool call. Raw content: "${raw.substring(0, 500)}"`);
+          // If still nothing found, only warn if it looked like it should be a tool call
+          if (toolCalls.length === 0 && this.looksLikeToolCall(raw)) {
+            console.warn(`[ToolCallExtractor] Could not extract tool call from raw string that looked like a tool call. Raw content: "${raw.substring(0, 500)}"`);
+          }
         }
       }
+    } catch (error: any) {
+      console.error(`[ToolCallExtractor] Fatal error in extractToolCalls:`, error);
+      console.error(`[ToolCallExtractor] Stack:`, error.stack);
     }
     
     console.log(`[ToolCallExtractor] Returning ${toolCalls.length} tool calls`);
