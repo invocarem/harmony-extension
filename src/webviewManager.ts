@@ -106,7 +106,7 @@ const webviewStyles = `
             border-top: 1px solid var(--vscode-input-border);
             position: relative;
         }
-        input {
+        input, textarea {
             flex: 1;
             padding: 12px;
             border: 1px solid var(--vscode-input-border);
@@ -114,6 +114,13 @@ const webviewStyles = `
             background: var(--vscode-input-background);
             color: var(--vscode-input-foreground);
             font-size: 14px;
+            font-family: var(--vscode-font-family);
+            resize: vertical;
+        }
+        textarea {
+            min-height: 60px;
+            max-height: 200px;
+            line-height: 1.5;
         }
         button {
             padding: 12px 20px;
@@ -510,7 +517,7 @@ export class WebviewManager {
         <div id="messages" class="messages"></div>
         <div class="input-container">
             <div class="shortcut-hint" id="shortcutHint">Ctrl+F to insert file</div>
-            <input id="messageInput" type="text" placeholder="Type your message... Use @file to include file context..." autofocus>
+            <textarea id="messageInput" placeholder="Type your message... Use @file to include file context..." autofocus rows="3"></textarea>
             <button id="sendButton">Send</button>
             <button id="contextButton" title="Send current file context">📄</button>
             <button id="fileButton" title="Insert file reference">📁</button>
@@ -878,44 +885,48 @@ export class WebviewManager {
             }
         });
         
-        // Enter key handler
-        messageInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendButton.click();
-            }
-        });
-        
         // Input event for autocomplete
         messageInput.addEventListener('input', (e) => {
             checkForAutocomplete();
         });
         
-        // Keyboard navigation for autocomplete
+        // Unified keyboard handler for Enter key, autocomplete navigation, and shortcuts
         messageInput.addEventListener('keydown', (e) => {
+            // Handle autocomplete navigation when dropdown is open
             if (autocompleteDropdown.style.display === 'block') {
                 switch (e.key) {
                     case 'ArrowDown':
                         e.preventDefault();
                         selectedAutocompleteIndex = Math.min(selectedAutocompleteIndex + 1, autocompleteItems.length - 1);
                         updateAutocompleteSelection();
-                        break;
+                        return;
                     case 'ArrowUp':
                         e.preventDefault();
                         selectedAutocompleteIndex = Math.max(selectedAutocompleteIndex - 1, 0);
                         updateAutocompleteSelection();
-                        break;
+                        return;
                     case 'Enter':
                         e.preventDefault();
                         if (selectedAutocompleteIndex >= 0) {
                             selectAutocompleteItem(selectedAutocompleteIndex);
+                        } else {
+                            // If no item selected, close autocomplete and send message
+                            hideAutocomplete();
+                            sendButton.click();
                         }
-                        break;
+                        return;
                     case 'Escape':
                         e.preventDefault();
                         hideAutocomplete();
-                        break;
+                        return;
                 }
+            }
+            
+            // Enter key: Send message (Shift+Enter for new line)
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendButton.click();
+                return;
             }
             
             // Ctrl+F shortcut to insert file reference

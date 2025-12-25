@@ -3,6 +3,7 @@
 
 import { MCPToolCall } from "./mcpClient";
 import { ToolCallExtractor } from "./utils/toolCallExtractor";
+import { XmlProcessor } from "./utils/xmlProcessor";
 
 export interface HarmonyParseResult {
   content: string;
@@ -303,34 +304,45 @@ export class HarmonyProcessor {
         // Check if this is a tool call
         let toolCallText: string | null = null;
         
-        // First check for XML-style tool calls
-        // Try multiple patterns to catch different formats
-        const selfClosingPattern = /<tool_call\s+[^>]*\/\s*>/;
-        const selfClosingPatternLoose = /<tool_call[^>]*\/>/;
-        const openingTagPattern = /<tool_call\s+[^>]*>/;
-        const variantMatch = trimmed.match(/<\|?[^>]*tool_call[^>]*\/?>/);
-        const fullElementMatch = trimmed.match(/<tool_call[^>]*>[\s\S]*?<\/tool_call>/);
+        // Use XmlProcessor to extract tool calls (more robust than regex)
+        // This handles complex JSON in args attributes correctly
+        const xmlToolCalls = XmlProcessor.extractToolCalls(trimmed);
+        if (xmlToolCalls.length > 0) {
+          // Use the raw XML string from the first extracted tool call
+          toolCallText = xmlToolCalls[0].raw;
+          console.log(`[HarmonyProcessor] Matched XML tool call pattern via XmlProcessor, length: ${toolCallText.length}`);
+        } else {
+          // Fallback to pattern matching for non-XML formats
+          // First check for XML-style tool calls with regex (for backwards compatibility)
+          const selfClosingPattern = /<tool_call\s+[^>]*\/\s*>/;
+          const selfClosingPatternLoose = /<tool_call[^>]*\/>/;
+          const openingTagPattern = /<tool_call\s+[^>]*>/;
+          const variantMatch = trimmed.match(/<\|?[^>]*tool_call[^>]*\/?>/);
+          const fullElementMatch = trimmed.match(/<tool_call[^>]*>[\s\S]*?<\/tool_call>/);
+          
+          // Try self-closing first (most common)
+          let match = trimmed.match(selfClosingPattern);
+          if (!match) {
+            match = trimmed.match(selfClosingPatternLoose);
+          }
+          if (!match) {
+            match = trimmed.match(openingTagPattern);
+          }
+          if (!match && variantMatch) {
+            match = variantMatch;
+          }
+          if (!match && fullElementMatch) {
+            match = fullElementMatch;
+          }
+          
+          if (match) {
+            // It's an XML-style tool call
+            toolCallText = match[0];
+            console.log(`[HarmonyProcessor] Matched XML tool call pattern via regex, length: ${toolCallText.length}`);
+          }
+        }
         
-        // Try self-closing first (most common)
-        let match = trimmed.match(selfClosingPattern);
-        if (!match) {
-          match = trimmed.match(selfClosingPatternLoose);
-        }
-        if (!match) {
-          match = trimmed.match(openingTagPattern);
-        }
-        if (!match && variantMatch) {
-          match = variantMatch;
-        }
-        if (!match && fullElementMatch) {
-          match = fullElementMatch;
-        }
-        
-        if (match) {
-          // It's an XML-style tool call
-          toolCallText = match[0];
-          console.log(`[HarmonyProcessor] Matched XML tool call pattern, length: ${toolCallText.length}`);
-        } else if (ToolCallExtractor.looksLikeToolCall(trimmed)) {
+        if (!toolCallText && ToolCallExtractor.looksLikeToolCall(trimmed)) {
           // It's a non-XML tool call (MCP or JSON format)
           toolCallText = trimmed;
           console.log(`[HarmonyProcessor] Matched non-XML tool call pattern`);
