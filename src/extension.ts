@@ -36,6 +36,11 @@ export class HarmonyAssistant {
       this.templateRenderer
     );
 
+    // Clear conversation history when webview panel is disposed (chat window closed)
+    this.webviewManager.setOnPanelDispose(() => {
+      this.clearConversationHistory();
+    });
+
     this.initializeMCP();
     this.initializeRules();
     this.setupWebviewHandlers();
@@ -164,9 +169,10 @@ export class HarmonyAssistant {
     });
 
     // Request file list for autocomplete handler
-    this.webviewManager.registerMessageHandler("requestFileList", async () => {
+    this.webviewManager.registerMessageHandler("requestFileList", async (message: WebviewMessage) => {
       console.log(`[DEBUG] Handling requestFileList`);
-      await this.sendFileList();
+      const searchTerm = (message as any).searchTerm || '';
+      await this.sendFileList(searchTerm);
     });
 
     // Insert file reference handler
@@ -240,7 +246,7 @@ export class HarmonyAssistant {
   /**
    * Send file list to webview for autocomplete
    */
-  private async sendFileList(): Promise<void> {
+  private async sendFileList(searchTerm: string = ''): Promise<void> {
     try {
       const workspaceFolders = vscode.workspace.workspaceFolders;
       if (!workspaceFolders || workspaceFolders.length === 0) {
@@ -248,16 +254,43 @@ export class HarmonyAssistant {
       }
 
       // Get files from workspace (excluding large directories)
-      const excludePatterns = '**/node_modules/**,**/.git/**,**/dist/**,**/build/**,**/*.min.*,**/*.bundle.*';
+      const excludePatterns = [
+        '**/node_modules/**',
+        '**/.git/**',
+        '**/dist/**',
+        '**/build/**',
+        '**/.build/**',
+        '**/out/**',
+        '**/output/**',
+        '**/.next/**',
+        '**/target/**',
+        '**/*.min.*',
+        '**/*.bundle.*',
+        '**/.cache/**',
+        '**/coverage/**'
+      ].join(',');
       const files = await vscode.workspace.findFiles('**/*', excludePatterns);
       
-      // Format files for display (limit to 50 for performance)
-      const fileItems = files.slice(0, 50).map(file => ({
+      // Format files for display
+      let fileItems = files.map(file => ({
         label: vscode.workspace.asRelativePath(file),
         path: vscode.workspace.asRelativePath(file)
       }));
 
-      console.log(`[Harmony] Sending ${fileItems.length} files for autocomplete`);
+      // Filter files based on search term (exact substring match)
+      if (searchTerm) {
+        const searchLower = searchTerm.toLowerCase();
+        fileItems = fileItems.filter(file => {
+          const fileName = file.label.toLowerCase();
+          // Only match if the filename contains the exact search term as a substring
+          return fileName.includes(searchLower);
+        });
+      }
+      
+      // Limit to 50 for performance
+      fileItems = fileItems.slice(0, 50);
+
+      console.log(`[Harmony] Sending ${fileItems.length} files for autocomplete${searchTerm ? ` (filtered by "${searchTerm}")` : ''}`);
       await this.webviewManager.sendFileList(fileItems);
     } catch (error) {
       console.error(`[Harmony] Error getting file list:`, error);
@@ -285,6 +318,7 @@ export class HarmonyAssistant {
         '**/build/**',
         '**/.build/**',
         '**/out/**',
+        '**/output/**',
         '**/.next/**',
         '**/target/**',
         '**/*.min.*',

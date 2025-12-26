@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Harmony</title>
+    <link rel="stylesheet" href="{{stylesUri}}">
+</head>
+<body>
+    <div class="chat-container">
+        <div id="messages" class="messages"></div>
+        <div class="input-container">
+            <div class="shortcut-hint" id="shortcutHint">Ctrl+F to insert file</div>
+            <textarea id="messageInput" placeholder="Type your message... Use @file to include file context..." autofocus rows="3"></textarea>
+            <button id="sendButton">Send</button>
+            <button id="contextButton" title="Send current file context">📄</button>
+            <button id="fileButton" title="Insert file reference">📁</button>
+            <div id="autocompleteDropdown" class="autocomplete-dropdown"></div>
+        </div>
+    </div>
+    <script src="{{scriptUri}}"></script>
+</body>
+</html>
+

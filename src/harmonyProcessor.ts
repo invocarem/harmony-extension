@@ -19,8 +19,41 @@ export class HarmonyProcessor {
    * Filter out harmony tokens from text
    */
   private filterHarmonyTokens(text: string): string {
-    // Remove all harmony tokens: <|...|>
-    return text.replace(/<\|[^|]+\|>/g, '').replace(/\s+/g, ' ').trim();
+    // First remove all harmony tokens: <|...|>
+    let filtered = text.replace(/<\|[^|]+\|>/g, '');
+    
+    // Remove channel type keywords that appear between tokens
+    // These keywords appear concatenated (e.g., "userfinal", "assistantfinal") 
+    // when they're part of the Harmony protocol structure
+    const harmonyKeywords = ['user', 'assistant', 'final', 'analysis', 'commentary', 'start', 'end', 'channel', 'message'];
+    const keywordPattern = harmonyKeywords.join('|');
+    
+    // Remove sequences of harmony keywords that are concatenated together
+    // Iterate to handle all sequences like "userfinal", "assistantfinal", etc.
+    // We match a harmony keyword followed immediately (no space/letter) by another harmony keyword
+    let changed = true;
+    let iterations = 0;
+    while (changed && iterations < 20) {
+      const before = filtered;
+      // Match harmony keyword immediately followed by another harmony keyword (concatenated)
+      for (const keyword of harmonyKeywords) {
+        for (const otherKeyword of harmonyKeywords) {
+          if (keyword !== otherKeyword) {
+            // Remove concatenated pairs like "userfinal", "finalassistant", etc.
+            filtered = filtered.replace(new RegExp(`${keyword}${otherKeyword}`, 'gi'), '');
+          }
+        }
+        // Also handle sequences of same keyword (unlikely but possible)
+        filtered = filtered.replace(new RegExp(`${keyword}${keyword}`, 'gi'), '');
+      }
+      // Remove single harmony keywords at the very start of string
+      filtered = filtered.replace(new RegExp(`^(${keywordPattern})(?![a-zA-Z])`, 'gi'), '');
+      changed = (before !== filtered);
+      iterations++;
+    }
+    
+    // Clean up extra whitespace
+    return filtered.replace(/\s+/g, ' ').trim();
   }
 
   /**

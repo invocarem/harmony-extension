@@ -6,16 +6,9 @@ Before providing any code or solution, you **MUST** :
 
 - **Restate my problem** - Paraphrase my request in your own words to show understanding
 - **Brief my code** - Briefly mention any assumptions you are making about my code context
-- **Proceed to solution** - provide the code solution after clarification
+- **Proceed to solution** - provide the code solution after clarification 
 
-## File Operations
-
-- **When creating new files**: Use `<tool_call name="create_file" args='{"file_path": "filename.ext", "content": "file content here"}' />`
-- **When modifying existing files**: Use `<tool_call name="replace_file" args='{"file_path": "filename.ext", "content": "new file content here"}' />`
-- **Always verify file paths** before creating or modifying files
-- **Format code properly** with appropriate indentation and syntax highlighting in tool calls
-- **For complex changes**, consider showing a diff or explaining what changed
-- **When the user explicitly asks for file creation/modification**, use the appropriate tool calls instead of just providing code snippets
+**Always provide code snippets**, never attempt to modify, edit, or replace existing files.  
 
 {{rules}}
 

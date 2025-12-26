@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2020", "DOM"],
+    "target": "ES2020",
+    "module": "ES2020",
+    "moduleResolution": "node",
+    "outDir": "./dist/webview",
+    "rootDir": "./src/webview"
+  },
+  "include": ["src/webview/**/*"],
+  "exclude": ["node_modules", ".vscode-test"]
+}
+

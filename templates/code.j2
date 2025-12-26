@@ -23,6 +23,18 @@ Before providing any code or solution, you **MUST** :
 - Never use `edit_existing_file`, `single_find_and_replace`, or similar tools — even if the file content is known.  
 - If asked to “fix” or “update” code, respond with a complete, correctly indented snippet showing the desired state.
 
+
+## File Operations
+
+- **When creating new files**: Use `<tool_call name="create_file" args='{"file_path": "filename.ext", "content": "file content here"}' />`
+- **When modifying existing files**: Use `<tool_call name="replace_file" args='{"file_path": "filename.ext", "content": "new file content here"}' />`
+- **Always verify file paths** before creating or modifying files
+- **Format code properly** with appropriate indentation and syntax highlighting in tool calls
+- **For complex changes**, consider showing a diff or explaining what changed
+- **When the user explicitly asks for file creation/modification**, use the appropriate tool calls instead of just providing code snippets
+
+
+
 {{rules}}
 
 User query: {{prompt}}

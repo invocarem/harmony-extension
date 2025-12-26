@@ -779,4 +779,71 @@ This is not a file update.<|end|>`;
       expect(result.content).toContain("Here's an example");
     });
   });
+
+  describe("Harmony mode disabled (plain jinja)", () => {
+    let processorDisabled: HarmonyProcessor;
+
+    beforeEach(() => {
+      processorDisabled = new HarmonyProcessor(false);
+    });
+
+    it("should remove 'user' and 'final' keywords when filtering Harmony tokens", () => {
+      // This simulates the actual template structure: <|start|>user<|channel|>final<|message|>
+      // When harmony mode is disabled, these should be filtered out
+      const response = "<|start|>user<|channel|>final<|message|>Hello world<|end|>";
+      const result = processorDisabled.parseResponse(response);
+
+      // The filtered content should not contain "user" or "final" keywords
+      expect(result.content).not.toContain("user");
+      expect(result.content).not.toContain("final");
+      expect(result.content).toContain("Hello world");
+    });
+
+    it("should remove all Harmony protocol keywords when filtering", () => {
+      const response = "<|start|>assistant<|channel|>analysis<|message|>Some reasoning<|end|>";
+      const result = processorDisabled.parseResponse(response);
+
+      // Should remove all Harmony keywords: user, assistant, final, analysis, commentary, etc.
+      expect(result.content).not.toContain("assistant");
+      expect(result.content).not.toContain("analysis");
+      expect(result.content).toContain("Some reasoning");
+    });
+
+    it("should handle response with multiple Harmony keywords", () => {
+      const response = "<|start|>user<|channel|>final<|message|>Content here<|end|><|start|>assistant<|channel|>final<|message|>Response here<|end|>";
+      const result = processorDisabled.parseResponse(response);
+
+      // All Harmony keywords should be removed
+      expect(result.content).not.toContain("user");
+      expect(result.content).not.toContain("assistant");
+      expect(result.content).not.toContain("final");
+      expect(result.content).toContain("Content here");
+      expect(result.content).toContain("Response here");
+    });
+
+    it("should preserve actual content words that happen to match Harmony keywords", () => {
+      // This tests that we only remove standalone keywords, not words that are part of actual content
+      // For example, "final" in "final exam" should be preserved if it's actual content
+      // However, in practice, when harmony mode is disabled, the template structure means
+      // these keywords appear between tokens, so they should be removed
+      const response = "<|start|>user<|channel|>final<|message|>This is the final answer<|end|>";
+      const result = processorDisabled.parseResponse(response);
+
+      // "final" between tokens should be removed, but "final" in "final answer" should be preserved
+      // The filter uses word boundaries, so "final" in "final answer" should be preserved
+      expect(result.content).toContain("final answer");
+      // But we shouldn't see standalone "final" from the channel type
+      // The content should be "This is the final answer" without the channel keyword
+      expect(result.content).toBe("This is the final answer");
+    });
+
+    it("should handle plain jinja response without Harmony tokens", () => {
+      // When harmony mode is disabled, even responses without tokens should work
+      const response = "Just plain text response";
+      const result = processorDisabled.parseResponse(response);
+
+      expect(result.content).toBe("Just plain text response");
+      expect(result.rawToolCalls).toEqual([]);
+    });
+  });
 });
