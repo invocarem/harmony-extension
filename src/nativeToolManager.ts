@@ -58,7 +58,7 @@ export class NativeToolsManager {
       },
       {
         name: "create_file",
-        description: "Create a new file with the specified content. Creates parent directories if they don't exist.",
+        description: "Create a new file with the specified content. Creates parent directories if they don't exist. If the file already exists, the system will automatically use replace_file instead. Use this when you want to create a new file or update an existing one.",
         inputSchema: {
           type: "object",
           properties: {
@@ -76,7 +76,7 @@ export class NativeToolsManager {
       },
       {
         name: "replace_file",
-        description: "Replace the entire contents of a file with new content. Creates the file if it doesn't exist.",
+        description: "Replace the entire contents of a file with new content. Creates the file if it doesn't exist. Use this when you explicitly want to overwrite an existing file. Note: create_file will automatically fall back to replace_file if the file exists, so you can use either tool for updating files.",
         inputSchema: {
           type: "object",
           properties: {

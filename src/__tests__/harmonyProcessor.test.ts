@@ -337,6 +337,37 @@ const y = 2;
         // Should handle gracefully - may or may not extract depending on implementation
         expect(Array.isArray(result)).toBe(true);
       });
+
+      it("should NOT treat natural language mentioning tool calls as valid tool calls", () => {
+        // This tests the fix: natural language text that mentions <tool_call should not
+        // be identified as a valid tool call, even though it contains the substring
+        const naturalLanguage = "The system will execute the tool and return the result. After all tools are called and results received, provide your final response. You are to update the `englishText` array in the Psalm101Tests.swift file to add a comment every 5 verses, following the 29 verses of Latin text. I'll analyze the existing structure and add appropriate comments.";
+        
+        const result = processor.parseResponse(naturalLanguage);
+        
+        // Should be treated as content, not a tool call
+        expect(result.content).toContain("The system will execute");
+        expect(result.content).toContain("Psalm101Tests.swift");
+        expect(result.rawToolCalls).toEqual([]);
+        
+        // Also test that extraction returns empty
+        const extracted = processor.extractToolCalls([naturalLanguage]);
+        expect(extracted).toEqual([]);
+      });
+
+      it("should still detect actual XML tool calls correctly", () => {
+        // Ensure actual tool calls are still detected after the fix
+        const actualToolCall = '<tool_call name="analyze_latin" args=\'{"word": "amo"}\' />';
+        const result = processor.parseResponse(actualToolCall);
+        
+        // Should detect it as a tool call
+        expect(result.rawToolCalls?.length).toBeGreaterThan(0);
+        
+        // Should extract correctly
+        const extracted = processor.extractToolCalls(result.rawToolCalls || []);
+        expect(extracted).toHaveLength(1);
+        expect(extracted[0].name).toBe("analyze_latin");
+      });
     });
   });
 
@@ -629,6 +660,18 @@ This is a code example.`;
       expect(toolCallResult.content).toBe("");
       expect(toolCallResult.rawToolCalls?.length).toBeGreaterThan(0);
     });
+
+    it("should NOT treat natural language mentioning tool_call as a tool call", () => {
+      // This tests the fix: text that mentions <tool_call in natural language
+      // should not be treated as a tool call
+      const naturalLanguageResponse = "The system will execute the tool and return the result. After all tools are called and results received, provide your final response. You are to update the `englishText` array in the Psalm101Tests.swift file.";
+      const result = processor.parseResponse(naturalLanguageResponse);
+      
+      // Should be treated as content, not a tool call
+      expect(result.content).toContain("The system will execute");
+      expect(result.content).toContain("Psalm101Tests.swift");
+      expect(result.rawToolCalls).toEqual([]);
+    });
   });
 
   describe("Integration scenarios", () => {
@@ -844,6 +887,38 @@ This is not a file update.<|end|>`;
 
       expect(result.content).toBe("Just plain text response");
       expect(result.rawToolCalls).toEqual([]);
+    });
+
+    it("should filter <|start|>assistant| pattern correctly", () => {
+      // This tests the case where template ends with <|start|>assistant|
+      // which should be filtered to empty string when harmony mode is disabled
+      const response = "<|start|>assistant|Hello! How can I assist you today?";
+      const result = processorDisabled.parseResponse(response);
+
+      // Should remove <|start|> token and assistant| keyword
+      expect(result.content).not.toContain("assistant");
+      expect(result.content).not.toContain("<|start|>");
+      expect(result.content).toBe("Hello! How can I assist you today?");
+    });
+
+    it("should filter assistant|assistant pattern from model response", () => {
+      // This tests the case where model echoes assistant|assistant pattern
+      const response = "assistant|assistant Hello! How can I assist you today?";
+      const result = processorDisabled.parseResponse(response);
+
+      // Should remove all assistant keywords
+      expect(result.content).not.toContain("assistant");
+      expect(result.content).toBe("Hello! How can I assist you today?");
+    });
+
+    it("should filter |assistant pattern from response", () => {
+      // This tests the case where response starts with |assistant
+      const response = "|assistant Hello! How can I assist you today?";
+      const result = processorDisabled.parseResponse(response);
+
+      // Should remove |assistant pattern
+      expect(result.content).not.toContain("assistant");
+      expect(result.content).toBe("Hello! How can I assist you today?");
     });
   });
 });

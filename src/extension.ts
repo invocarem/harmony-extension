@@ -10,6 +10,7 @@ import { RulesManager } from "./rulesManager";
 import { NativeToolsManager, NativeToolResult } from "./nativeToolManager";
 import { ConversationManager, ChatMessage } from "./conversationManager";
 import { FileContextExtractor } from "./utils/fileContextExtractor";
+import { cleanVerboseResponse } from "./utils/responseCleaner";
 
 export class HarmonyAssistant {
   private webviewManager: WebviewManager;
@@ -227,14 +228,21 @@ export class HarmonyAssistant {
         `[Harmony] Sending response to webview. Content length: ${response.content?.length || 0}`
       );
 
-      // Add assistant response to history
+      // Clean verbose responses to improve readability
+      const cleanedContent = cleanVerboseResponse(response.content || '');
+      const cleanedResponse = {
+        ...response,
+        content: cleanedContent
+      };
+
+      // Add assistant response to history (use cleaned content for display)
       this.conversationManager.addMessage({
         role: 'assistant',
-        content: response.content,
+        content: cleanedContent,
         reasoning: response.reasoning,
       });
 
-      await this.webviewManager.sendMessage(response);
+      await this.webviewManager.sendMessage(cleanedResponse);
     } catch (error: any) {
       console.error(`[Harmony] Error in handleChatMessage:`, error);
       await this.webviewManager.sendMessage({

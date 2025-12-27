@@ -453,6 +453,31 @@ describe('ToolCallExtractor', () => {
         expect(result).toEqual([]);
       });
 
+      it('should NOT treat natural language mentioning tool_call as a valid tool call', () => {
+        // This tests the fix: natural language text that mentions <tool_call
+        // should not be extracted as a tool call, even though it contains the substring
+        const naturalLanguage = "The system will execute the tool and return the result. After all tools are called and results received, provide your final response. You are to update the `englishText` array in the Psalm101Tests.swift file to add a comment every 5 verses, following the 29 verses of Latin text. I'll analyze the existing structure and add appropriate comments.";
+        
+        // Should not look like a tool call (MCP/JSON format check)
+        expect(ToolCallExtractor.looksLikeToolCall(naturalLanguage)).toBe(false);
+        
+        // Should not extract any tool calls
+        const result = ToolCallExtractor.extractToolCalls([naturalLanguage]);
+        expect(result).toEqual([]);
+      });
+
+      it('should still detect actual XML tool calls after the fix', () => {
+        // Ensure actual tool calls are still detected correctly
+        const actualToolCall = '<tool_call name="analyze_latin" args=\'{"word": "amo"}\' />';
+        
+        // looksLikeToolCall doesn't handle XML, but extraction should work
+        const result = ToolCallExtractor.extractToolCalls([actualToolCall]);
+        
+        expect(result).toHaveLength(1);
+        expect(result[0].name).toBe('analyze_latin');
+        expect(result[0].arguments).toEqual({ word: 'amo' });
+      });
+
       it('should handle mixed valid and invalid tool calls', () => {
         const rawCalls = [
           '<tool_call name="valid" args=\'{"arg": "value"}\' />',

@@ -6,6 +6,7 @@ import { RulesManager, Rule } from "./rulesManager";
 import { NativeToolsManager, NativeTool } from "./nativeToolManager";
 import { HarmonyProcessor, HarmonyParseResult } from "./harmonyProcessor";
 import { ToolCallExtractor } from "./utils/toolCallExtractor";
+import { XmlProcessor } from "./utils/xmlProcessor";
 import { ChatMessage } from "./conversationManager";
 import { 
   logLongMessage, 
@@ -197,11 +198,6 @@ export class HarmonyClient {
         };
         
         finalPrompt = await applyTemplate(templateName, templateContext);
-        
-        // If template doesn't include rules and we have them, prepend
-        if (!finalPrompt.includes("{{rules}}") && rulesContext) {
-          finalPrompt = rulesContext + finalPrompt;
-        }
       } else {
         finalPrompt = rulesContext + continuationContext + prompt + toolsContext;
       }
@@ -280,8 +276,12 @@ export class HarmonyClient {
         // Filter out items that don't look like tool calls before processing
         // This prevents unnecessary processing of regular content that was incorrectly added to rawToolCalls
         const validToolCalls = parsed.rawToolCalls.filter(raw => {
-          const looksLike = ToolCallExtractor.looksLikeToolCall(raw) || raw.includes('<tool_call');
-          console.log(`[HarmonyClient] Checking raw tool call: looksLike=${looksLike}, length=${raw.length}, preview="${raw.substring(0, 100)}..."`);
+          // Check for MCP/JSON format first
+          const looksLikeMcpOrJson = ToolCallExtractor.looksLikeToolCall(raw);
+          // Check for XML format using proper structure detection (not just substring match)
+          const looksLikeXml = XmlProcessor.looksLikeXmlToolCall(raw);
+          const looksLike = looksLikeMcpOrJson || looksLikeXml;
+          console.log(`[HarmonyClient] Checking raw tool call: looksLike=${looksLike} (MCP/JSON=${looksLikeMcpOrJson}, XML=${looksLikeXml}), length=${raw.length}, preview="${raw.substring(0, 100)}..."`);
           return looksLike;
         });
         
@@ -415,6 +415,51 @@ export class HarmonyClient {
         };
       }
 
+      // If no tool calls but model describes actions, check if we should continue
+      if (toolCalls.length === 0 && parsed.content && this.conversationContext) {
+        const describesFileOperations = /(?:I'll|I will|going to|need to|should|will).*(?:open|read|view|see|check|examine|edit|modify|update|change|replace).*(?:file|content|property|field)/i.test(parsed.content);
+        const isFileTask = /(?:update|create|write|modify|edit|generate).*\.(?:md|txt|json|js|ts|py|java|cpp|c|html|css|swift)/i.test(prompt.toLowerCase());
+        
+        if (describesFileOperations && isFileTask) {
+          console.log(`[HarmonyClient] Model describes file operations but didn't make tool calls. Triggering continuation...`);
+          
+          // Check if we can continue (before incrementing)
+          const nextStep = this.conversationContext.currentStep + 1;
+          if (nextStep > this.conversationContext.maxSteps) {
+            console.warn(`[Harmony] Cannot continue: next step (${nextStep}) would exceed max steps (${this.conversationContext.maxSteps})`);
+            return {
+              content: parsed.content,
+              reasoning: parsed.reasoning,
+              isContinuation: isContinuation,
+            };
+          }
+          
+          console.log(`[Harmony] Continuing to step ${nextStep} to get model to make tool calls...`);
+          
+          // Prepare continuation prompt that encourages tool calls
+          const continuationPrompt = `Please use the appropriate tool calls to perform the file operations you described. For example, use read_file to read a file, and replace_file to modify a file.`;
+          
+          // Increment step counter
+          this.conversationContext.currentStep++;
+          
+          // Recursive call with continuation
+          const continuationResponse = await this.callServer(
+            continuationPrompt,
+            templateName,
+            applyTemplate,
+            true // Mark as continuation
+          );
+          
+          // Merge responses
+          return {
+            content: parsed.content + "\n\n---\n\n" + continuationResponse.content,
+            reasoning: parsed.reasoning,
+            toolCalls: continuationResponse.toolCalls || [],
+            isContinuation: true,
+          };
+        }
+      }
+
       return {
         content: parsed.content,
         reasoning: parsed.reasoning,
@@ -544,10 +589,32 @@ export class HarmonyClient {
           
           if (isNativeTool) {
             console.log(`[Harmony] Executing native tool "${toolCall.name}"`);
-            const result = await this.nativeToolsManager.callTool(
+            let result = await this.nativeToolsManager.callTool(
               toolCall.name,
               toolCall.arguments || {}
             );
+            
+            // Auto-fallback: If create_file fails because file exists, automatically use replace_file
+            if (toolCall.name === "create_file" && result.isError) {
+              const errorText = result.content[0]?.text || "";
+              if (errorText.includes("already exists") || errorText.includes("Use replace_file")) {
+                console.log(`[Harmony] File already exists, automatically retrying with replace_file`);
+                result = await this.nativeToolsManager.callTool(
+                  "replace_file",
+                  toolCall.arguments || {}
+                );
+                // Update the tool call name in the result to reflect what actually happened
+                results.push({
+                  name: "replace_file", // Record as replace_file since that's what we did
+                  arguments: toolCall.arguments || {},
+                  result: {
+                    content: result.content,
+                    isError: result.isError,
+                  },
+                });
+                continue;
+              }
+            }
             
             const mcpResult: MCPToolResult = {
               content: result.content,

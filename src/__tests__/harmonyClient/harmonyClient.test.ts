@@ -321,6 +321,156 @@ describe('HarmonyClient', () => {
         expect(result.toolCalls?.[0].name).toBe('native_tool');
       });
 
+      it('should automatically fallback from create_file to replace_file when file exists', async () => {
+        const mockResponse = {
+          status: 200,
+          data: {
+            choices: [{ text: '<|channel|>final<|message|><tool_call name="create_file" args=\'{"file_path": "test.txt", "content": "new content"}\' /><|end|>' }],
+          },
+        };
+
+        mockedAxios.post.mockResolvedValue(mockResponse);
+
+        const parseResult: HarmonyParseResult = {
+          content: '',
+          rawToolCalls: ['<tool_call name="create_file" args=\'{"file_path": "test.txt", "content": "new content"}\' />'],
+        };
+
+        mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
+
+        const toolCalls: MCPToolCall[] = [
+          { name: 'create_file', arguments: { file_path: 'test.txt', content: 'new content' } },
+        ];
+
+        mockHarmonyProcessor.extractToolCalls.mockReturnValue(toolCalls);
+
+        const createFileTool: NativeTool = {
+          name: 'create_file',
+          description: 'Create a new file',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              file_path: { type: 'string', description: 'Path to the file' },
+              content: { type: 'string', description: 'Content to write' },
+            },
+            required: ['file_path', 'content'],
+          },
+        } as any;
+
+        const replaceFileTool: NativeTool = {
+          name: 'replace_file',
+          description: 'Replace file contents',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              file_path: { type: 'string', description: 'Path to the file' },
+              content: { type: 'string', description: 'Content to write' },
+            },
+            required: ['file_path', 'content'],
+          },
+        } as any;
+
+        mockNativeToolsManager.getAvailableTools.mockReturnValue([createFileTool, replaceFileTool]);
+
+        // First call to create_file returns error about file existing
+        mockNativeToolsManager.callTool
+          .mockResolvedValueOnce({
+            content: [{ type: 'text', text: 'Error: File test.txt already exists. Use replace_file to overwrite it.' }],
+            isError: true,
+          })
+          // Second call to replace_file succeeds
+          .mockResolvedValueOnce({
+            content: [{ type: 'text', text: 'Successfully replaced file: test.txt' }],
+            isError: false,
+          });
+
+        const result = await client.callServer('Test');
+
+        // Verify create_file was called first
+        expect(mockNativeToolsManager.callTool).toHaveBeenNthCalledWith(1, 'create_file', {
+          file_path: 'test.txt',
+          content: 'new content',
+        });
+
+        // Verify replace_file was called second with same arguments
+        expect(mockNativeToolsManager.callTool).toHaveBeenNthCalledWith(2, 'replace_file', {
+          file_path: 'test.txt',
+          content: 'new content',
+        });
+
+        // Verify the result shows replace_file was used (not create_file)
+        expect(result.toolCalls).toBeDefined();
+        expect(result.toolCalls?.length).toBe(1);
+        expect(result.toolCalls?.[0].name).toBe('replace_file');
+        expect(result.toolCalls?.[0].arguments).toEqual({
+          file_path: 'test.txt',
+          content: 'new content',
+        });
+        expect(result.toolCalls?.[0].result?.isError).toBe(false);
+        expect(result.toolCalls?.[0].result?.content[0].text).toContain('Successfully replaced file');
+      });
+
+      it('should not fallback to replace_file when create_file succeeds', async () => {
+        const mockResponse = {
+          status: 200,
+          data: {
+            choices: [{ text: '<|channel|>final<|message|><tool_call name="create_file" args=\'{"file_path": "newfile.txt", "content": "new content"}\' /><|end|>' }],
+          },
+        };
+
+        mockedAxios.post.mockResolvedValue(mockResponse);
+
+        const parseResult: HarmonyParseResult = {
+          content: '',
+          rawToolCalls: ['<tool_call name="create_file" args=\'{"file_path": "newfile.txt", "content": "new content"}\' />'],
+        };
+
+        mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
+
+        const toolCalls: MCPToolCall[] = [
+          { name: 'create_file', arguments: { file_path: 'newfile.txt', content: 'new content' } },
+        ];
+
+        mockHarmonyProcessor.extractToolCalls.mockReturnValue(toolCalls);
+
+        const createFileTool: NativeTool = {
+          name: 'create_file',
+          description: 'Create a new file',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              file_path: { type: 'string', description: 'Path to the file' },
+              content: { type: 'string', description: 'Content to write' },
+            },
+            required: ['file_path', 'content'],
+          },
+        } as any;
+
+        mockNativeToolsManager.getAvailableTools.mockReturnValue([createFileTool]);
+
+        // create_file succeeds (file doesn't exist)
+        mockNativeToolsManager.callTool.mockResolvedValueOnce({
+          content: [{ type: 'text', text: 'Successfully created file: newfile.txt' }],
+          isError: false,
+        });
+
+        const result = await client.callServer('Test');
+
+        // Verify create_file was called only once
+        expect(mockNativeToolsManager.callTool).toHaveBeenCalledTimes(1);
+        expect(mockNativeToolsManager.callTool).toHaveBeenCalledWith('create_file', {
+          file_path: 'newfile.txt',
+          content: 'new content',
+        });
+
+        // Verify the result shows create_file was used (not replace_file)
+        expect(result.toolCalls).toBeDefined();
+        expect(result.toolCalls?.length).toBe(1);
+        expect(result.toolCalls?.[0].name).toBe('create_file');
+        expect(result.toolCalls?.[0].result?.isError).toBe(false);
+        expect(result.toolCalls?.[0].result?.content[0].text).toContain('Successfully created file');
+      });
+
       it('should handle tool not found error', async () => {
         const mockResponse = {
           status: 200,
@@ -698,6 +848,127 @@ describe('HarmonyClient', () => {
         expect(mockedAxios.post).toHaveBeenCalledTimes(2);
         expect(result.isContinuation).toBe(true);
         expect(result.toolCalls?.length).toBe(2);
+      });
+
+      it('should continue from read_file to replace_file', async () => {
+        // First response: read_file
+        const readFileResponse = {
+          status: 200,
+          data: {
+            choices: [{ text: '<|channel|>final<|message|><tool_call name="read_file" args=\'{"file_path": "test.txt"}\' /><|end|>' }],
+          },
+        };
+
+        // Second response: replace_file
+        const replaceFileResponse = {
+          status: 200,
+          data: {
+            choices: [{ text: '<|channel|>final<|message|><tool_call name="replace_file" args=\'{"file_path": "test.txt", "content": "Updated content"}\' /><|end|>' }],
+          },
+        };
+
+        mockedAxios.post
+          .mockResolvedValueOnce(readFileResponse)
+          .mockResolvedValueOnce(replaceFileResponse);
+
+        const readFileParseResult: HarmonyParseResult = {
+          content: '',
+          rawToolCalls: ['<tool_call name="read_file" args=\'{"file_path": "test.txt"}\' />'],
+        };
+
+        const replaceFileParseResult: HarmonyParseResult = {
+          content: 'File updated successfully',
+          rawToolCalls: ['<tool_call name="replace_file" args=\'{"file_path": "test.txt", "content": "Updated content"}\' />'],
+        };
+
+        mockHarmonyProcessor.parseResponse
+          .mockReturnValueOnce(readFileParseResult)
+          .mockReturnValueOnce(replaceFileParseResult);
+
+        mockHarmonyProcessor.formatPrompt
+          .mockReturnValueOnce('<|start|>user<|channel|>final<|message|>update test.txt to have new content<|end|>')
+          .mockReturnValueOnce('<|start|>user<|channel|>final<|message|>Please use the appropriate tool calls...<|end|>');
+
+        const readFileToolCalls: MCPToolCall[] = [
+          { name: 'read_file', arguments: { file_path: 'test.txt' } },
+        ];
+
+        const replaceFileToolCalls: MCPToolCall[] = [
+          { name: 'replace_file', arguments: { file_path: 'test.txt', content: 'Updated content' } },
+        ];
+
+        mockHarmonyProcessor.extractToolCalls
+          .mockReturnValueOnce(readFileToolCalls)
+          .mockReturnValueOnce(replaceFileToolCalls);
+
+        const readFileResult: MCPToolResult = {
+          content: [{ type: 'text', text: 'Original file content' }],
+          isError: false,
+        };
+
+        const replaceFileResult: MCPToolResult = {
+          content: [{ type: 'text', text: 'File replaced successfully' }],
+          isError: false,
+        };
+
+        // Mock native tools manager for read_file and replace_file
+        const readFileTool: NativeTool = {
+          name: 'read_file',
+          description: 'Read a file',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              file_path: { type: 'string', description: 'Path to the file' },
+            },
+            required: ['file_path'],
+          },
+        } as any;
+
+        const replaceFileTool: NativeTool = {
+          name: 'replace_file',
+          description: 'Replace file content',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              file_path: { type: 'string', description: 'Path to the file' },
+              content: { type: 'string', description: 'Content to write' },
+            },
+            required: ['file_path', 'content'],
+          },
+        } as any;
+
+        mockNativeToolsManager.getAvailableTools.mockReturnValue([
+          readFileTool,
+          replaceFileTool,
+        ]);
+
+        mockNativeToolsManager.callTool
+          .mockResolvedValueOnce({ content: readFileResult.content, isError: false } as any)
+          .mockResolvedValueOnce({ content: replaceFileResult.content, isError: false } as any);
+
+        const result = await client.callServer('update test.txt to have new content');
+
+        // Should have made two API calls (initial + continuation)
+        expect(mockedAxios.post).toHaveBeenCalledTimes(2);
+        
+        // Should have executed both tool calls
+        expect(mockNativeToolsManager.callTool).toHaveBeenCalledTimes(2);
+        expect(mockNativeToolsManager.callTool).toHaveBeenNthCalledWith(1, 'read_file', { file_path: 'test.txt' });
+        expect(mockNativeToolsManager.callTool).toHaveBeenNthCalledWith(2, 'replace_file', { 
+          file_path: 'test.txt', 
+          content: 'Updated content' 
+        });
+
+        // Result should indicate continuation
+        expect(result.isContinuation).toBe(true);
+        
+        // Should have both tool calls in result
+        expect(result.toolCalls?.length).toBe(2);
+        expect(result.toolCalls?.[0].name).toBe('read_file');
+        expect(result.toolCalls?.[1].name).toBe('replace_file');
+        
+        // Content should include the final message
+        expect(result.content).toContain('File updated successfully');
       });
 
       it('should stop continuation at max steps', async () => {

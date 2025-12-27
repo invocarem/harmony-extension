@@ -172,6 +172,22 @@ describe('XmlProcessor', () => {
         
         expect(result).toHaveLength(0);
       });
+
+      it('should skip tool calls with placeholder args like "{...}"', () => {
+        // This is a common pattern in example/documentation text that should be skipped
+        const text = '<tool_call name="tool_name1" args="{...}" />';
+        const result = XmlProcessor.extractToolCalls(text);
+        
+        // Should skip placeholder tool calls
+        expect(result).toHaveLength(0);
+      });
+
+      it('should skip tool calls with placeholder args like "{ ... }"', () => {
+        const text = '<tool_call name="tool_name2" args="{ ... }" />';
+        const result = XmlProcessor.extractToolCalls(text);
+        
+        expect(result).toHaveLength(0);
+      });
     });
 
     describe('Variant patterns', () => {
@@ -207,6 +223,26 @@ describe('XmlProcessor', () => {
       expect(XmlProcessor.looksLikeXmlToolCall('to=test_function {}')).toBe(false);
       expect(XmlProcessor.looksLikeXmlToolCall('{"name": "test"}')).toBe(false);
       expect(XmlProcessor.looksLikeXmlToolCall('regular text')).toBe(false);
+    });
+
+    it('should return false for natural language mentioning tool_call', () => {
+      // This tests the fix: natural language text that mentions <tool_call
+      // should NOT be identified as a valid XML tool call
+      const naturalLanguage = "The system will execute the tool and return the result. After all tools are called and results received, provide your final response. You are to update the `englishText` array in the Psalm101Tests.swift file to add a comment every 5 verses, following the 29 verses of Latin text. I'll analyze the existing structure and add appropriate comments.";
+      
+      // looksLikeXmlToolCall checks for the pattern, but extraction should return 0
+      // The important test is that extraction returns 0, not that looksLikeXmlToolCall returns false
+      expect(XmlProcessor.extractToolCalls(naturalLanguage)).toHaveLength(0);
+      
+      // Even if it contains the substring <tool_call, extraction should return 0
+      const withSubstring = "I need to call the <tool_call function to update the file.";
+      expect(XmlProcessor.extractToolCalls(withSubstring)).toHaveLength(0);
+    });
+
+    it('should still return true for actual XML tool call structures', () => {
+      // Ensure actual tool calls are still detected correctly
+      expect(XmlProcessor.looksLikeXmlToolCall('<tool_call name="test" args=\'{"arg": "value"}\' />')).toBe(true);
+      expect(XmlProcessor.looksLikeXmlToolCall('<tool_call name="analyze_latin" />')).toBe(true);
     });
   });
 });

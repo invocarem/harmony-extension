@@ -138,7 +138,7 @@ button:active {
     border: 1px solid var(--vscode-textBlockQuote-border);
     border-radius: 4px;
     padding: 0;
-    margin: 15px 0;
+    margin: 8px 0;
     font-family: var(--vscode-editor-font-family);
     overflow: hidden;
 }
@@ -154,13 +154,98 @@ button:active {
 }
 .code-block pre {
     margin: 0;
-    padding: 12px;
+    padding: 10px 12px;
     overflow-x: auto;
     font-size: 13px;
-    line-height: 1.4;
+    line-height: 1.5;
+    white-space: pre;
 }
 .code-block code {
     font-family: var(--vscode-editor-font-family);
+    color: var(--vscode-editor-foreground);
+}
+
+/* Prism.js syntax highlighting styles - adapted for VS Code themes */
+.token.comment,
+.token.prolog,
+.token.doctype,
+.token.cdata {
+    color: var(--vscode-descriptionForeground);
+    font-style: italic;
+}
+
+.token.punctuation {
+    color: var(--vscode-editor-foreground);
+    opacity: 0.7;
+}
+
+.token.property,
+.token.tag,
+.token.boolean,
+.token.number,
+.token.constant,
+.token.symbol,
+.token.deleted {
+    color: #4EC9B0; /* VS Code teal/cyan for numbers */
+}
+
+.token.selector,
+.token.attr-name,
+.token.string,
+.token.char,
+.token.builtin,
+.token.inserted {
+    color: #CE9178; /* VS Code orange for strings */
+}
+
+.token.operator,
+.token.entity,
+.token.url,
+.language-css .token.string,
+.style .token.string {
+    color: var(--vscode-editor-foreground);
+}
+
+.token.atrule,
+.token.attr-value,
+.token.keyword {
+    color: #C586C0; /* VS Code purple for keywords */
+}
+
+.token.function,
+.token.class-name {
+    color: #DCDCAA; /* VS Code yellow for functions */
+}
+
+.token.regex,
+.token.important,
+.token.variable {
+    color: #9CDCFE; /* VS Code light blue */
+}
+
+/* JSON specific styling */
+.token.property {
+    color: #9CDCFE; /* Light blue for JSON keys */
+}
+
+.language-json .token.property {
+    color: #9CDCFE; /* Keys */
+}
+
+.language-json .token.string {
+    color: #CE9178; /* String values */
+}
+
+.language-json .token.number {
+    color: #B5CEA8; /* Number values */
+}
+
+.language-json .token.boolean {
+    color: #569CD6; /* Boolean values */
+}
+
+.language-json .token.null {
+    color: #569CD6; /* Null values */
 }
 h1, h2, h3, h4 {
     margin: 20px 0 10px 0;

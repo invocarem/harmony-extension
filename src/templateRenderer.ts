@@ -42,12 +42,19 @@ export class TemplateRenderer {
       }
       // Remove single harmony keywords at the very start of string
       filtered = filtered.replace(new RegExp(`^(${keywordPattern})(?![a-zA-Z])`, 'gi'), '');
+      // Remove pipe-prefixed harmony keywords (e.g., |assistant)
+      filtered = filtered.replace(new RegExp(`\\|(${keywordPattern})(?![a-zA-Z])`, 'gi'), '');
+      // Remove pipe-suffixed harmony keywords (e.g., assistant|)
+      filtered = filtered.replace(new RegExp(`(${keywordPattern})\\|`, 'gi'), '');
       changed = (before !== filtered);
       iterations++;
     }
     
-    // Clean up extra whitespace
-    return filtered.replace(/\s+/g, ' ').trim();
+    // Clean up extra whitespace and leading pipes
+    filtered = filtered.replace(/\s+/g, ' ').trim();
+    // Remove leading pipe if it exists (from patterns like |assistant being partially cleaned)
+    filtered = filtered.replace(/^\|+/, '').trim();
+    return filtered;
   }
 
   async applyTemplate(

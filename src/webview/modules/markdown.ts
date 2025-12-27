@@ -2,6 +2,15 @@
  * Markdown formatting utilities
  */
 
+import Prism from 'prismjs';
+import 'prismjs/components/prism-json';
+import 'prismjs/components/prism-javascript';
+import 'prismjs/components/prism-typescript';
+import 'prismjs/components/prism-python';
+import 'prismjs/components/prism-bash';
+import 'prismjs/components/prism-markdown';
+import 'prismjs/components/prism-swift';
+
 export function escapeHtml(text: string): string {
     const div = document.createElement('div');
     div.textContent = text;
@@ -17,8 +26,14 @@ export function formatMarkdown(text: string): string {
     const codeBlocks: Array<{ lang?: string; code: string }> = [];
     let codeBlockIndex = 0;
     
+    // Store C-style comments (/* ... */) to protect them from italic processing
+    const comments: string[] = [];
+    let commentIndex = 0;
+    
     // Extract code blocks first (before processing headers)
-    formatted = formatted.replace(/```(\w+)?\n([\s\S]*?)```/g, 
+    // Updated regex to handle code blocks with or without newline after language identifier
+    // Matches: ```lang optional-whitespace optional-newline code-content ```
+    formatted = formatted.replace(/```(\w+)?\s*([\s\S]*?)```/g, 
         function(match, lang, code) {
             const placeholder = `__CODE_BLOCK_${codeBlockIndex}__`;
             codeBlocks[codeBlockIndex] = { lang, code };
@@ -27,7 +42,17 @@ export function formatMarkdown(text: string): string {
         }
     );
     
-    // Now process markdown (headers, etc.) - code blocks are protected
+    // Extract C-style comments (/* ... */) to protect them from italic processing
+    formatted = formatted.replace(/\/\*([\s\S]*?)\*\//g,
+        function(match, comment) {
+            const placeholder = `__COMMENT_${commentIndex}__`;
+            comments[commentIndex] = match; // Store the full comment including /* and */
+            commentIndex++;
+            return placeholder;
+        }
+    );
+    
+    // Now process markdown (headers, etc.) - code blocks and comments are protected
     // Headers
     formatted = formatted.replace(/^### (.*$)/gim, '<h3>$1</h3>');
     formatted = formatted.replace(/^## (.*$)/gim, '<h2>$1</h2>');
@@ -36,7 +61,14 @@ export function formatMarkdown(text: string): string {
     // Bold and Italic
     formatted = formatted.replace(/\*\*\*(.*?)\*\*\*/g, '<strong><em>$1</em></strong>');
     formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    formatted = formatted.replace(/\*(.*?)\*/g, '<em>$1</em>');
+    // Now process italic (comments are already protected)
+    formatted = formatted.replace(/\*([^*\n]+?)\*/g, '<em>$1</em>');
+    
+    // Restore C-style comments (escape HTML to prevent any further processing)
+    for (let i = 0; i < comments.length; i++) {
+        const placeholder = `__COMMENT_${i}__`;
+        formatted = formatted.replace(placeholder, escapeHtml(comments[i]));
+    }
     
     // Inline code (but not code blocks which are already replaced)
     formatted = formatted.replace(/`([^`]+)`/g, '<code>$1</code>');
@@ -51,14 +83,25 @@ export function formatMarkdown(text: string): string {
     // Blockquotes
     formatted = formatted.replace(/^>\s+(.+)$/gm, '<blockquote>$1</blockquote>');
     
-    // Restore code blocks with proper HTML formatting
+    // Restore code blocks with proper HTML formatting and syntax highlighting
     for (let i = 0; i < codeBlocks.length; i++) {
         const placeholder = `__CODE_BLOCK_${i}__`;
         const { lang, code } = codeBlocks[i];
-        const languageClass = lang ? `language-${lang}` : '';
+        const language = lang || 'text';
+        const languageClass = `language-${language}`;
+        
+        // Use Prism.js to highlight the code
+        let highlightedCode: string;
+        if (Prism.languages[language]) {
+            highlightedCode = Prism.highlight(code.trim(), Prism.languages[language], language);
+        } else {
+            // Fallback: escape HTML if language not supported
+            highlightedCode = escapeHtml(code.trim());
+        }
+        
         const codeBlockHtml = `<div class="code-block">
                           ${lang ? `<div class="code-lang">${lang}</div>` : ''}
-                          <pre><code class="${languageClass}">${escapeHtml(code)}</code></pre>
+                          <pre><code class="${languageClass}">${highlightedCode}</code></pre>
                         </div>`;
         formatted = formatted.replace(placeholder, codeBlockHtml);
     }

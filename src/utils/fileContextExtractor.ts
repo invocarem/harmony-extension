@@ -209,10 +209,11 @@ ${subdirs.map(d => `  - ${d}/`).join('\n')}`;
             if (context.content) {
                 formatted += '\n```\n';
                 
-                // Truncate very large files
-                if (context.content.length > 5000) {
-                    formatted += context.content.substring(0, 5000);
-                    formatted += `\n\n... [Content truncated. Full file is ${context.content.length} characters.] ...`;
+                // Truncate very large files, but don't truncate selections (they're intentionally selected)
+                const maxLength = context.type === 'selection' ? 50000 : 20000;
+                if (context.content.length > maxLength) {
+                    formatted += context.content.substring(0, maxLength);
+                    formatted += `\n\n... [Content truncated. Full ${context.type === 'selection' ? 'selection' : 'file'} is ${context.content.length} characters.] ...`;
                 } else {
                     formatted += context.content;
                 }

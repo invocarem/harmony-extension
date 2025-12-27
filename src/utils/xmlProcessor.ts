@@ -188,6 +188,14 @@ export class XmlProcessor {
         let decodedArgsStr = HtmlEntityDecoder.decode(argsStr);
         console.log(`[XmlProcessor] After HTML entity decoding (${decodedArgsStr.length} chars): "${decodedArgsStr.substring(0, 200)}${decodedArgsStr.length > 200 ? '...' : ''}"`);
         
+        // Check for placeholder/example patterns (e.g., "{...}", "{ ... }", etc.)
+        // These are commonly used in documentation/example tool calls and should be skipped
+        const trimmedArgs = decodedArgsStr.trim();
+        if (trimmedArgs === '{...}' || trimmedArgs === '{ ... }' || trimmedArgs.match(/^\{\s*\.{3}\s*\}$/)) {
+            console.warn(`[XmlProcessor] Detected placeholder/example pattern in args: "${decodedArgsStr}", skipping tool call`);
+            return null;
+        }
+        
         // Parse JSON arguments
         let args: any;
         try {
@@ -198,6 +206,12 @@ export class XmlProcessor {
             const braceMatchStr = this.extractArgsUsingBraceMatching(attributes);
             if (braceMatchStr && braceMatchStr !== argsStr) {
                 decodedArgsStr = HtmlEntityDecoder.decode(braceMatchStr);
+                // Check for placeholder patterns in brace-matched result too
+                const trimmedBraceArgs = decodedArgsStr.trim();
+                if (trimmedBraceArgs === '{...}' || trimmedBraceArgs === '{ ... }' || trimmedBraceArgs.match(/^\{\s*\.{3}\s*\}$/)) {
+                    console.warn(`[XmlProcessor] Detected placeholder/example pattern in brace-matched args: "${decodedArgsStr}", skipping tool call`);
+                    return null;
+                }
                 try {
                     args = JSON.parse(decodedArgsStr);
                     console.log(`[XmlProcessor] Successfully parsed JSON using brace matching fallback`);
