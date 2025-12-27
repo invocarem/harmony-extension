@@ -125,3 +125,48 @@ messageInput.addEventListener('blur', () => {
     shortcutHint.style.display = 'none';
 });
 
+// Handle code block action buttons (copy)
+document.addEventListener('click', async (e) => {
+    const target = e.target as HTMLElement;
+    const button = target.closest('.code-action-btn') as HTMLButtonElement;
+    if (!button) return;
+    
+    const action = button.getAttribute('data-action');
+    const code = button.getAttribute('data-code');
+    
+    if (!code || action !== 'copy') return;
+    
+    try {
+        await navigator.clipboard.writeText(code);
+        // Visual feedback
+        const originalText = button.textContent;
+        button.textContent = '✓ Copied';
+        button.style.opacity = '0.7';
+        setTimeout(() => {
+            if (button.textContent === '✓ Copied') {
+                button.textContent = originalText;
+                button.style.opacity = '1';
+            }
+        }, 2000);
+    } catch (err) {
+        console.error('Failed to copy:', err);
+        // Fallback for older browsers
+        const textArea = document.createElement('textarea');
+        textArea.value = code;
+        textArea.style.position = 'fixed';
+        textArea.style.opacity = '0';
+        document.body.appendChild(textArea);
+        textArea.select();
+        try {
+            document.execCommand('copy');
+            button.textContent = '✓ Copied';
+            setTimeout(() => {
+                button.textContent = '📋';
+            }, 2000);
+        } catch (fallbackErr) {
+            console.error('Fallback copy failed:', fallbackErr);
+        }
+        document.body.removeChild(textArea);
+    }
+});
+

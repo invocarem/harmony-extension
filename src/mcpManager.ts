@@ -8,8 +8,14 @@ export class MCPManager {
     // Disconnect existing servers
     await this.disconnectAll();
 
-    // Connect to new servers
+    // Connect to new servers (skip disabled ones)
     for (const config of serverConfigs) {
+      // Skip disabled servers
+      if (config.enabled === false) {
+        console.log(`[MCP] Skipping disabled server: "${config.name}"`);
+        continue;
+      }
+
       try {
         const client = new MCPClient(config);
         await client.connect();

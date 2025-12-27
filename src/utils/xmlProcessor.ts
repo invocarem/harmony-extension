@@ -16,32 +16,40 @@ export class XmlProcessor {
         
         console.log(`[XmlProcessor] extractToolCalls called with text (${text.length} chars): "${text.substring(0, 200)}${text.length > 200 ? '...' : ''}"`);
         
-        // Self-closing tool call pattern
-        const selfClosingRegex = /<tool_call\s+([^>]+)\s*\/>/gs;
-        let match: RegExpExecArray | null;
+        // Self-closing tool call patterns - support both <tool_call> and <MCP_CALL>
+        const selfClosingPatterns = [
+            /<tool_call\s+([^>]+)\s*\/>/gs,
+            /<MCP_CALL\s+([^>]+)\s*\/>/gs
+        ];
         
-        while ((match = selfClosingRegex.exec(text)) !== null) {
-            const attributes = match[1];
-            const raw = match[0];
-            
-            console.log(`[XmlProcessor] Found self-closing tool call, attributes: "${attributes}", raw: "${raw}"`);
-            
-            const parsed = this.parseAttributes(attributes, raw);
-            if (parsed) {
-                console.log(`[XmlProcessor] Successfully parsed tool call: ${parsed.name}`);
-                results.push(parsed);
-            } else {
-                console.warn(`[XmlProcessor] Failed to parse attributes from: "${attributes}"`);
+        for (const selfClosingRegex of selfClosingPatterns) {
+            let match: RegExpExecArray | null;
+            while ((match = selfClosingRegex.exec(text)) !== null) {
+                const attributes = match[1];
+                const raw = match[0];
+                
+                console.log(`[XmlProcessor] Found self-closing tool call, attributes: "${attributes}", raw: "${raw}"`);
+                
+                const parsed = this.parseAttributes(attributes, raw);
+                if (parsed) {
+                    console.log(`[XmlProcessor] Successfully parsed tool call: ${parsed.name}`);
+                    results.push(parsed);
+                } else {
+                    console.warn(`[XmlProcessor] Failed to parse attributes from: "${attributes}"`);
+                }
             }
         }
         
-        // Variant patterns
+        // Variant patterns - support both tool_call and MCP_CALL
         const variantPatterns = [
             /<\|[^>]*tool_call\s+([^>]+)\s*\/>/gs,  // <|...tool_call
-            /(?:^|[^<])\|[^>]*tool_call\s+([^>]+)\s*\/>/gm  // |...tool_call
+            /<\|[^>]*MCP_CALL\s+([^>]+)\s*\/>/gs,  // <|...MCP_CALL
+            /(?:^|[^<])\|[^>]*tool_call\s+([^>]+)\s*\/>/gm,  // |...tool_call
+            /(?:^|[^<])\|[^>]*MCP_CALL\s+([^>]+)\s*\/>/gm  // |...MCP_CALL
         ];
         
         for (const pattern of variantPatterns) {
+            let match: RegExpExecArray | null;
             while ((match = pattern.exec(text)) !== null) {
                 const attributes = match[1];
                 const raw = match[0];
@@ -53,38 +61,45 @@ export class XmlProcessor {
             }
         }
         
-        // Full element format
-        const fullElementRegex = /<tool_call[^>]*>([\s\S]*?)<\/tool_call>/g;
-        while ((match = fullElementRegex.exec(text)) !== null) {
-            const raw = match[0];
-            const content = match[1].trim();
-            
-            try {
-                // Try to parse JSON content inside element
-                const jsonMatch = content.match(/\{[\s\S]*\}/);
-                if (jsonMatch) {
-                    const toolData = JSON.parse(jsonMatch[0]);
-                    const args = toolData.arguments !== undefined ? toolData.arguments : toolData.args;
-                    if (toolData.name && args !== undefined) {
-                        results.push({
-                            raw,
-                            name: toolData.name,
-                            args
-                        });
-                        continue;
-                    }
-                }
+        // Full element format - support both <tool_call> and <MCP_CALL>
+        const fullElementPatterns = [
+            /<tool_call[^>]*>([\s\S]*?)<\/tool_call>/g,
+            /<MCP_CALL[^>]*>([\s\S]*?)<\/MCP_CALL>/g
+        ];
+        
+        for (const fullElementRegex of fullElementPatterns) {
+            let match: RegExpExecArray | null;
+            while ((match = fullElementRegex.exec(text)) !== null) {
+                const raw = match[0];
+                const content = match[1].trim();
                 
-                // Try to extract from attributes
-                const attrMatch = raw.match(/<tool_call\s+([^>]+)>/);
-                if (attrMatch) {
-                    const parsed = this.parseAttributes(attrMatch[1], raw);
-                    if (parsed) {
-                        results.push(parsed);
+                try {
+                    // Try to parse JSON content inside element
+                    const jsonMatch = content.match(/\{[\s\S]*\}/);
+                    if (jsonMatch) {
+                        const toolData = JSON.parse(jsonMatch[0]);
+                        const args = toolData.arguments !== undefined ? toolData.arguments : toolData.args;
+                        if (toolData.name && args !== undefined) {
+                            results.push({
+                                raw,
+                                name: toolData.name,
+                                args
+                            });
+                            continue;
+                        }
                     }
+                    
+                    // Try to extract from attributes
+                    const attrMatch = raw.match(/<(?:tool_call|MCP_CALL)\s+([^>]+)>/);
+                    if (attrMatch) {
+                        const parsed = this.parseAttributes(attrMatch[1], raw);
+                        if (parsed) {
+                            results.push(parsed);
+                        }
+                    }
+                } catch (error) {
+                    console.error(`[XmlProcessor] Failed to parse tool call: ${raw.substring(0, 100)}`, error);
                 }
-            } catch (error) {
-                console.error(`[XmlProcessor] Failed to parse tool call: ${raw.substring(0, 100)}`, error);
             }
         }
         
@@ -328,7 +343,10 @@ export class XmlProcessor {
      */
     static looksLikeXmlToolCall(text: string): boolean {
         return /<tool_call/.test(text) || 
+               /<MCP_CALL/.test(text) ||
                /<\|[^>]*tool_call/.test(text) ||
-               /(?:^|[^<])\|[^>]*tool_call/.test(text);
+               /<\|[^>]*MCP_CALL/.test(text) ||
+               /(?:^|[^<])\|[^>]*tool_call/.test(text) ||
+               /(?:^|[^<])\|[^>]*MCP_CALL/.test(text);
     }
 }

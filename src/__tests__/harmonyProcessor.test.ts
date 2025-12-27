@@ -920,5 +920,186 @@ This is not a file update.<|end|>`;
       expect(result.content).not.toContain("assistant");
       expect(result.content).toBe("Hello! How can I assist you today?");
     });
+
+    it("should extract file update from plain jinja response with file description", () => {
+      // When harmony mode is disabled, should still extract file updates from descriptive content
+      const response = `**File:** \`Tests/LatinService/Psalm105ATests.swift\`
+
+\`\`\`swift
+@testable import LatinService
+import XCTest
+
+class Psalm105ATests: XCTestCase {
+  func testExample() {
+    XCTAssertTrue(true)
+  }
+}
+\`\`\``;
+
+      const result = processorDisabled.parseResponse(response);
+
+      // Should extract as a tool call
+      expect(result.rawToolCalls?.length).toBeGreaterThan(0);
+      
+      const toolCalls = processorDisabled.extractToolCalls(result.rawToolCalls || []);
+      expect(toolCalls.length).toBeGreaterThan(0);
+      expect(toolCalls[0].name).toBe("create_file");
+      expect(toolCalls[0].arguments).toBeDefined();
+      if (toolCalls[0].arguments) {
+        expect(toolCalls[0].arguments).toHaveProperty("file_path");
+        expect(toolCalls[0].arguments.file_path).toBe("Tests/LatinService/Psalm105ATests.swift");
+        expect(toolCalls[0].arguments).toHaveProperty("content");
+        expect(toolCalls[0].arguments.content).toContain("@testable import LatinService");
+      }
+    });
+  });
+
+  describe("File extraction from plain text (no Harmony tokens)", () => {
+    it("should extract file update from plain text response with file description", () => {
+      // Response without Harmony tokens but with file description
+      const response = `**File:** \`src/utils/helper.ts\`
+
+\`\`\`typescript
+export function helper() {
+  return "help";
+}
+\`\`\``;
+
+      const result = processor.parseResponse(response);
+
+      // Should extract as a tool call
+      expect(result.rawToolCalls?.length).toBeGreaterThan(0);
+      
+      const toolCalls = processor.extractToolCalls(result.rawToolCalls || []);
+      expect(toolCalls.length).toBeGreaterThan(0);
+      expect(toolCalls[0].name).toBe("create_file");
+      expect(toolCalls[0].arguments).toBeDefined();
+      if (toolCalls[0].arguments) {
+        expect(toolCalls[0].arguments.file_path).toBe("src/utils/helper.ts");
+        expect(toolCalls[0].arguments.content).toContain("export function helper");
+      }
+    });
+
+    it("should extract file update with File: format (without bold)", () => {
+      const response = `File: \`test.py\`
+
+\`\`\`python
+print("test")
+\`\`\``;
+
+      const result = processor.parseResponse(response);
+
+      expect(result.rawToolCalls?.length).toBeGreaterThan(0);
+      const toolCalls = processor.extractToolCalls(result.rawToolCalls || []);
+      expect(toolCalls[0].name).toBe("create_file");
+      expect(toolCalls[0].arguments).toBeDefined();
+      if (toolCalls[0].arguments) {
+        expect(toolCalls[0].arguments.file_path).toBe("test.py");
+      }
+    });
+
+    it("should not extract if no code block present", () => {
+      const response = `**File:** \`test.py\`
+
+This is just a description without code.`;
+
+      const result = processor.parseResponse(response);
+
+      // Should not extract if there's no code block
+      expect(result.rawToolCalls).toEqual([]);
+      expect(result.content).toContain("**File:**");
+    });
+  });
+
+  describe("File extraction from content with Harmony tokens", () => {
+    it("should extract file update from content when Harmony tokens are present", () => {
+      // Model describes file in content instead of making tool call
+      const response = `<|channel|>final<|message|>**File:** \`Tests/LatinService/Psalm105ATests.swift\`
+
+\`\`\`swift
+@testable import LatinService
+import XCTest
+
+class Psalm105ATests: XCTestCase {
+  private let utilities = PsalmTestUtilities.self
+  private let verbose = true
+
+  func testExample() {
+    XCTAssertTrue(true)
+  }
+}
+\`\`\`
+<|end|>`;
+
+      const result = processor.parseResponse(response);
+
+      // Should extract as a tool call from content
+      expect(result.rawToolCalls?.length).toBeGreaterThan(0);
+      
+      const toolCalls = processor.extractToolCalls(result.rawToolCalls || []);
+      expect(toolCalls.length).toBeGreaterThan(0);
+      expect(toolCalls[0].name).toBe("create_file");
+      expect(toolCalls[0].arguments).toBeDefined();
+      if (toolCalls[0].arguments) {
+        expect(toolCalls[0].arguments.file_path).toBe("Tests/LatinService/Psalm105ATests.swift");
+        expect(toolCalls[0].arguments.content).toContain("@testable import LatinService");
+      }
+      
+      // Content should be cleared since it was extracted as a tool call
+      expect(result.content).toBe("");
+    });
+
+    it("should normalize file paths with leading slash to be relative to workspace", () => {
+      // When a path like "/Tests/LatinService/Psalm105ATests.swift" is extracted from content,
+      // it should be normalized to "Tests/LatinService/Psalm105ATests.swift" (relative)
+      const response = `**File:** \`/Tests/LatinService/Psalm105ATests.swift\`
+
+\`\`\`swift
+@testable import LatinService
+import XCTest
+
+class Psalm105ATests: XCTestCase {
+  func testExample() {
+    XCTAssertTrue(true)
+  }
+}
+\`\`\``;
+
+      const result = processor.parseResponse(response);
+
+      // Should extract as a tool call
+      expect(result.rawToolCalls?.length).toBeGreaterThan(0);
+      
+      const toolCalls = processor.extractToolCalls(result.rawToolCalls || []);
+      expect(toolCalls.length).toBeGreaterThan(0);
+      expect(toolCalls[0].name).toBe("create_file");
+      expect(toolCalls[0].arguments).toBeDefined();
+      if (toolCalls[0].arguments) {
+        // Leading slash should be removed - path should be relative
+        expect(toolCalls[0].arguments.file_path).toBe("Tests/LatinService/Psalm105ATests.swift");
+        expect(toolCalls[0].arguments.file_path).not.toBe("/Tests/LatinService/Psalm105ATests.swift");
+      }
+    });
+
+    it("should extract replace_file when update/replace keywords are present", () => {
+      const response = `<|channel|>final<|message|>I've updated the file:
+
+**File:** \`src/app.ts\`
+
+\`\`\`typescript
+export const app = "updated";
+\`\`\`
+<|end|>`;
+
+      const result = processor.parseResponse(response);
+
+      expect(result.rawToolCalls?.length).toBeGreaterThan(0);
+      const toolCalls = processor.extractToolCalls(result.rawToolCalls || []);
+      expect(toolCalls[0].name).toBe("replace_file");
+      expect(toolCalls[0].arguments).toBeDefined();
+      if (toolCalls[0].arguments) {
+        expect(toolCalls[0].arguments.file_path).toBe("src/app.ts");
+      }
+    });
   });
 });

@@ -17,6 +17,16 @@ export function escapeHtml(text: string): string {
     return div.innerHTML;
 }
 
+function escapeHtmlAttribute(text: string): string {
+    // Escape characters that are problematic in HTML attributes
+    return text
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
 export function formatMarkdown(text: string): string {
     if (!text) return '';
     
@@ -99,8 +109,18 @@ export function formatMarkdown(text: string): string {
             highlightedCode = escapeHtml(code.trim());
         }
         
-        const codeBlockHtml = `<div class="code-block">
-                          ${lang ? `<div class="code-lang">${lang}</div>` : ''}
+        // Add copy button for JSON code blocks (inline with language label)
+        const isJson = language === 'json';
+        // Properly escape code for data attribute
+        const escapedCode = escapeHtmlAttribute(code.trim());
+        const copyButton = isJson ? `
+            <button class="code-action-btn" data-action="copy" data-code="${escapedCode}" title="Copy JSON">
+                📋
+            </button>
+        ` : '';
+        
+        const codeBlockHtml = `<div class="code-block ${isJson ? 'code-block-json' : ''}">
+                          ${lang ? `<div class="code-lang">${lang}${copyButton}</div>` : (copyButton ? `<div class="code-lang">${copyButton}</div>` : '')}
                           <pre><code class="${languageClass}">${highlightedCode}</code></pre>
                         </div>`;
         formatted = formatted.replace(placeholder, codeBlockHtml);

@@ -190,7 +190,7 @@ export class NativeToolsManager {
   }
 
   private resolvePath(filePath: string): string {
-    // If absolute path, use as-is
+    // If absolute path, use as-is (treat /Tests as absolute)
     if (path.isAbsolute(filePath)) {
       return filePath;
     }

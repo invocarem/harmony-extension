@@ -83,11 +83,26 @@ function findJSONAtEnd(text: string): { json: string; startIndex: number } | nul
 }
 
 /**
+ * Remove instructional blocks that start with ⚠️ NOTE:
+ * These are typically instructions meant for the LLM but being echoed back in responses.
+ * Different models may handle this differently, so we filter them out.
+ */
+function removeInstructionalNotes(content: string): string {
+  // Remove blocks starting with "⚠️ NOTE:" - these are instructions being echoed back
+  // Match from "⚠️ NOTE:" to the next empty line or end of content
+  const instructionBlockPattern = /⚠️\s*NOTE:.*?(?=\n\n|\n[A-Z]|$)/gs;
+  return content.replace(instructionBlockPattern, '').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/**
  * Clean verbose responses by extracting the main content (e.g., JSON blocks)
  * Removes excessive reasoning/thinking before the actual answer
  */
 export function cleanVerboseResponse(content: string): string {
   if (!content) return content;
+  
+  // Remove instructional notes that some models echo back
+  content = removeInstructionalNotes(content);
   
   // Try to extract JSON blocks if present (they're usually at the end)
   const jsonBlockMatch = content.match(/```json\s*([\s\S]*?)```/);

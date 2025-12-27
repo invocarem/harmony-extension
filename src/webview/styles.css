@@ -138,26 +138,57 @@ button:active {
     border: 1px solid var(--vscode-textBlockQuote-border);
     border-radius: 4px;
     padding: 0;
-    margin: 8px 0;
+    margin: 4px 0;
     font-family: var(--vscode-editor-font-family);
     overflow: hidden;
+    position: relative;
+}
+.code-block-json {
+    padding-top: 0;
+    margin-top: 0;
 }
 .code-lang {
     background: var(--vscode-textBlockQuote-border);
     color: var(--vscode-editor-foreground);
-    padding: 6px 12px;
+    padding: 4px 12px;
     font-size: 12px;
     font-family: var(--vscode-editor-font-family);
     border-bottom: 1px solid var(--vscode-input-border);
     text-transform: uppercase;
     letter-spacing: 0.5px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 0;
+}
+.code-action-btn {
+    padding: 3px 8px;
+    background: transparent;
+    color: var(--vscode-editor-foreground);
+    border: 1px solid var(--vscode-input-border);
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 11px;
+    font-family: var(--vscode-font-family);
+    transition: all 0.2s;
+    white-space: nowrap;
+    text-transform: none;
+    letter-spacing: normal;
+    margin-left: auto;
+}
+.code-action-btn:hover {
+    background: var(--vscode-list-hoverBackground);
+    border-color: var(--vscode-textLink-foreground);
+}
+.code-action-btn:active {
+    opacity: 0.8;
 }
 .code-block pre {
     margin: 0;
-    padding: 10px 12px;
+    padding: 8px 12px;
     overflow-x: auto;
     font-size: 13px;
-    line-height: 1.5;
+    line-height: 1.4;
     white-space: pre;
 }
 .code-block code {

@@ -63,6 +63,7 @@ export function loadConfig(): LlamaConfig {
     command: server.command,
     args: server.args || [],
     type: server.type || "stdio",
+    enabled: server.enabled !== undefined ? server.enabled : true,
   }));
 
   const rawServerUrl = config.get("serverUrl", "http://localhost:8000");

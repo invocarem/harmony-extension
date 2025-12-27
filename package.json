@@ -126,6 +126,11 @@
                 ],
                 "default": "stdio",
                 "description": "Transport type (currently only stdio is supported)"
+              },
+              "enabled": {
+                "type": "boolean",
+                "default": true,
+                "description": "Whether this MCP server should be enabled. Disabled servers will be skipped during initialization."
               }
             },
             "required": [

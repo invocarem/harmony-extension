@@ -2,60 +2,13 @@ import * as path from "path";
 import * as fs from "fs";
 import * as vscode from "vscode";
 import { ChatMessage } from "./conversationManager";
+import { filterHarmonyTokens } from "./utils/harmonyTokenFilter";
 
 export class TemplateRenderer {
   constructor(
     private context: vscode.ExtensionContext,
     private harmonyMode: boolean = true
   ) {}
-
-  /**
-   * Filter out harmony tokens from text
-   */
-  private filterHarmonyTokens(text: string): string {
-    // First remove all harmony tokens: <|...|>
-    let filtered = text.replace(/<\|[^|]+\|>/g, '');
-    
-    // Remove channel type keywords that appear between tokens
-    // These keywords appear concatenated (e.g., "userfinal", "assistantfinal") 
-    // when they're part of the Harmony protocol structure
-    const harmonyKeywords = ['user', 'assistant', 'final', 'analysis', 'commentary', 'start', 'end', 'channel', 'message'];
-    const keywordPattern = harmonyKeywords.join('|');
-    
-    // Remove sequences of harmony keywords that are concatenated together
-    // Iterate to handle all sequences like "userfinal", "assistantfinal", etc.
-    // We match a harmony keyword followed immediately (no space/letter) by another harmony keyword
-    let changed = true;
-    let iterations = 0;
-    while (changed && iterations < 20) {
-      const before = filtered;
-      // Match harmony keyword immediately followed by another harmony keyword (concatenated)
-      for (const keyword of harmonyKeywords) {
-        for (const otherKeyword of harmonyKeywords) {
-          if (keyword !== otherKeyword) {
-            // Remove concatenated pairs like "userfinal", "finalassistant", etc.
-            filtered = filtered.replace(new RegExp(`${keyword}${otherKeyword}`, 'gi'), '');
-          }
-        }
-        // Also handle sequences of same keyword (unlikely but possible)
-        filtered = filtered.replace(new RegExp(`${keyword}${keyword}`, 'gi'), '');
-      }
-      // Remove single harmony keywords at the very start of string
-      filtered = filtered.replace(new RegExp(`^(${keywordPattern})(?![a-zA-Z])`, 'gi'), '');
-      // Remove pipe-prefixed harmony keywords (e.g., |assistant)
-      filtered = filtered.replace(new RegExp(`\\|(${keywordPattern})(?![a-zA-Z])`, 'gi'), '');
-      // Remove pipe-suffixed harmony keywords (e.g., assistant|)
-      filtered = filtered.replace(new RegExp(`(${keywordPattern})\\|`, 'gi'), '');
-      changed = (before !== filtered);
-      iterations++;
-    }
-    
-    // Clean up extra whitespace and leading pipes
-    filtered = filtered.replace(/\s+/g, ' ').trim();
-    // Remove leading pipe if it exists (from patterns like |assistant being partially cleaned)
-    filtered = filtered.replace(/^\|+/, '').trim();
-    return filtered;
-  }
 
   async applyTemplate(
     templateName: string,
@@ -86,7 +39,7 @@ export class TemplateRenderer {
 <|start|>assistant<|channel|>final<|message|>`;
       
       // Filter harmony tokens if harmonyMode is false
-      return this.harmonyMode ? defaultPrompt : this.filterHarmonyTokens(defaultPrompt);
+      return this.harmonyMode ? defaultPrompt : filterHarmonyTokens(defaultPrompt);
     }
   }
 
@@ -140,22 +93,22 @@ ${assistantContent}
       : '';
     
     // Filter harmony tokens from template if harmonyMode is false
-    let templateToRender = this.harmonyMode ? template : this.filterHarmonyTokens(template);
+    let templateToRender = this.harmonyMode ? template : filterHarmonyTokens(template);
     
     // Simple template rendering - replace {{variable}} with values
     // Handle both {{variable}} and {variable} patterns
     let rendered = templateToRender
       .replace(/{{(\w+)}}/g, (match, key) => {
         const value = context[key];
-        if (value === undefined || value === null) {
-          return ""; // Remove placeholder if value is missing
+        if (value === undefined || value === null || (typeof value === 'string' && value.trim() === '')) {
+          return ""; // Remove placeholder if value is missing or empty
         }
         return String(value);
       })
       .replace(/{(\w+)}/g, (match, key) => {
         const value = context[key];
-        if (value === undefined || value === null) {
-          return ""; // Remove placeholder if value is missing
+        if (value === undefined || value === null || (typeof value === 'string' && value.trim() === '')) {
+          return ""; // Remove placeholder if value is missing or empty
         }
         return String(value);
       });

@@ -343,7 +343,7 @@ describe('HarmonyClient - Additional Test Cases', () => {
       mockMCPManager.findToolServer.mockReturnValue('files-server');
       mockMCPManager.callTool.mockResolvedValue(toolResult);
 
-      const result = await client.callServer('Write a file with special characters');
+      const result = await client.callServer('Write a file test.txt with special characters');
 
       expect(result.toolCalls?.length).toBe(1);
       expect(result.toolCalls?.[0].arguments).toEqual(specialArgs);

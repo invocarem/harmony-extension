@@ -483,7 +483,8 @@ export class RulesManager {
       return "";
     }
 
-    let formatted = "\n\n" + "=".repeat(80) + "\n";
+    let formatted = "\n\n## Rules to Follow\n\n";
+    formatted += "=".repeat(80) + "\n";
     formatted += "⚠️ CRITICAL: APPLICABLE RULES - YOU MUST FOLLOW THESE RULES EXACTLY\n";
     formatted += "=".repeat(80) + "\n\n";
 

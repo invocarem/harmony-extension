@@ -756,11 +756,11 @@ describe('HarmonyClient', () => {
 
         expect(applyTemplate).toHaveBeenCalledWith(
           'chat',
-          {
+          expect.objectContaining({
             prompt: 'Test prompt',
             rules: '',
             tools: expect.any(Array),
-          }
+          })
         );
 
         const callArgs = mockedAxios.post.mock.calls[0][1] as any;
@@ -1252,6 +1252,262 @@ describe('HarmonyClient', () => {
 
       const callArgs = mockedAxios.post.mock.calls[0][2] as any;
       expect(callArgs.headers).not.toHaveProperty('Authorization');
+    });
+  });
+
+  describe('Truncation detection', () => {
+    it('should detect truncation from finish_reason: length', async () => {
+      const mockResponse = {
+        status: 200,
+        data: {
+          choices: [
+            {
+              text: '<|channel|>final<|message|>Response content<|end|>',
+              finish_reason: 'length',
+            },
+          ],
+        },
+      };
+
+      mockedAxios.post.mockResolvedValue(mockResponse);
+
+      const parseResult: HarmonyParseResult = {
+        content: 'Response content',
+        rawToolCalls: [],
+      };
+
+      mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
+      mockHarmonyProcessor.extractToolCalls.mockReturnValue([]);
+
+      // Spy on console.warn to check if truncation warning is logged
+      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      await client.callServer('Test');
+
+      // Should log truncation warning
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('⚠️ Response was truncated due to token limit')
+      );
+
+      consoleSpy.mockRestore();
+    });
+
+    it('should detect truncation from finish_reason: max_tokens', async () => {
+      const mockResponse = {
+        status: 200,
+        data: {
+          choices: [
+            {
+              text: '<|channel|>final<|message|>Response<|end|>',
+              finish_reason: 'max_tokens',
+            },
+          ],
+        },
+      };
+
+      mockedAxios.post.mockResolvedValue(mockResponse);
+
+      const parseResult: HarmonyParseResult = {
+        content: 'Response',
+        rawToolCalls: [],
+      };
+
+      mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
+      mockHarmonyProcessor.extractToolCalls.mockReturnValue([]);
+
+      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      await client.callServer('Test');
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('⚠️ Response was truncated due to token limit')
+      );
+
+      consoleSpy.mockRestore();
+    });
+
+    it('should detect incomplete response with unclosed code block', async () => {
+      // Response with unclosed code block (only opening ```, no closing)
+      // This has 1 ``` pattern (odd number), so should be detected
+      // Note: Must use exactly 1 ``` (not 2 or more)
+      const responseText = '```python\nprint("test")\n# Missing closing code block';
+      const mockResponse = {
+        status: 200,
+        data: {
+          choices: [
+            {
+              text: responseText,
+            },
+          ],
+        },
+      };
+
+      mockedAxios.post.mockResolvedValue(mockResponse);
+
+      const parseResult: HarmonyParseResult = {
+        content: responseText,
+        rawToolCalls: [],
+      };
+
+      mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
+      mockHarmonyProcessor.extractToolCalls.mockReturnValue([]);
+
+      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      await client.callServer('Test');
+
+      // The detectIncompleteResponse method should detect the unclosed code block
+      // and trigger a warning. Check for the warning message.
+      const warnMessages = consoleSpy.mock.calls
+        .map(call => call[0])
+        .filter(msg => typeof msg === 'string')
+        .join(' ');
+      
+      // Should contain warning about incomplete response
+      expect(warnMessages).toMatch(/truncated|incomplete/i);
+
+      consoleSpy.mockRestore();
+    });
+
+    it('should detect incomplete response with file mention but no complete code block', async () => {
+      const mockResponse = {
+        status: 200,
+        data: {
+          choices: [
+            {
+              text: '**File:** `test.swift`\n\n```swift\nclass Test {\n  // Code block not closed',
+            },
+          ],
+        },
+      };
+
+      mockedAxios.post.mockResolvedValue(mockResponse);
+
+      const parseResult: HarmonyParseResult = {
+        content: '**File:** `test.swift`\n\n```swift\nclass Test {\n  // Code block not closed',
+        rawToolCalls: [],
+      };
+
+      mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
+      mockHarmonyProcessor.extractToolCalls.mockReturnValue([]);
+
+      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      await client.callServer('Test');
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('⚠️ Response appears truncated or incomplete')
+      );
+
+      consoleSpy.mockRestore();
+    });
+
+    it('should detect incomplete Harmony tokens', async () => {
+      const mockResponse = {
+        status: 200,
+        data: {
+          choices: [
+            {
+              text: '<|channel|>final<|message|>Content<|channel|>analysis<|message|>Reasoning',
+              // Missing <|end|> tokens
+            },
+          ],
+        },
+      };
+
+      mockedAxios.post.mockResolvedValue(mockResponse);
+
+      const parseResult: HarmonyParseResult = {
+        content: 'Content',
+        reasoning: 'Reasoning',
+        rawToolCalls: [],
+      };
+
+      mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
+      mockHarmonyProcessor.extractToolCalls.mockReturnValue([]);
+
+      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      await client.callServer('Test');
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('⚠️ Response appears truncated or incomplete')
+      );
+
+      consoleSpy.mockRestore();
+    });
+
+    it('should not warn for complete responses', async () => {
+      const mockResponse = {
+        status: 200,
+        data: {
+          choices: [
+            {
+              text: '<|channel|>final<|message|>Complete response<|end|>',
+              finish_reason: 'stop',
+            },
+          ],
+        },
+      };
+
+      mockedAxios.post.mockResolvedValue(mockResponse);
+
+      const parseResult: HarmonyParseResult = {
+        content: 'Complete response',
+        rawToolCalls: [],
+      };
+
+      mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
+      mockHarmonyProcessor.extractToolCalls.mockReturnValue([]);
+
+      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      await client.callServer('Test');
+
+      // Should not warn about truncation for complete responses
+      expect(consoleSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('⚠️ Response was truncated')
+      );
+      expect(consoleSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('⚠️ Response appears incomplete')
+      );
+
+      consoleSpy.mockRestore();
+    });
+
+    it('should log maxTokens suggestion when truncated', async () => {
+      const mockResponse = {
+        status: 200,
+        data: {
+          choices: [
+            {
+              text: '<|channel|>final<|message|>Response<|end|>',
+              finish_reason: 'length',
+            },
+          ],
+        },
+      };
+
+      mockedAxios.post.mockResolvedValue(mockResponse);
+
+      const parseResult: HarmonyParseResult = {
+        content: 'Response',
+        rawToolCalls: [],
+      };
+
+      mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
+      mockHarmonyProcessor.extractToolCalls.mockReturnValue([]);
+
+      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      await client.callServer('Test');
+
+      // Should suggest increasing maxTokens
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Consider increasing harmony.maxTokens')
+      );
+
+      consoleSpy.mockRestore();
     });
   });
 

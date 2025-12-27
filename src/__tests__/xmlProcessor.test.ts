@@ -207,6 +207,82 @@ describe('XmlProcessor', () => {
         expect(result[0].name).toBe('test');
       });
     });
+
+    describe('MCP_CALL format support', () => {
+      it('should extract MCP_CALL self-closing format', () => {
+        const text = '<MCP_CALL name="analyze_latin" args=\'{"word": "invenietur"}\' />';
+        const result = XmlProcessor.extractToolCalls(text);
+        
+        expect(result).toHaveLength(1);
+        expect(result[0].name).toBe('analyze_latin');
+        expect(result[0].args).toEqual({ word: 'invenietur' });
+      });
+
+      it('should extract MCP_CALL with double-quoted args', () => {
+        const text = '<MCP_CALL name="test" args="{\\"key\\": \\"value\\"}" />';
+        const result = XmlProcessor.extractToolCalls(text);
+        
+        expect(result).toHaveLength(1);
+        expect(result[0].name).toBe('test');
+        expect(result[0].args).toEqual({ key: 'value' });
+      });
+
+      it('should extract MCP_CALL from full element format', () => {
+        const text = `<MCP_CALL>
+{
+  "name": "analyze_latin",
+  "arguments": {
+    "word": "amo"
+  }
+}
+</MCP_CALL>`;
+        
+        const result = XmlProcessor.extractToolCalls(text);
+        
+        expect(result).toHaveLength(1);
+        expect(result[0].name).toBe('analyze_latin');
+        expect(result[0].args.word).toBe('amo');
+      });
+
+      it('should extract both tool_call and MCP_CALL in same text', () => {
+        const text = '<tool_call name="read_file" args=\'{"file_path": "test.txt"}\' /><MCP_CALL name="analyze_latin" args=\'{"word": "invenietur"}\' />';
+        const result = XmlProcessor.extractToolCalls(text);
+        
+        expect(result).toHaveLength(2);
+        expect(result[0].name).toBe('read_file');
+        expect(result[1].name).toBe('analyze_latin');
+      });
+
+      it('should extract MCP_CALL with variant pattern <| prefix', () => {
+        const text = '<|analysis MCP_CALL name="test" args=\'{"key": "value"}\' />';
+        const result = XmlProcessor.extractToolCalls(text);
+        
+        expect(result).toHaveLength(1);
+        expect(result[0].name).toBe('test');
+      });
+
+      it('should handle MCP_CALL with escaped quotes in args', () => {
+        const jsonArgs = '{"file_path": "test.py", "content": "print(\\"hello\\")"}';
+        const text = `<MCP_CALL name="create_file" args='${jsonArgs}' />`;
+        const result = XmlProcessor.extractToolCalls(text);
+        
+        expect(result).toHaveLength(1);
+        expect(result[0].name).toBe('create_file');
+        expect(result[0].args.file_path).toBe('test.py');
+        expect(result[0].args.content).toBe('print("hello")');
+      });
+
+      it('should handle MCP_CALL with HTML entities in args', () => {
+        const jsonArgs = '{"file_path": "test.html", "content": "&lt;div&gt;Hello&lt;/div&gt;"}';
+        const text = `<MCP_CALL name="create_file" args='${jsonArgs}' />`;
+        const result = XmlProcessor.extractToolCalls(text);
+        
+        expect(result).toHaveLength(1);
+        expect(result[0].name).toBe('create_file');
+        expect(result[0].args.file_path).toBe('test.html');
+        expect(result[0].args.content).toBe('<div>Hello</div>');
+      });
+    });
   });
 
   describe('looksLikeXmlToolCall', () => {
@@ -243,6 +319,16 @@ describe('XmlProcessor', () => {
       // Ensure actual tool calls are still detected correctly
       expect(XmlProcessor.looksLikeXmlToolCall('<tool_call name="test" args=\'{"arg": "value"}\' />')).toBe(true);
       expect(XmlProcessor.looksLikeXmlToolCall('<tool_call name="analyze_latin" />')).toBe(true);
+    });
+
+    it('should return true for MCP_CALL format', () => {
+      expect(XmlProcessor.looksLikeXmlToolCall('<MCP_CALL name="analyze_latin" args=\'{"word": "invenietur"}\' />')).toBe(true);
+      expect(XmlProcessor.looksLikeXmlToolCall('<MCP_CALL name="test" />')).toBe(true);
+      expect(XmlProcessor.looksLikeXmlToolCall('<|analysis MCP_CALL name="test" />')).toBe(true);
+    });
+
+    it('should return true for MCP_CALL full element format', () => {
+      expect(XmlProcessor.looksLikeXmlToolCall('<MCP_CALL name="test">content</MCP_CALL>')).toBe(true);
     });
   });
 });

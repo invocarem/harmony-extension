@@ -6,6 +6,7 @@ export interface MCPServerConfig {
   command: string;
   args: string[];
   type: "stdio";
+  enabled?: boolean;
 }
 
 export interface MCPTool {
