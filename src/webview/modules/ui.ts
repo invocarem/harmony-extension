@@ -28,7 +28,8 @@ export function addMessage(
             success: boolean;
             error?: string;
         }>;
-    }
+    },
+    final?: string
 ): void {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${isUser ? 'user-message' : 'assistant-message'}`;
@@ -157,10 +158,22 @@ export function addMessage(
     }
     
     // Format markdown and add content
-    const formattedText = formatMarkdown(text);
+    // If final equals text, only show it once (in final section, not in main content)
+    const hasFinal = final && !isUser && final.trim();
+    const finalSameAsText = hasFinal && final.trim() === text.trim();
+    const displayText = finalSameAsText ? '' : text;
+    const formattedText = formatMarkdown(displayText);
     const contentDiv = document.createElement('div');
-    contentDiv.innerHTML = formattedText || (isUser ? '' : 'No response received.');
+    contentDiv.innerHTML = formattedText || (isUser ? '' : (hasFinal ? '' : 'No response received.'));
     messageDiv.appendChild(contentDiv);
+    
+    // Add final section if present (after main content)
+    if (hasFinal) {
+        const finalDiv = document.createElement('div');
+        finalDiv.className = 'final-section';
+        finalDiv.innerHTML = '<div class="final-header">✨ Final Result</div>' + formatMarkdown(final);
+        messageDiv.appendChild(finalDiv);
+    }
     
     messagesDiv.appendChild(messageDiv);
     messagesDiv.scrollTop = messagesDiv.scrollHeight;

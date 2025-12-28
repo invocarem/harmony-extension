@@ -216,48 +216,75 @@ describe('HarmonyClient - Stage Control', () => {
 
     describe('Implementation Stage', () => {
       it('should detect explicit "move to implementation" command', async () => {
-        const mockResponse = createMockResponse('Creating file...');
-        mockedAxios.post.mockResolvedValue(mockResponse);
+        // First transition to assumptions stage (required per state machine)
+        const mockResponse1 = createMockResponse('Here is the code...');
+        mockedAxios.post.mockResolvedValueOnce(mockResponse1);
+        const parseResult1 = createParseResult('Here is the code...');
+        mockHarmonyProcessor.parseResponse.mockReturnValueOnce(parseResult1);
+        mockHarmonyProcessor.extractToolCalls.mockReturnValue([]);
+        
+        await client.callServer('how to implement a function');
 
-        const parseResult = createParseResult('Creating file...');
-        mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
+        // Now test "move to implementation" from assumptions stage
+        const mockResponse2 = createMockResponse('Creating file...');
+        mockedAxios.post.mockResolvedValueOnce(mockResponse2);
+        const parseResult2 = createParseResult('Creating file...');
+        mockHarmonyProcessor.parseResponse.mockReturnValueOnce(parseResult2);
         mockHarmonyProcessor.extractToolCalls.mockReturnValue([]);
 
         await client.callServer('move to implementation');
 
-        const callArgs = mockedAxios.post.mock.calls[0];
+        const callArgs = mockedAxios.post.mock.calls[1];
         const prompt = (callArgs[1] as any).prompt as string;
 
         expect(prompt).toContain('IMPLEMENTATION');
       });
 
       it('should detect "now create the file" as implementation stage', async () => {
-        const mockResponse = createMockResponse('Creating file...');
-        mockedAxios.post.mockResolvedValue(mockResponse);
+        // First transition to assumptions stage (required per state machine)
+        const mockResponse1 = createMockResponse('Here is the code...');
+        mockedAxios.post.mockResolvedValueOnce(mockResponse1);
+        const parseResult1 = createParseResult('Here is the code...');
+        mockHarmonyProcessor.parseResponse.mockReturnValueOnce(parseResult1);
+        mockHarmonyProcessor.extractToolCalls.mockReturnValue([]);
+        
+        await client.callServer('how to implement a function');
 
-        const parseResult = createParseResult('Creating file...');
-        mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
+        // Now test "now create the file" from assumptions stage
+        const mockResponse2 = createMockResponse('Creating file...');
+        mockedAxios.post.mockResolvedValueOnce(mockResponse2);
+        const parseResult2 = createParseResult('Creating file...');
+        mockHarmonyProcessor.parseResponse.mockReturnValueOnce(parseResult2);
         mockHarmonyProcessor.extractToolCalls.mockReturnValue([]);
 
         await client.callServer('now create the file');
 
-        const callArgs = mockedAxios.post.mock.calls[0];
+        const callArgs = mockedAxios.post.mock.calls[1];
         const prompt = (callArgs[1] as any).prompt as string;
 
         expect(prompt).toContain('IMPLEMENTATION');
       });
 
       it('should detect "implement it" as implementation stage', async () => {
-        const mockResponse = createMockResponse('Implementing...');
-        mockedAxios.post.mockResolvedValue(mockResponse);
+        // First transition to assumptions stage (required per state machine)
+        const mockResponse1 = createMockResponse('Here is the code...');
+        mockedAxios.post.mockResolvedValueOnce(mockResponse1);
+        const parseResult1 = createParseResult('Here is the code...');
+        mockHarmonyProcessor.parseResponse.mockReturnValueOnce(parseResult1);
+        mockHarmonyProcessor.extractToolCalls.mockReturnValue([]);
+        
+        await client.callServer('how to implement a function');
 
-        const parseResult = createParseResult('Implementing...');
-        mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
+        // Now test "now implement it and create the file" from assumptions stage
+        const mockResponse2 = createMockResponse('Implementing...');
+        mockedAxios.post.mockResolvedValueOnce(mockResponse2);
+        const parseResult2 = createParseResult('Implementing...');
+        mockHarmonyProcessor.parseResponse.mockReturnValueOnce(parseResult2);
         mockHarmonyProcessor.extractToolCalls.mockReturnValue([]);
 
         await client.callServer('now implement it and create the file');
 
-        const callArgs = mockedAxios.post.mock.calls[0];
+        const callArgs = mockedAxios.post.mock.calls[1];
         const prompt = (callArgs[1] as any).prompt as string;
 
         expect(prompt).toContain('IMPLEMENTATION');
@@ -347,7 +374,7 @@ describe('HarmonyClient - Stage Control', () => {
       },
     });
 
-    it('should allow file modification tool calls in chat stage (when model decides to use them)', async () => {
+    it('should block file modification tool calls in chat stage', async () => {
       const mockResponse = createMockResponse('I will create a file');
       mockedAxios.post.mockResolvedValue(mockResponse);
 
@@ -364,18 +391,13 @@ describe('HarmonyClient - Stage Control', () => {
       ];
       mockHarmonyProcessor.extractToolCalls.mockReturnValue(toolCalls);
 
-      const mockToolResult = {
-        content: [{ type: 'text', text: 'File created successfully' }],
-        isError: false,
-      };
-
-      mockNativeToolsManager.callTool.mockResolvedValue(mockToolResult);
-
       const result = await client.callServer('hello, can you help me?');
 
-      // Tool calls should be allowed in chat stage (when model decides to use them)
-      expect(result.toolCalls).toBeDefined();
-      expect(mockNativeToolsManager.callTool).toHaveBeenCalled();
+      // Tool calls should be BLOCKED in chat stage per state machine rules
+      expect(result.toolCalls).toBeUndefined();
+      expect(result.content).toContain('⚠️');
+      expect(result.content).toMatch(/chat|clarification/i);
+      expect(mockNativeToolsManager.callTool).not.toHaveBeenCalled();
     });
 
     it('should block file modification tool calls in assumptions stage', async () => {
@@ -400,28 +422,42 @@ describe('HarmonyClient - Stage Control', () => {
       // Tool calls should be blocked
       expect(result.toolCalls).toBeUndefined();
       expect(result.content).toContain('⚠️');
-      // The stage might be chat if detection isn't perfect, so check for either
-      expect(result.content).toMatch(/assumptions|chat/i);
+      // The error message says "Analysis stage" (not "assumptions")
+      expect(result.content).toMatch(/analysis|assumptions|chat/i);
       expect(result.content).toMatch(/code snippets|clarify/i);
       expect(mockNativeToolsManager.callTool).not.toHaveBeenCalled();
     });
 
     it('should allow file modification tool calls in implementation stage', async () => {
-      const mockResponse = createMockResponse('Creating file');
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      // First transition to assumptions stage (required per state machine)
+      const mockResponse1 = createMockResponse('Here is the code...');
+      mockedAxios.post.mockResolvedValueOnce(mockResponse1);
+      const parseResult1: HarmonyParseResult = {
+        content: 'Here is the code...',
+        reasoning: undefined,
+        rawToolCalls: [],
+      };
+      mockHarmonyProcessor.parseResponse.mockReturnValueOnce(parseResult1);
+      mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
+      
+      await client.callServer('how to implement a function');
 
-      const parseResult: HarmonyParseResult = {
+      // Now test implementation stage with tool calls
+      const mockResponse2 = createMockResponse('Creating file');
+      mockedAxios.post.mockResolvedValueOnce(mockResponse2);
+
+      const parseResult2: HarmonyParseResult = {
         content: 'Creating file',
         reasoning: undefined,
         rawToolCalls: ['<tool_call name="create_file" args=\'{"file_path": "test.txt", "content": "test"}\' />'],
       };
 
-      mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
+      mockHarmonyProcessor.parseResponse.mockReturnValueOnce(parseResult2);
 
       const toolCalls = [
         { name: 'create_file', arguments: { file_path: 'test.txt', content: 'test' } },
       ];
-      mockHarmonyProcessor.extractToolCalls.mockReturnValue(toolCalls);
+      mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce(toolCalls);
 
       const mockToolResult = {
         content: [{ type: 'text', text: 'File created successfully' }],
@@ -523,16 +559,26 @@ describe('HarmonyClient - Stage Control', () => {
     });
 
     it('should include implementation stage instructions', async () => {
-      const mockResponse = createMockResponse('Creating file');
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      // First transition to assumptions stage (required per state machine)
+      const mockResponse1 = createMockResponse('Here is the code...');
+      mockedAxios.post.mockResolvedValueOnce(mockResponse1);
+      const parseResult1 = createParseResult('Here is the code...');
+      mockHarmonyProcessor.parseResponse.mockReturnValueOnce(parseResult1);
+      mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
+      
+      await client.callServer('how to implement a function');
 
-      const parseResult = createParseResult('Creating file');
-      mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
-      mockHarmonyProcessor.extractToolCalls.mockReturnValue([]);
+      // Now test implementation stage instructions
+      const mockResponse2 = createMockResponse('Creating file');
+      mockedAxios.post.mockResolvedValueOnce(mockResponse2);
+
+      const parseResult2 = createParseResult('Creating file');
+      mockHarmonyProcessor.parseResponse.mockReturnValueOnce(parseResult2);
+      mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
 
       await client.callServer('now create the file');
 
-      const callArgs = mockedAxios.post.mock.calls[0];
+      const callArgs = mockedAxios.post.mock.calls[1];
       const prompt = (callArgs[1] as any).prompt as string;
 
       expect(prompt).toContain('IMPLEMENTATION');
@@ -589,16 +635,26 @@ describe('HarmonyClient - Stage Control', () => {
     });
 
     it('should transition to implementation stage with explicit command', async () => {
-      const mockResponse = createMockResponse('Creating file');
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      // First transition to assumptions stage (required per state machine)
+      const mockResponse1 = createMockResponse('Here is the code...');
+      mockedAxios.post.mockResolvedValueOnce(mockResponse1);
+      const parseResult1 = createParseResult('Here is the code...');
+      mockHarmonyProcessor.parseResponse.mockReturnValueOnce(parseResult1);
+      mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
+      
+      await client.callServer('how to implement a function');
 
-      const parseResult = createParseResult('Creating file');
-      mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
-      mockHarmonyProcessor.extractToolCalls.mockReturnValue([]);
+      // Now test transition to implementation stage
+      const mockResponse2 = createMockResponse('Creating file');
+      mockedAxios.post.mockResolvedValueOnce(mockResponse2);
+
+      const parseResult2 = createParseResult('Creating file');
+      mockHarmonyProcessor.parseResponse.mockReturnValueOnce(parseResult2);
+      mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
 
       await client.callServer('move to implementation and create the file');
 
-      const callArgs = mockedAxios.post.mock.calls[0];
+      const callArgs = mockedAxios.post.mock.calls[1];
       const prompt = (callArgs[1] as any).prompt as string;
 
       expect(prompt).toContain('IMPLEMENTATION');

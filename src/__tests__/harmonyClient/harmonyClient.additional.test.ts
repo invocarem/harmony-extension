@@ -314,37 +314,64 @@ describe('HarmonyClient - Additional Test Cases', () => {
       const escapedArgs = JSON.stringify(specialArgs).replace(/'/g, "\\'");
       const responseText = `<|channel|>final<|message|><tool_call name="write_file" args='${escapedArgs}' /><|end|>`;
 
-      const mockResponse = {
+      // First call response (assumptions stage)
+      const firstResponse = {
+        status: 200,
+        data: {
+          choices: [{ text: '<|channel|>final<|message|>I will analyze and provide code snippets<|end|>' }],
+        },
+      };
+
+      // Second call response (implementation stage with tool call)
+      const secondResponse = {
         status: 200,
         data: {
           choices: [{ text: responseText }],
         },
       };
 
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      mockedAxios.post
+        .mockResolvedValueOnce(firstResponse)
+        .mockResolvedValueOnce(secondResponse);
 
-      const parseResult: HarmonyParseResult = {
+      const firstParseResult: HarmonyParseResult = {
+        content: 'I will analyze and provide code snippets',
+        rawToolCalls: [],
+      };
+
+      const secondParseResult: HarmonyParseResult = {
         content: '',
         rawToolCalls: [`<tool_call name="write_file" args='${escapedArgs}' />`],
       };
-
-      mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
 
       const toolCalls: MCPToolCall[] = [
         { name: 'write_file', arguments: specialArgs },
       ];
 
-      mockHarmonyProcessor.extractToolCalls.mockReturnValue(toolCalls);
+      mockHarmonyProcessor.parseResponse
+        .mockReturnValueOnce(firstParseResult)
+        .mockReturnValueOnce(secondParseResult);
+      
+      mockHarmonyProcessor.extractToolCalls
+        .mockReturnValueOnce([])
+        .mockReturnValueOnce(toolCalls);
 
       const toolResult: MCPToolResult = {
         content: [{ type: 'text', text: 'File written successfully' }],
         isError: false,
       };
 
+      // Mock tools to ensure tool calls are properly handled
+      mockMCPManager.getAllTools.mockReturnValue([
+        { name: 'write_file', description: 'Write a file', inputSchema: {} },
+      ] as any);
       mockMCPManager.findToolServer.mockReturnValue('files-server');
       mockMCPManager.callTool.mockResolvedValue(toolResult);
 
-      const result = await client.callServer('Write a file test.txt with special characters');
+      // This test is about special character handling in tool arguments, not stage restrictions
+      // First call to transition to assumptions stage, then second call to move to implementation
+      await client.callServer('create a file'); // This goes to assumptions stage
+      const result = await client.callServer('move to implementation and write_file test.txt with special characters');
 
       expect(result.toolCalls?.length).toBe(1);
       expect(result.toolCalls?.[0].arguments).toEqual(specialArgs);

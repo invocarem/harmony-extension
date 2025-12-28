@@ -10,6 +10,8 @@ import 'prismjs/components/prism-python';
 import 'prismjs/components/prism-bash';
 import 'prismjs/components/prism-markdown';
 import 'prismjs/components/prism-swift';
+import 'prismjs/components/prism-xml-doc';
+import 'prismjs/components/prism-markup';
 
 export function escapeHtml(text: string): string {
     const div = document.createElement('div');
@@ -97,32 +99,36 @@ export function formatMarkdown(text: string): string {
     for (let i = 0; i < codeBlocks.length; i++) {
         const placeholder = `__CODE_BLOCK_${i}__`;
         const { lang, code } = codeBlocks[i];
-        const language = lang || 'text';
-        const languageClass = `language-${language}`;
+        const originalLang = lang || 'text';
+        let prismLanguage = originalLang;
+        const languageClass = `language-${originalLang}`;
+        
+        // Map language aliases to Prism language names for highlighting
+        const languageMap: Record<string, string> = {
+            'xml': 'markup',
+            'html': 'markup',
+            'svg': 'markup',
+        };
+        if (languageMap[prismLanguage.toLowerCase()]) {
+            prismLanguage = languageMap[prismLanguage.toLowerCase()];
+        }
         
         // Use Prism.js to highlight the code
         let highlightedCode: string;
-        if (Prism.languages[language]) {
-            highlightedCode = Prism.highlight(code.trim(), Prism.languages[language], language);
+        if (Prism.languages[prismLanguage]) {
+            highlightedCode = Prism.highlight(code.trim(), Prism.languages[prismLanguage], prismLanguage);
         } else {
             // Fallback: escape HTML if language not supported
             highlightedCode = escapeHtml(code.trim());
         }
         
         // Add copy button for JSON code blocks (inline with language label)
-        const isJson = language === 'json';
+        const isJson = originalLang.toLowerCase() === 'json';
         // Properly escape code for data attribute
         const escapedCode = escapeHtmlAttribute(code.trim());
-        const copyButton = isJson ? `
-            <button class="code-action-btn" data-action="copy" data-code="${escapedCode}" title="Copy JSON">
-                📋
-            </button>
-        ` : '';
+        const copyButton = isJson ? `<button class="code-action-btn" data-action="copy" data-code="${escapedCode}" title="Copy JSON">📋</button>` : '';
         
-        const codeBlockHtml = `<div class="code-block ${isJson ? 'code-block-json' : ''}">
-                          ${lang ? `<div class="code-lang">${lang}${copyButton}</div>` : (copyButton ? `<div class="code-lang">${copyButton}</div>` : '')}
-                          <pre><code class="${languageClass}">${highlightedCode}</code></pre>
-                        </div>`;
+        const codeBlockHtml = `<div class="code-block ${isJson ? 'code-block-json' : ''}">${originalLang ? `<div class="code-lang">${originalLang}${copyButton}</div>` : (copyButton ? `<div class="code-lang">${copyButton}</div>` : '')}<pre><code class="${languageClass}">${highlightedCode}</code></pre></div>`;
         formatted = formatted.replace(placeholder, codeBlockHtml);
     }
     

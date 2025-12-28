@@ -35,7 +35,8 @@ const createMockDiv = () => {
 };
 
 // Mock Prism.js before importing the module
-jest.mock('prismjs', () => ({
+// Set up Prism globally first so components can access it
+(global as any).Prism = {
   highlight: jest.fn((code: string, grammar: any, language: string) => {
     // Simple mock that returns escaped HTML
     return code
@@ -53,8 +54,14 @@ jest.mock('prismjs', () => ({
     bash: {},
     markdown: {},
     swift: {},
+    markup: {},
   },
-}));
+  util: {
+    encode: (tokens: any) => tokens,
+  },
+};
+
+jest.mock('prismjs', () => (global as any).Prism);
 
 // Mock Prism language components
 jest.mock('prismjs/components/prism-json', () => ({}));
@@ -64,6 +71,8 @@ jest.mock('prismjs/components/prism-python', () => ({}));
 jest.mock('prismjs/components/prism-bash', () => ({}));
 jest.mock('prismjs/components/prism-markdown', () => ({}));
 jest.mock('prismjs/components/prism-swift', () => ({}));
+jest.mock('prismjs/components/prism-xml-doc', () => ({}));
+jest.mock('prismjs/components/prism-markup', () => ({}));
 
 import { formatMarkdown, escapeHtml } from '../webview/modules/markdown';
 

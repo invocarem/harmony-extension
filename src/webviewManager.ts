@@ -8,6 +8,7 @@ export interface WebviewMessage {
     text?: string;
     context?: string;
     reasoning?: string;
+    final?: string;
     files?: Array<{ label: string; path: string }>;
     contextSummary?: { rulesCount?: number; mcpToolsCount?: number; files?: string[] };
     verboseInfo?: {
@@ -142,6 +143,7 @@ export class WebviewManager {
         const content = response.content || "No response received from the model.";
         const reasoning = response.reasoning;
         const verboseInfo = response.verboseInfo;
+        const final = response.final;
 
         console.log(`[DEBUG] Posting message to webview`);
         this.panel.webview.postMessage({
@@ -149,6 +151,7 @@ export class WebviewManager {
             text: content,
             reasoning: reasoning,
             verboseInfo: verboseInfo,
+            final: final,
         });
         console.log(`[DEBUG] Message posted successfully`);
     }

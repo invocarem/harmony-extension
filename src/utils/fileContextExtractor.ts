@@ -79,7 +79,7 @@ export class FileContextExtractor {
         // Check if file exists
         const stats = await fs.promises.stat(resolvedPath).catch(() => null);
         if (!stats) {
-            throw new Error(`File not found: ${filePath}`);
+            throw new Error(`File not found: ${filePath} (resolved to: ${resolvedPath})`);
         }
         
         if (stats.isDirectory()) {
@@ -142,19 +142,14 @@ export class FileContextExtractor {
             return filePath;
         }
         
-        // Check if path is relative to workspace
+        // Resolve relative to workspace if available
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (workspaceFolders && workspaceFolders.length > 0) {
             const workspaceRoot = workspaceFolders[0].uri.fsPath;
-            const resolved = path.resolve(workspaceRoot, filePath);
-            
-            // Check if file exists at this path
-            if (fs.existsSync(resolved)) {
-                return resolved;
-            }
+            return path.resolve(workspaceRoot, filePath);
         }
         
-        // Try relative to current working directory
+        // Fallback: resolve relative to current working directory (shouldn't happen in normal usage)
         return path.resolve(filePath);
     }
     

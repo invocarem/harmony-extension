@@ -9,6 +9,7 @@ import { filterHarmonyTokens } from "./utils/harmonyTokenFilter";
 export interface HarmonyParseResult {
   content: string;
   reasoning?: string;
+  final?: string;
   rawToolCalls?: string[];
   remaining?: string;
 }
@@ -79,10 +80,11 @@ export class HarmonyProcessor {
         };
       }
       
-      // Otherwise, return as content
+      // Otherwise, return as content and also set as final for simple responses
       console.log(`[HarmonyProcessor] Plain jinja response treated as content (${trimmed.length} chars)`);
       return {
         content: trimmed,
+        final: trimmed, // For simple responses, also set as final
         rawToolCalls: [],
         remaining: response
       };
@@ -121,10 +123,11 @@ export class HarmonyProcessor {
         };
       }
       
-      // Otherwise, return as content
+      // Otherwise, return as content and also set as final for simple responses
       console.log(`[HarmonyProcessor] Plain text response treated as content (${trimmed.length} chars)`);
       return {
         content: trimmed,
+        final: trimmed, // For simple responses, also set as final
         rawToolCalls: [],
         remaining: response
       };
@@ -133,6 +136,7 @@ export class HarmonyProcessor {
     // Harmony token-based parsing (existing logic)
     let content = '';
     let reasoning: string | undefined;
+    let final: string | undefined;
     const rawToolCalls: string[] = [];
     
     let i = 0;
@@ -174,6 +178,7 @@ export class HarmonyProcessor {
               this.saveBuffer(currentChannel, currentBuffer, {
                 content: (c) => content = c,
                 reasoning: (r) => reasoning = r,
+                final: (f) => final = f,
                 rawToolCalls: (t) => rawToolCalls.push(t)
               }, pendingToolName);
               // Reset pending tool name after saving buffer
@@ -231,6 +236,7 @@ export class HarmonyProcessor {
       this.saveBuffer(currentChannel, currentBuffer, {
         content: (c) => content = c,
         reasoning: (r) => reasoning = r,
+        final: (f) => final = f,
         rawToolCalls: (t) => rawToolCalls.push(t)
       }, pendingToolName);
     }
@@ -295,7 +301,12 @@ export class HarmonyProcessor {
       }
     }
     
-    console.log(`[HarmonyProcessor] Result: content=${content.length} chars, reasoning=${reasoning?.length || 0} chars, toolCalls=${rawToolCalls.length}`);
+    // If final is set but content is not, use final as content
+    if (final && !content) {
+      content = final;
+    }
+    
+    console.log(`[HarmonyProcessor] Result: content=${content.length} chars, reasoning=${reasoning?.length || 0} chars, final=${final?.length || 0} chars, toolCalls=${rawToolCalls.length}`);
     
     // Debug: Log what's in rawToolCalls
     if (rawToolCalls.length > 0) {
@@ -311,7 +322,7 @@ export class HarmonyProcessor {
       });
     }
     
-    return { content, reasoning, rawToolCalls, remaining: response };
+    return { content, reasoning, final, rawToolCalls, remaining: response };
   }
   
   /**
@@ -366,6 +377,7 @@ export class HarmonyProcessor {
     setters: {
       content: (c: string) => void,
       reasoning: (r: string) => void,
+      final?: (f: string) => void,
       rawToolCalls: (t: string) => void
     },
     pendingToolName?: string
@@ -467,8 +479,13 @@ export class HarmonyProcessor {
               // Use the first extracted operation (most common case)
               setters.rawToolCalls(extractedFileOps[0].raw);
             } else {
-              // Regular content - preserve formatting
-              setters.content(this.preserveCodeBlocks(trimmed));
+              // Regular content in final channel - save to final field
+              if (setters.final) {
+                setters.final(this.preserveCodeBlocks(trimmed));
+              } else {
+                // Fallback to content if final setter not available
+                setters.content(this.preserveCodeBlocks(trimmed));
+              }
             }
           }
         }

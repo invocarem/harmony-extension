@@ -323,6 +323,23 @@ describe('HarmonyClient', () => {
       });
 
       it('should automatically fallback from create_file to replace_file when file exists', async () => {
+        // First transition to assumptions stage, then implementation (required per state machine)
+        const mockResponse1 = {
+          status: 200,
+          data: {
+            choices: [{ text: '<|channel|>final<|message|>Here is the code<|end|>' }],
+          },
+        };
+        mockedAxios.post.mockResolvedValueOnce(mockResponse1);
+        const parseResult1: HarmonyParseResult = {
+          content: 'Here is the code',
+          rawToolCalls: [],
+        };
+        mockHarmonyProcessor.parseResponse.mockReturnValueOnce(parseResult1);
+        mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
+        await client.callServer('how to create a file');
+
+        // Now test the fallback in implementation stage
         const mockResponse = {
           status: 200,
           data: {
@@ -330,20 +347,20 @@ describe('HarmonyClient', () => {
           },
         };
 
-        mockedAxios.post.mockResolvedValue(mockResponse);
+        mockedAxios.post.mockResolvedValueOnce(mockResponse);
 
         const parseResult: HarmonyParseResult = {
           content: '',
           rawToolCalls: ['<tool_call name="create_file" args=\'{"file_path": "test.txt", "content": "new content"}\' />'],
         };
 
-        mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
+        mockHarmonyProcessor.parseResponse.mockReturnValueOnce(parseResult);
 
         const toolCalls: MCPToolCall[] = [
           { name: 'create_file', arguments: { file_path: 'test.txt', content: 'new content' } },
         ];
 
-        mockHarmonyProcessor.extractToolCalls.mockReturnValue(toolCalls);
+        mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce(toolCalls);
 
         const createFileTool: NativeTool = {
           name: 'create_file',
@@ -385,7 +402,7 @@ describe('HarmonyClient', () => {
             isError: false,
           });
 
-        const result = await client.callServer('Test');
+        const result = await client.callServer('now create the file test.txt');
 
         // Verify create_file was called first
         expect(mockNativeToolsManager.callTool).toHaveBeenNthCalledWith(1, 'create_file', {
@@ -412,6 +429,23 @@ describe('HarmonyClient', () => {
       });
 
       it('should not fallback to replace_file when create_file succeeds', async () => {
+        // First transition to assumptions stage, then implementation (required per state machine)
+        const mockResponse1 = {
+          status: 200,
+          data: {
+            choices: [{ text: '<|channel|>final<|message|>Here is the code<|end|>' }],
+          },
+        };
+        mockedAxios.post.mockResolvedValueOnce(mockResponse1);
+        const parseResult1: HarmonyParseResult = {
+          content: 'Here is the code',
+          rawToolCalls: [],
+        };
+        mockHarmonyProcessor.parseResponse.mockReturnValueOnce(parseResult1);
+        mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
+        await client.callServer('how to create a file');
+
+        // Now test the successful create_file in implementation stage
         const mockResponse = {
           status: 200,
           data: {
@@ -419,20 +453,20 @@ describe('HarmonyClient', () => {
           },
         };
 
-        mockedAxios.post.mockResolvedValue(mockResponse);
+        mockedAxios.post.mockResolvedValueOnce(mockResponse);
 
         const parseResult: HarmonyParseResult = {
           content: '',
           rawToolCalls: ['<tool_call name="create_file" args=\'{"file_path": "newfile.txt", "content": "new content"}\' />'],
         };
 
-        mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
+        mockHarmonyProcessor.parseResponse.mockReturnValueOnce(parseResult);
 
         const toolCalls: MCPToolCall[] = [
           { name: 'create_file', arguments: { file_path: 'newfile.txt', content: 'new content' } },
         ];
 
-        mockHarmonyProcessor.extractToolCalls.mockReturnValue(toolCalls);
+        mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce(toolCalls);
 
         const createFileTool: NativeTool = {
           name: 'create_file',
@@ -455,7 +489,7 @@ describe('HarmonyClient', () => {
           isError: false,
         });
 
-        const result = await client.callServer('Test');
+        const result = await client.callServer('now create the file newfile.txt');
 
         // Verify create_file was called only once
         expect(mockNativeToolsManager.callTool).toHaveBeenCalledTimes(1);
