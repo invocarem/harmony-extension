@@ -29,14 +29,162 @@ export interface HarmonyResponse {
   }>;
   // Add new field to track if this is a continuation response
   isContinuation?: boolean;
+  // Verbose information for debugging and UI display
+  verboseInfo?: {
+    stage?: WorkflowStage;
+    stageTransition?: {
+      from: WorkflowStage;
+      to: WorkflowStage;
+    };
+    step?: number;
+    maxSteps?: number;
+    isComplete?: boolean;
+    toolCalls?: Array<{
+      name: string;
+      stage: WorkflowStage;
+      success: boolean;
+      error?: string;
+    }>;
+  };
 }
 
 export type WorkflowStage = 'chat' | 'assumptions' | 'implementation';
 
 /**
+ * State machine for workflow stage transitions
+ * Defines valid transitions between stages based on context
+ */
+class StageStateMachine {
+  // Valid transitions: from -> [to stages]
+  private readonly validTransitions: Map<WorkflowStage, Set<WorkflowStage>>;
+
+  constructor() {
+    this.validTransitions = new Map([
+      ['chat', new Set<WorkflowStage>(['assumptions'])],
+      ['assumptions', new Set<WorkflowStage>(['implementation', 'chat'])],
+      ['implementation', new Set<WorkflowStage>(['chat', 'assumptions'])]
+    ]);
+  }
+
+  /**
+   * Check if a transition from one stage to another is valid
+   */
+  canTransition(from: WorkflowStage, to: WorkflowStage): boolean {
+    if (from === to) return true; // Can stay in same stage
+    const allowed = this.validTransitions.get(from);
+    return allowed ? allowed.has(to) : false;
+  }
+
+  /**
+   * Determine next stage based on prompt and current stage
+   * Returns the target stage, or null if should stay in current stage
+   */
+  determineNextStage(
+    currentStage: WorkflowStage,
+    prompt: string,
+    conversationHistory?: readonly ChatMessage[]
+  ): WorkflowStage | null {
+    const promptLower = prompt.toLowerCase().trim();
+
+    // Explicit stage transition commands
+    if (/\b(move\s+to|go\s+to|start|begin)\s+(implementation|implement|create|modify|write|edit)\b/i.test(promptLower)) {
+      const target = 'implementation';
+      return this.canTransition(currentStage, target) ? target : null;
+    }
+    
+    if (/\b(move\s+to|go\s+to|start|begin)\s+(assumptions|analysis|analyze|plan|design)\b/i.test(promptLower)) {
+      const target = 'assumptions';
+      return this.canTransition(currentStage, target) ? target : null;
+    }
+    
+    if (/\b(move\s+to|go\s+to|back\s+to|return\s+to|clarify|chat|talk|discuss)\s+(chat|discussion|clarification)\b/i.test(promptLower)) {
+      const target = 'chat';
+      return this.canTransition(currentStage, target) ? target : null;
+    }
+
+    // Chat → Analysis: Code-related questions or file operation intent (without explicit extensions)
+    if (currentStage === 'chat') {
+      const codeKeywords = /\b(code|snippet|example|solution|how\s+to|fix|update|refactor|improve).*\b(code|function|class|method|variable|snippet)\b/i;
+      const fileOperationKeywords = /\b(create|write|make|add|implement|code|generate|build|update|modify|edit|change).*\b(file|module|class|function|component|feature)\b/i;
+      
+      // File operations WITHOUT explicit extensions go to Analysis first
+      const fileOperationWithExtension = /\b(create|write|make|add|implement|code|generate|build|update|modify|edit|change)(?:\s+\w+)*\s+\w+\.\w{2,4}(\s|$)/i;
+      
+      if (codeKeywords.test(promptLower) || (fileOperationKeywords.test(promptLower) && !fileOperationWithExtension.test(promptLower))) {
+        return this.canTransition(currentStage, 'assumptions') ? 'assumptions' : null;
+      }
+    }
+
+    // Analysis → Implementation: Explicit file operations with extensions
+    if (currentStage === 'assumptions') {
+      const fileOperationWithExtension = /\b(create|write|make|add|implement|code|generate|build|update|modify|edit|change)(?:\s+\w+)*\s+\w+\.\w{2,4}(\s|$)/i;
+      const explicitFileOps = /\b(create_file|write_file|replace_file|update_file|edit_file|modify_file)\b/i;
+      const explicitImplementation = /\b(now|then|next|please|do\s+it|implement\s+it|create\s+it)\b/i;
+      
+      if (fileOperationWithExtension.test(promptLower) || explicitFileOps.test(promptLower) || explicitImplementation.test(promptLower)) {
+        return this.canTransition(currentStage, 'implementation') ? 'implementation' : null;
+      }
+    }
+
+    // Implementation → Chat: Error indicators or clarification requests
+    if (currentStage === 'implementation') {
+      const clarificationKeywords = /\b(what|how|why|clarify|explain|understand|confused|error|wrong|doesn'?t\s+work|not\s+working)\b/i;
+      if (clarificationKeywords.test(promptLower)) {
+        return this.canTransition(currentStage, 'chat') ? 'chat' : null;
+      }
+    }
+
+    // Implementation → Analysis: Need to regenerate code
+    if (currentStage === 'implementation') {
+      const regenerateKeywords = /\b(regenerate|redo|fix\s+the\s+code|update\s+the\s+code|change\s+the\s+code|modify\s+the\s+code)\b/i;
+      if (regenerateKeywords.test(promptLower)) {
+        return this.canTransition(currentStage, 'assumptions') ? 'assumptions' : null;
+      }
+    }
+
+    return null; // Stay in current stage
+  }
+
+  /**
+   * Check if we should transition back to chat due to errors in tool execution
+   */
+  shouldTransitionToChatOnError(
+    currentStage: WorkflowStage,
+    toolResults: Array<{ name: string; result?: MCPToolResult }>
+  ): boolean {
+    // Only transition from implementation to chat on errors
+    if (currentStage !== 'implementation') {
+      return false;
+    }
+
+    // Check if there are significant errors that require clarification
+    const hasFileModificationErrors = toolResults.some(tr => {
+      const isFileMod = ['create_file', 'replace_file', 'write_file', 'update_file'].includes(tr.name);
+      const hasError = tr.result?.isError;
+      const errorText = tr.result?.content?.[0]?.text?.toLowerCase() || '';
+      
+      // Critical errors that might need clarification
+      const needsClarification = 
+        errorText.includes('not found') ||
+        errorText.includes('permission denied') ||
+        errorText.includes('invalid') ||
+        errorText.includes('missing') ||
+        errorText.includes('required') ||
+        errorText.includes('cannot') ||
+        errorText.includes('unable');
+      
+      return isFileMod && hasError && needsClarification;
+    });
+
+    return hasFileModificationErrors;
+  }
+}
+
+/**
  * Main HarmonyClient with HarmonyProcessor integration and multi-step continuation
  */
 export class HarmonyClient {
+  private stageStateMachine: StageStateMachine;
   private harmonyProcessor: HarmonyProcessor;
   private conversationContext: {
     originalPrompt: string;
@@ -54,6 +202,10 @@ export class HarmonyClient {
     }>;
     maxSteps: number;
     currentStep: number;
+    lastStageTransition?: {
+      from: WorkflowStage;
+      to: WorkflowStage;
+    };
   } | null = null;
 
   constructor(
@@ -63,10 +215,11 @@ export class HarmonyClient {
     private nativeToolsManager?: NativeToolsManager
   ) {
     this.harmonyProcessor = new HarmonyProcessor(config.harmonyMode);
+    this.stageStateMachine = new StageStateMachine();
   }
 
   /**
-   * Detect the appropriate workflow stage based on the prompt
+   * Detect the appropriate workflow stage based on the prompt using state machine
    */
   private detectStage(prompt: string, conversationHistory?: readonly ChatMessage[]): WorkflowStage {
     const promptLower = prompt.toLowerCase().trim();
@@ -82,53 +235,13 @@ export class HarmonyClient {
       return 'chat';
     }
 
-    // Check for explicit stage commands
-    if (/\b(move\s+to|go\s+to|start|begin)\s+(implementation|implement|create|modify|write|edit)\b/i.test(promptLower)) {
-      return 'implementation';
-    }
+    // Get current stage from context or default to chat
+    const currentStage = this.conversationContext?.currentStage || 'chat';
     
-    if (/\b(move\s+to|go\s+to|start|begin)\s+(assumptions|analysis|analyze|plan|design)\b/i.test(promptLower)) {
-      return 'assumptions';
-    }
-    
-    if (/\b(stay\s+in|keep\s+in|chat|talk|discuss)\s+(chat|discussion)\b/i.test(promptLower)) {
-      return 'chat';
-    }
-
-    // Check if current context is in implementation stage (for continuations)
-    if (this.conversationContext?.currentStage === 'implementation') {
-      return 'implementation';
-    }
-
-    // Detect file operations - these need implementation stage
-    // Match patterns like "create file", "write test.txt", "update output.json", etc.
-    // Match file extensions (2-4 letter extensions after a period, may be followed by whitespace or end of string)
-    // Allow words between verb and filename (e.g., "write a file test.txt")
-    const fileOperationWithExtension = /\b(create|write|make|add|implement|code|generate|build|update|modify|edit|change)(?:\s+\w+)*\s+\w+\.\w{2,4}(\s|$)/i;
-    const fileOperationKeywords = /\b(create|write|make|add|implement|code|generate|build|update|modify|edit|change).*\b(file|module|class|function|component|feature)\b/i;
-    const explicitFileOps = /\b(create_file|write_file|replace_file|update_file|edit_file|modify_file)\b/i;
-    
-    if (fileOperationWithExtension.test(promptLower) || fileOperationKeywords.test(promptLower) || explicitFileOps.test(promptLower)) {
-      // Check if we're in assumptions stage - if so, stay there (code snippets only)
-      if (this.conversationContext?.currentStage === 'assumptions') {
-        return 'assumptions';
-      }
-      // File operations with explicit extensions or explicit file operation commands should go to implementation
-      if (fileOperationWithExtension.test(promptLower) || explicitFileOps.test(promptLower)) {
-        return 'implementation';
-      }
-      // Check if user explicitly wants implementation
-      if (/\b(now|then|next|please|do\s+it|implement\s+it|create\s+it)\b/i.test(promptLower)) {
-        return 'implementation';
-      }
-      // Default: assumptions stage for code-related tasks without explicit file operations
-      return 'assumptions';
-    }
-
-    // Code-related questions without explicit file operations -> assumptions
-    const codeKeywords = /\b(code|snippet|example|solution|how\s+to|fix|update|refactor|improve).*\b(code|function|class|method|variable|snippet)\b/i;
-    if (codeKeywords.test(promptLower)) {
-      return 'assumptions';
+    // Use state machine to determine next stage
+    const nextStage = this.stageStateMachine.determineNextStage(currentStage, prompt, conversationHistory);
+    if (nextStage !== null) {
+      return nextStage;
     }
 
     // For continuations, maintain current stage unless explicitly changed
@@ -175,13 +288,16 @@ export class HarmonyClient {
         return `## Current Stage: CHAT/CLARIFICATION
 
 You are in the **Chat/Clarification** stage. Your goal is to:
+- **CRITICAL: Always restate the user's problem** - Use your own words to describe their question
 - Understand and clarify the user's problem or question
 - Ask clarifying questions if needed
 - Provide helpful explanations and guidance
 - Do NOT use file modification tools (create_file, replace_file, etc.)
-- You may use read-only tools (read_file, list_files) to gather context if helpful
+- Do NOT generate code or create files yet
+- You may use read-only tools (read_file, list_files, grep_files) to gather context if helpful
 
-Focus on understanding the problem before proposing solutions.`;
+**Stage Flow**: Chat → Analysis (code generation) → Implementation (file creation). Never skip stages.
+Focus on understanding the problem and restating it clearly before moving to code generation.`;
 
       case 'assumptions':
         return `## Current Stage: ASSUMPTIONS/ANALYSIS
@@ -201,10 +317,11 @@ You are in the **Assumptions/Analysis** stage. Your goal is to:
 You are in the **Implementation** stage. Your goal is to:
 - Actually create or modify files using appropriate tools
 - Use create_file for new files, replace_file for modifying existing files
-- Execute the solution that was discussed in previous stages
+- Use the code content/snippets that were generated in the Analysis stage
+- Execute the solution that was discussed and analyzed in previous stages
 - All tools are available, including file modification tools
 
-Proceed with implementing the solution.`;
+**Note**: Code content should have been generated in the Analysis stage. Your job here is to create the actual files from that content.`;
 
       default:
         return '';
@@ -235,14 +352,20 @@ Proceed with implementing the solution.`;
         // For continuations, check if stage should change
         if (this.conversationContext) {
           const detectedStage = this.detectStage(prompt, conversationHistory);
-          if (detectedStage !== this.conversationContext.currentStage) {
-            console.log(`[Harmony] Stage transition: ${this.conversationContext.currentStage} -> ${detectedStage}`);
+          const previousStage = this.conversationContext.currentStage;
+          if (detectedStage !== previousStage) {
+            console.log(`[Harmony] Stage transition: ${previousStage} -> ${detectedStage}`);
             this.conversationContext.currentStage = detectedStage;
             this.conversationContext.stageHistory.push({
               stage: detectedStage,
               enteredAt: Date.now(),
               prompt,
             });
+            // Store stage transition for verbose info
+            this.conversationContext.lastStageTransition = {
+              from: previousStage,
+              to: detectedStage
+            };
           }
         }
       }
@@ -259,9 +382,14 @@ Proceed with implementing the solution.`;
       // Use > instead of >= to allow the final step (e.g., step 5 when maxSteps is 5) to run
       if (this.conversationContext && this.conversationContext.currentStep > this.conversationContext.maxSteps) {
         console.warn(`[Harmony] Reached maximum steps (${this.conversationContext.maxSteps}) for task: "${this.conversationContext.originalPrompt}"`);
+        const maxStepsVerboseInfo: HarmonyResponse['verboseInfo'] = {
+          stage: this.conversationContext.currentStage,
+          isComplete: true,
+        };
         return {
           content: `I've gathered information through multiple steps, but haven't completed the task. Here's what I found so far.`,
           reasoning: "Reached maximum allowed steps for this task.",
+          verboseInfo: maxStepsVerboseInfo,
         };
       }
 
@@ -269,8 +397,8 @@ Proceed with implementing the solution.`;
  
       logApiRequest(endpoint, prompt, 100);
 
-      // Get current stage
-      const currentStage = this.conversationContext?.currentStage || this.detectStage(prompt, conversationHistory);
+      // Get current stage (let instead of const to allow reassignment for error-based transitions)
+      let currentStage = this.conversationContext?.currentStage || this.detectStage(prompt, conversationHistory);
       if (this.conversationContext) {
         console.log(`[Harmony] Current stage: ${currentStage} (step ${this.conversationContext.currentStep}/${this.conversationContext.maxSteps})`);
       } else {
@@ -565,25 +693,37 @@ Proceed with implementing the solution.`;
       }
 
       // Validate tool calls against stage restrictions
-      // Note: Only block in assumptions stage where code snippets are explicitly required
-      // In chat stage, if the model has already made tool calls, allow them (the model has decided)
+      // Block file modification tools in both 'chat' and 'assumptions' stages
+      // Only 'implementation' stage allows file modification tools
       const fileModificationTools = ['create_file', 'replace_file', 'write_file', 'update_file', 'delete_file', 'edit_file', 'modify_file'];
       const restrictedToolCalls = toolCalls.filter(tc => fileModificationTools.includes(tc.name));
       
-      // Only strictly enforce blocking in assumptions stage (where code snippets are required)
-      // In chat stage, allow tool calls if the model has already decided to use them
-      if (restrictedToolCalls.length > 0 && currentStage === 'assumptions') {
+      console.log(`[Harmony] Validating ${toolCalls.length} tool call(s) in ${currentStage} stage. Restricted calls: ${restrictedToolCalls.length}`);
+      
+      // Block file modification tools in chat and assumptions stages
+      // State machine: Chat -> Analysis -> Implementation (never skip Analysis)
+      if (restrictedToolCalls.length > 0 && (currentStage === 'assumptions' || currentStage === 'chat')) {
         console.warn(`[Harmony] Blocked ${restrictedToolCalls.length} file modification tool call(s) in ${currentStage} stage: ${restrictedToolCalls.map(tc => tc.name).join(', ')}`);
         
         // Remove restricted tool calls and add warning to response
         const allowedToolCalls = toolCalls.filter(tc => !fileModificationTools.includes(tc.name));
         toolCalls = allowedToolCalls;
         
-        // Add warning message to content
+        console.log(`[Harmony] After blocking: ${toolCalls.length} tool call(s) remaining`);
+        
+        // Add warning message to content with proper stage guidance
         if (parsed.content && !parsed.content.includes('⚠️')) {
-          const stageWarning = `\n\n⚠️ **Note**: File modification tools (${restrictedToolCalls.map(tc => tc.name).join(', ')}) are not available in the Assumptions stage. Please provide code snippets instead as requested in the rules.`;
+          let stageWarning: string;
+          if (currentStage === 'assumptions') {
+            stageWarning = `\n\n⚠️ **Note**: File modification tools (${restrictedToolCalls.map(tc => tc.name).join(', ')}) are not available in the Analysis stage. Please provide code snippets instead. To create files, say "move to implementation" after the code is ready.`;
+          } else {
+            // Chat stage: guide user to Analysis first, then Implementation
+            stageWarning = `\n\n⚠️ **Note**: File modification tools (${restrictedToolCalls.map(tc => tc.name).join(', ')}) are not available in the Chat stage. To create files, I'll first analyze and provide code snippets (Analysis stage), then you can move to Implementation stage to create the files.`;
+          }
           parsed.content = parsed.content + stageWarning;
         }
+      } else if (restrictedToolCalls.length > 0) {
+        console.log(`[Harmony] Allowing ${restrictedToolCalls.length} file modification tool call(s) in ${currentStage} stage`);
       }
 
       if (toolCalls.length > 0 && (this.mcpManager || this.nativeToolsManager)) {
@@ -591,6 +731,24 @@ Proceed with implementing the solution.`;
         logToolCalls(toolCalls.map(tc => ({ name: tc.name })));
         const executedToolCalls = await this.executeToolCalls(toolCalls, currentStage);
         console.log(`[Harmony] Completed execution of ${executedToolCalls.length} tool call(s) in stage: ${currentStage}`);
+        
+        // Check if we should transition back to chat due to errors (state machine)
+        if (this.conversationContext && this.stageStateMachine.shouldTransitionToChatOnError(currentStage, executedToolCalls)) {
+          console.log(`[Harmony] State machine: Transitioning from ${currentStage} to chat due to errors requiring clarification`);
+          const previousStage = this.conversationContext.currentStage;
+          this.conversationContext.currentStage = 'chat';
+          this.conversationContext.stageHistory.push({
+            stage: 'chat',
+            enteredAt: Date.now(),
+            prompt: `Error-based transition: Tool execution errors require clarification`,
+          });
+          this.conversationContext.lastStageTransition = {
+            from: previousStage,
+            to: 'chat'
+          };
+          // Update currentStage for the rest of this function
+          currentStage = 'chat';
+        }
         
         // Check for applicable rules
         let applicableRules: Rule[] = [];
@@ -632,16 +790,54 @@ Proceed with implementing the solution.`;
           currentStage
         );
         
+        // Build verbose info with tool calls
+        // Only include step/maxSteps if we're continuing, otherwise mark as complete
+        const verboseInfo: HarmonyResponse['verboseInfo'] = this.conversationContext ? {
+          stage: currentStage,
+          stageTransition: this.conversationContext.lastStageTransition,
+          ...(shouldContinue ? {
+            step: this.conversationContext.currentStep,
+            maxSteps: this.conversationContext.maxSteps,
+          } : {
+            isComplete: true,
+          }),
+          toolCalls: executedToolCalls.map(tc => ({
+            name: tc.name,
+            stage: currentStage,
+            success: !tc.result?.isError,
+            error: tc.result?.isError ? (tc.result.content?.[0]?.text || 'Unknown error') : undefined,
+          })),
+        } : {
+          stage: currentStage,
+          toolCalls: executedToolCalls.map(tc => ({
+            name: tc.name,
+            stage: currentStage,
+            success: !tc.result?.isError,
+            error: tc.result?.isError ? (tc.result.content?.[0]?.text || 'Unknown error') : undefined,
+          })),
+        };
+
         if (shouldContinue && this.conversationContext) {
           // Check if we can continue (before incrementing)
           const nextStep = this.conversationContext.currentStep + 1;
           if (nextStep > this.conversationContext.maxSteps) {
             console.warn(`[Harmony] Cannot continue: next step (${nextStep}) would exceed max steps (${this.conversationContext.maxSteps})`);
+            // Mark as complete since we can't continue
+            const completeVerboseInfo: HarmonyResponse['verboseInfo'] = verboseInfo ? {
+              ...verboseInfo,
+              isComplete: true,
+              step: undefined,
+              maxSteps: undefined,
+            } : {
+              stage: currentStage,
+              isComplete: true,
+            };
             return {
               content: finalContent,
               reasoning: parsed.reasoning,
               toolCalls: executedToolCalls,
               isContinuation: isContinuation,
+              verboseInfo: completeVerboseInfo,
             };
           }
           
@@ -667,12 +863,23 @@ Proceed with implementing the solution.`;
             conversationHistory
           );
           
+          // Merge tool calls from both responses
+          const allToolCalls = [...executedToolCalls, ...(continuationResponse.toolCalls || [])];
+          const mergedVerboseInfo: HarmonyResponse['verboseInfo'] = continuationResponse.verboseInfo ? {
+            ...continuationResponse.verboseInfo,
+            toolCalls: [
+              ...(verboseInfo.toolCalls || []),
+              ...(continuationResponse.verboseInfo.toolCalls || []),
+            ],
+          } : verboseInfo;
+          
           // Merge responses
           return {
             content: finalContent + "\n\n---\n\n" + continuationResponse.content,
             reasoning: parsed.reasoning,
-            toolCalls: [...executedToolCalls, ...(continuationResponse.toolCalls || [])],
+            toolCalls: allToolCalls,
             isContinuation: true,
+            verboseInfo: mergedVerboseInfo,
           };
         }
         
@@ -681,6 +888,7 @@ Proceed with implementing the solution.`;
           reasoning: parsed.reasoning,
           toolCalls: executedToolCalls,
           isContinuation: isContinuation,
+          verboseInfo,
         };
       }
 
@@ -697,10 +905,15 @@ Proceed with implementing the solution.`;
           const nextStep = this.conversationContext.currentStep + 1;
           if (nextStep > this.conversationContext.maxSteps) {
             console.warn(`[Harmony] Cannot continue: next step (${nextStep}) would exceed max steps (${this.conversationContext.maxSteps})`);
+            const cannotContinueVerboseInfo: HarmonyResponse['verboseInfo'] = {
+              stage: currentStage,
+              isComplete: true,
+            };
             return {
               content: parsed.content,
               reasoning: parsed.reasoning,
               isContinuation: isContinuation,
+              verboseInfo: cannotContinueVerboseInfo,
             };
           }
           
@@ -721,12 +934,30 @@ Proceed with implementing the solution.`;
             conversationHistory
           );
           
+          // Build verbose info for this step (no tool calls yet)
+          const noToolCallsVerboseInfo: HarmonyResponse['verboseInfo'] = this.conversationContext ? {
+            stage: currentStage,
+            stageTransition: this.conversationContext.lastStageTransition,
+            step: this.conversationContext.currentStep,
+            maxSteps: this.conversationContext.maxSteps,
+          } : {
+            stage: currentStage,
+          };
+
+          // Merge verbose info from continuation
+          const mergedVerboseInfo: HarmonyResponse['verboseInfo'] = continuationResponse.verboseInfo ? {
+            ...continuationResponse.verboseInfo,
+            // Preserve stage from continuation if available
+            stage: continuationResponse.verboseInfo.stage || currentStage,
+          } : noToolCallsVerboseInfo;
+
           // Merge responses
           return {
             content: parsed.content + "\n\n---\n\n" + continuationResponse.content,
             reasoning: parsed.reasoning,
             toolCalls: continuationResponse.toolCalls || [],
             isContinuation: true,
+            verboseInfo: mergedVerboseInfo,
           };
         }
       }
@@ -736,10 +967,26 @@ Proceed with implementing the solution.`;
         console.log(`[Harmony] Response complete - stage: ${currentStage}, step: ${this.conversationContext.currentStep}/${this.conversationContext.maxSteps}, isContinuation: ${isContinuation}`);
       }
 
+      // Build verbose info - always include stage information
+      // No tool calls executed, so this is a complete response (no continuation)
+      const verboseInfo: HarmonyResponse['verboseInfo'] = this.conversationContext ? {
+        stage: currentStage,
+        stageTransition: this.conversationContext.lastStageTransition,
+        isComplete: true,
+      } : {
+        stage: currentStage,
+      };
+
+      // Clear lastStageTransition after using it
+      if (this.conversationContext?.lastStageTransition) {
+        this.conversationContext.lastStageTransition = undefined;
+      }
+
       return {
         content: parsed.content,
         reasoning: parsed.reasoning,
         isContinuation: isContinuation,
+        verboseInfo,
       };
     } catch (error: any) {
       console.error(`[Harmony] Error calling Harmony server (stage: ${this.conversationContext?.currentStage || 'unknown'}):`, error);

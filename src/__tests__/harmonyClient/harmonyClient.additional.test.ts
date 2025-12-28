@@ -1,5 +1,5 @@
 import { HarmonyClient } from '../../harmonyClient';
-import { LlamaConfig } from '../../config';
+import { LlamaConfig, RuleConfig } from '../../config';
 import { MCPManager } from '../../mcpManager';
 import { RulesManager, Rule } from '../../rulesManager';
 import { NativeToolsManager, NativeTool } from '../../nativeToolManager';
@@ -31,8 +31,9 @@ describe('HarmonyClient - Additional Test Cases', () => {
       temperature: 0.7,
       maxTokens: 2048,
       mcpServers: [],
-      rulesPaths: [],
+      rulesPaths: [] as RuleConfig[],
       harmonyMode: true,
+      verbose: false,
     };
 
     // Setup HarmonyProcessor mock

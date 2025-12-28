@@ -193,5 +193,126 @@ describe('loadConfig', () => {
       expect(config.mcpServers[0].enabled).toBe(true);
     });
   });
+
+  describe('Rules enabled field', () => {
+    it('should default enabled to true when rulesPaths contains strings (backward compatibility)', () => {
+      mockConfig.get.mockImplementation((key: string, defaultValue?: any) => {
+        if (key === 'rulesPaths') {
+          return ['path/to/rule1.md', 'path/to/rule2.md'];
+        }
+        return defaultValue;
+      });
+
+      const config = loadConfig();
+
+      expect(config.rulesPaths).toHaveLength(2);
+      expect(config.rulesPaths[0]).toEqual({ path: 'path/to/rule1.md', enabled: true });
+      expect(config.rulesPaths[1]).toEqual({ path: 'path/to/rule2.md', enabled: true });
+    });
+
+    it('should set enabled to true when explicitly set to true in object format', () => {
+      mockConfig.get.mockImplementation((key: string, defaultValue?: any) => {
+        if (key === 'rulesPaths') {
+          return [
+            {
+              path: 'path/to/rule1.md',
+              enabled: true,
+            },
+          ];
+        }
+        return defaultValue;
+      });
+
+      const config = loadConfig();
+
+      expect(config.rulesPaths).toHaveLength(1);
+      expect(config.rulesPaths[0].path).toBe('path/to/rule1.md');
+      expect(config.rulesPaths[0].enabled).toBe(true);
+    });
+
+    it('should set enabled to false when explicitly set to false', () => {
+      mockConfig.get.mockImplementation((key: string, defaultValue?: any) => {
+        if (key === 'rulesPaths') {
+          return [
+            {
+              path: 'path/to/rule1.md',
+              enabled: false,
+            },
+          ];
+        }
+        return defaultValue;
+      });
+
+      const config = loadConfig();
+
+      expect(config.rulesPaths).toHaveLength(1);
+      expect(config.rulesPaths[0].path).toBe('path/to/rule1.md');
+      expect(config.rulesPaths[0].enabled).toBe(false);
+    });
+
+    it('should default enabled to true when not specified in object format', () => {
+      mockConfig.get.mockImplementation((key: string, defaultValue?: any) => {
+        if (key === 'rulesPaths') {
+          return [
+            {
+              path: 'path/to/rule1.md',
+              // enabled not specified
+            },
+          ];
+        }
+        return defaultValue;
+      });
+
+      const config = loadConfig();
+
+      expect(config.rulesPaths).toHaveLength(1);
+      expect(config.rulesPaths[0].path).toBe('path/to/rule1.md');
+      expect(config.rulesPaths[0].enabled).toBe(true);
+    });
+
+    it('should handle mixed configuration (strings and objects)', () => {
+      mockConfig.get.mockImplementation((key: string, defaultValue?: any) => {
+        if (key === 'rulesPaths') {
+          return [
+            'path/to/rule1.md', // string format - should default to enabled: true
+            {
+              path: 'path/to/rule2.md',
+              enabled: true,
+            },
+            {
+              path: 'path/to/rule3.md',
+              enabled: false,
+            },
+            {
+              path: 'path/to/rule4.md',
+              // enabled not specified - should default to true
+            },
+          ];
+        }
+        return defaultValue;
+      });
+
+      const config = loadConfig();
+
+      expect(config.rulesPaths).toHaveLength(4);
+      expect(config.rulesPaths[0]).toEqual({ path: 'path/to/rule1.md', enabled: true });
+      expect(config.rulesPaths[1]).toEqual({ path: 'path/to/rule2.md', enabled: true });
+      expect(config.rulesPaths[2]).toEqual({ path: 'path/to/rule3.md', enabled: false });
+      expect(config.rulesPaths[3]).toEqual({ path: 'path/to/rule4.md', enabled: true });
+    });
+
+    it('should handle empty rulesPaths array', () => {
+      mockConfig.get.mockImplementation((key: string, defaultValue?: any) => {
+        if (key === 'rulesPaths') {
+          return [];
+        }
+        return defaultValue;
+      });
+
+      const config = loadConfig();
+
+      expect(config.rulesPaths).toHaveLength(0);
+    });
+  });
 });
 

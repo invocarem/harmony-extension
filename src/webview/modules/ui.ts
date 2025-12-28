@@ -12,7 +12,23 @@ export function addMessage(
     text: string,
     isUser: boolean,
     reasoning?: string,
-    contextSummary?: ContextSummary
+    contextSummary?: ContextSummary,
+    verboseInfo?: {
+        stage?: 'chat' | 'assumptions' | 'implementation';
+        stageTransition?: {
+            from: 'chat' | 'assumptions' | 'implementation';
+            to: 'chat' | 'assumptions' | 'implementation';
+        };
+        step?: number;
+        maxSteps?: number;
+        isComplete?: boolean;
+        toolCalls?: Array<{
+            name: string;
+            stage: 'chat' | 'assumptions' | 'implementation';
+            success: boolean;
+            error?: string;
+        }>;
+    }
 ): void {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${isUser ? 'user-message' : 'assistant-message'}`;
@@ -47,6 +63,88 @@ export function addMessage(
         
         if (contextDiv.children.length > 0) {
             messageDiv.appendChild(contextDiv);
+        }
+    }
+    
+    // Add verbose info section if present (for assistant messages)
+    if (verboseInfo && !isUser) {
+        const verboseDiv = document.createElement('div');
+        verboseDiv.className = 'verbose-info-section';
+        
+        const infoItems: string[] = [];
+        
+        // Stage information
+        if (verboseInfo.stage) {
+            const stageEmoji = {
+                'chat': '💬',
+                'assumptions': '🔍',
+                'implementation': '⚙️'
+            }[verboseInfo.stage] || '📋';
+            const stageLabel = verboseInfo.stage.charAt(0).toUpperCase() + verboseInfo.stage.slice(1);
+            infoItems.push(`<div class="verbose-info-item"><span class="verbose-info-label">${stageEmoji} Stage:</span> <span class="verbose-info-value">${stageLabel}</span></div>`);
+        }
+        
+        // Stage transition
+        if (verboseInfo.stageTransition) {
+            const fromEmoji = {
+                'chat': '💬',
+                'assumptions': '🔍',
+                'implementation': '⚙️'
+            }[verboseInfo.stageTransition.from] || '📋';
+            const toEmoji = {
+                'chat': '💬',
+                'assumptions': '🔍',
+                'implementation': '⚙️'
+            }[verboseInfo.stageTransition.to] || '📋';
+            const fromLabel = verboseInfo.stageTransition.from.charAt(0).toUpperCase() + verboseInfo.stageTransition.from.slice(1);
+            const toLabel = verboseInfo.stageTransition.to.charAt(0).toUpperCase() + verboseInfo.stageTransition.to.slice(1);
+            infoItems.push(`<div class="verbose-info-item verbose-info-transition"><span class="verbose-info-label">🔄 Transition:</span> <span class="verbose-info-value">${fromEmoji} ${fromLabel} → ${toEmoji} ${toLabel}</span></div>`);
+        }
+        
+        // Step information - show step count if continuing, or "Complete" if finished
+        if (verboseInfo.isComplete) {
+            infoItems.push(`<div class="verbose-info-item"><span class="verbose-info-label">📊 Status:</span> <span class="verbose-info-value">Complete</span></div>`);
+        } else if (verboseInfo.step !== undefined && verboseInfo.maxSteps !== undefined) {
+            infoItems.push(`<div class="verbose-info-item"><span class="verbose-info-label">📊 Step:</span> <span class="verbose-info-value">${verboseInfo.step} / ${verboseInfo.maxSteps}</span></div>`);
+        }
+        
+        // Tool call information
+        if (verboseInfo.toolCalls && verboseInfo.toolCalls.length > 0) {
+            const toolCallsDiv = document.createElement('div');
+            toolCallsDiv.className = 'verbose-info-toolcalls';
+            toolCallsDiv.innerHTML = '<div class="verbose-info-label">🔧 Tool Calls:</div>';
+            
+            verboseInfo.toolCalls.forEach((toolCall, index) => {
+                const toolCallItem = document.createElement('div');
+                toolCallItem.className = 'verbose-info-toolcall-item';
+                
+                const stageEmoji = {
+                    'chat': '💬',
+                    'assumptions': '🔍',
+                    'implementation': '⚙️'
+                }[toolCall.stage] || '📋';
+                
+                const statusEmoji = toolCall.success ? '✅' : '❌';
+                const statusText = toolCall.success ? 'OK' : 'Error';
+                
+                let toolCallHtml = `<span class="verbose-info-toolcall-name">${statusEmoji} ${escapeHtml(toolCall.name)}</span>`;
+                toolCallHtml += ` <span class="verbose-info-toolcall-status ${toolCall.success ? 'success' : 'error'}">${statusText}</span>`;
+                toolCallHtml += ` <span class="verbose-info-toolcall-stage">${stageEmoji} ${toolCall.stage}</span>`;
+                
+                if (toolCall.error) {
+                    toolCallHtml += `<div class="verbose-info-toolcall-error">${escapeHtml(toolCall.error)}</div>`;
+                }
+                
+                toolCallItem.innerHTML = toolCallHtml;
+                toolCallsDiv.appendChild(toolCallItem);
+            });
+            
+            infoItems.push(toolCallsDiv.outerHTML);
+        }
+        
+        if (infoItems.length > 0) {
+            verboseDiv.innerHTML = '<div class="verbose-info-header">ℹ️ Info</div><div class="verbose-info-content">' + infoItems.join('') + '</div>';
+            messageDiv.appendChild(verboseDiv);
         }
     }
     

@@ -19,6 +19,22 @@ export interface ExtensionToWebviewMessage {
     reasoning?: string;
     files?: Array<{ label: string; path: string }>;
     contextSummary?: ContextSummary;
+    verboseInfo?: {
+        stage?: 'chat' | 'assumptions' | 'implementation';
+        stageTransition?: {
+            from: 'chat' | 'assumptions' | 'implementation';
+            to: 'chat' | 'assumptions' | 'implementation';
+        };
+        step?: number;
+        maxSteps?: number;
+        isComplete?: boolean;
+        toolCalls?: Array<{
+            name: string;
+            stage: 'chat' | 'assumptions' | 'implementation';
+            success: boolean;
+            error?: string;
+        }>;
+    };
 }
 
 export interface ContextSummary {

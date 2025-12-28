@@ -38,6 +38,101 @@ body {
     white-space: pre-wrap;
     border-bottom-left-radius: 2px;
 }
+.verbose-info-section {
+    background: var(--vscode-textBlockQuote-background);
+    border-left: 3px solid var(--vscode-textLink-foreground);
+    padding: 8px 12px;
+    margin: 8px 0;
+    border-radius: 4px;
+    font-size: 0.85em;
+    color: var(--vscode-descriptionForeground);
+}
+.verbose-info-header {
+    font-weight: 600;
+    margin-bottom: 6px;
+    color: var(--vscode-editor-foreground);
+    font-size: 0.9em;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.verbose-info-content {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.verbose-info-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.verbose-info-label {
+    font-weight: 600;
+    color: var(--vscode-editor-foreground);
+    font-size: 0.9em;
+}
+.verbose-info-value {
+    color: var(--vscode-textLink-foreground);
+    font-weight: 500;
+}
+.verbose-info-transition {
+    padding: 4px 8px;
+    background: var(--vscode-textCodeBlock-background);
+    border-radius: 3px;
+    margin-top: 2px;
+}
+.verbose-info-toolcalls {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--vscode-input-border);
+}
+.verbose-info-toolcall-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 6px 8px;
+    margin: 4px 0;
+    background: var(--vscode-textCodeBlock-background);
+    border-radius: 3px;
+    flex-wrap: wrap;
+    font-size: 0.85em;
+}
+.verbose-info-toolcall-name {
+    font-weight: 600;
+    color: var(--vscode-editor-foreground);
+    font-family: var(--vscode-editor-font-family);
+}
+.verbose-info-toolcall-status {
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 0.85em;
+    font-weight: 500;
+}
+.verbose-info-toolcall-status.success {
+    background: rgba(73, 204, 73, 0.15);
+    color: #4dcc4d;
+    border: 1px solid rgba(73, 204, 73, 0.3);
+}
+.verbose-info-toolcall-status.error {
+    background: var(--vscode-errorForeground);
+    color: var(--vscode-editor-background);
+}
+.verbose-info-toolcall-stage {
+    font-size: 0.85em;
+    color: var(--vscode-descriptionForeground);
+}
+.verbose-info-toolcall-error {
+    width: 100%;
+    margin-top: 4px;
+    padding: 4px 8px;
+    background: var(--vscode-input-background);
+    border-left: 2px solid var(--vscode-errorForeground);
+    border-radius: 2px;
+    color: var(--vscode-errorForeground);
+    font-size: 0.8em;
+    font-family: var(--vscode-editor-font-family);
+}
 .reasoning-section {
     background: var(--vscode-textBlockQuote-background);
     border-left: 3px solid var(--vscode-textBlockQuote-border);

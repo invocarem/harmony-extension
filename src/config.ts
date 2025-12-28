@@ -1,6 +1,11 @@
 import * as vscode from "vscode";
 import { MCPServerConfig } from "./mcpClient";
 
+export interface RuleConfig {
+  path: string;
+  enabled: boolean;
+}
+
 export interface LlamaConfig {
   serverUrl: string;
   apiKey: string;
@@ -8,8 +13,9 @@ export interface LlamaConfig {
   temperature: number;
   maxTokens: number;
   mcpServers: MCPServerConfig[];
-  rulesPaths: string[];
+  rulesPaths: RuleConfig[];
   harmonyMode: boolean;
+  verbose: boolean;
 }
 
 /**
@@ -73,7 +79,20 @@ export function loadConfig(): LlamaConfig {
     console.log(`[Harmony] Normalized server URL: "${rawServerUrl}" -> "${normalizedServerUrl}"`);
   }
 
-  const rulesPaths = config.get<string[]>("rulesPaths", []);
+  const rulesPathsConfig = config.get<string[] | any[]>("rulesPaths", []);
+  
+  // Parse rulesPaths - support both string[] (backward compatibility) and object[] formats
+  const rulesPaths: RuleConfig[] = rulesPathsConfig.map((item: string | any) => {
+    // If it's a string (backward compatibility), treat as enabled rule
+    if (typeof item === "string") {
+      return { path: item, enabled: true };
+    }
+    // If it's an object, parse path and enabled (default true)
+    return {
+      path: item.path || item,
+      enabled: item.enabled !== undefined ? item.enabled : true,
+    };
+  });
 
   return {
     serverUrl: normalizedServerUrl,
@@ -84,6 +103,7 @@ export function loadConfig(): LlamaConfig {
     mcpServers,
     rulesPaths,
     harmonyMode: config.get("harmonyMode", true),
+    verbose: config.get("verbose", false),
   };
 }
 

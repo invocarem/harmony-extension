@@ -1,5 +1,5 @@
 import { HarmonyClient, WorkflowStage } from '../../harmonyClient';
-import { LlamaConfig } from '../../config';
+import { LlamaConfig, RuleConfig } from '../../config';
 import { MCPManager } from '../../mcpManager';
 import { RulesManager } from '../../rulesManager';
 import { NativeToolsManager, NativeTool } from '../../nativeToolManager';
@@ -30,8 +30,9 @@ describe('HarmonyClient - Stage Control', () => {
       temperature: 0.7,
       maxTokens: 2048,
       mcpServers: [],
-      rulesPaths: [],
+      rulesPaths: [] as RuleConfig[],
       harmonyMode: true,
+      verbose: false,
     };
 
     // Setup HarmonyProcessor mock

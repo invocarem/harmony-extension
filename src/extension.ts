@@ -228,7 +228,7 @@ export class HarmonyAssistant {
         `[Harmony] Sending response to webview. Content length: ${response.content?.length || 0}`
       );
 
-      // Clean verbose responses to improve readability
+      // Clean verbose responses to improve readability (apply cleaning even in verbose mode)
       const cleanedContent = cleanVerboseResponse(response.content || '');
       const cleanedResponse = {
         ...response,

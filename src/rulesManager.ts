@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
+import { RuleConfig } from "./config";
 
 export interface Rule {
   id: string;
@@ -25,7 +26,7 @@ export class RulesManager {
   /**
    * Load rules from configured file paths
    */
-  async loadRules(rulesPaths: string[]): Promise<void> {
+  async loadRules(rulesPaths: RuleConfig[]): Promise<void> {
     // Clear existing rules and watchers
     this.clearRules();
 
@@ -34,16 +35,29 @@ export class RulesManager {
       return;
     }
 
-    console.log(`[Rules] Loading rules from ${rulesPaths.length} path(s)`);
+    // Filter out disabled rules
+    const enabledRules = rulesPaths.filter(rule => rule.enabled);
+    const disabledCount = rulesPaths.length - enabledRules.length;
 
-    for (const rulePath of rulesPaths) {
+    if (disabledCount > 0) {
+      console.log(`[Rules] ${disabledCount} rule(s) disabled, skipping`);
+    }
+
+    if (enabledRules.length === 0) {
+      console.log("[Rules] No enabled rules to load");
+      return;
+    }
+
+    console.log(`[Rules] Loading rules from ${enabledRules.length} path(s)`);
+
+    for (const ruleConfig of enabledRules) {
       try {
-        const resolvedPath = this.resolvePath(rulePath);
+        const resolvedPath = this.resolvePath(ruleConfig.path);
         await this.loadRuleFromPath(resolvedPath);
       } catch (error: any) {
-        console.error(`[Rules] Failed to load rule from path "${rulePath}":`, error.message);
+        console.error(`[Rules] Failed to load rule from path "${ruleConfig.path}":`, error.message);
         vscode.window.showWarningMessage(
-          `Failed to load rule from "${rulePath}": ${error.message}`
+          `Failed to load rule from "${ruleConfig.path}": ${error.message}`
         );
       }
     }

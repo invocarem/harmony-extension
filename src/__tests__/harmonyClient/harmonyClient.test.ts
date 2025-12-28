@@ -1,5 +1,5 @@
 import { HarmonyClient, HarmonyResponse } from '../../harmonyClient';
-import { LlamaConfig } from '../../config';
+import { LlamaConfig, RuleConfig } from '../../config';
 import { MCPManager } from '../../mcpManager';
 import { RulesManager, Rule } from '../../rulesManager';
 import { NativeToolsManager, NativeTool } from '../../nativeToolManager';
@@ -32,8 +32,9 @@ describe('HarmonyClient', () => {
       temperature: 0.7,
       maxTokens: 2048,
       mcpServers: [],
-      rulesPaths: [],
+      rulesPaths: [] as RuleConfig[],
       harmonyMode: true,
+      verbose: false,
     };
 
     // Setup HarmonyProcessor mock - create a proper mock instance
@@ -754,14 +755,15 @@ describe('HarmonyClient', () => {
 
         await client.callServer('Test prompt', 'chat', applyTemplate);
 
-        expect(applyTemplate).toHaveBeenCalledWith(
-          'chat',
-          expect.objectContaining({
-            prompt: 'Test prompt',
-            rules: '',
-            tools: expect.any(Array),
-          })
-        );
+        expect(applyTemplate).toHaveBeenCalled();
+        const templateCallArgs = applyTemplate.mock.calls[0];
+        expect(templateCallArgs[0]).toBe('chat');
+        expect(templateCallArgs[1]).toMatchObject({
+          prompt: 'Test prompt',
+          tools: expect.any(Array),
+          stage: expect.any(String),
+          stageInstructions: expect.any(String),
+        });
 
         const callArgs = mockedAxios.post.mock.calls[0][1] as any;
         expect(callArgs.prompt).toBe('Templated prompt');

@@ -142,15 +142,41 @@
         "harmony.rulesPaths": {
           "type": "array",
           "default": [],
-          "description": "Paths to rules files (.md) to include in prompts. Supports ${workspaceFolder} variable and absolute paths.",
+          "description": "Paths to rules files (.md) to include in prompts. Supports ${workspaceFolder} variable and absolute paths. Can be an array of strings (for backward compatibility) or objects with 'path' and 'enabled' properties.",
           "items": {
-            "type": "string"
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "description": "Path to the rule file"
+                  },
+                  "enabled": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Whether this rule should be enabled. Disabled rules will be skipped during loading."
+                  }
+                },
+                "required": [
+                  "path"
+                ]
+              }
+            ]
           }
         },
         "harmony.harmonyMode": {
           "type": "boolean",
           "default": true,
           "description": "Enable Harmony protocol token parsing. When false, expects plain jinja output and filters out harmony tokens from templates."
+        },
+        "harmony.verbose": {
+          "type": "boolean",
+          "default": false,
+          "description": "When enabled, shows full verbose responses without filtering or cleaning. Useful for debugging and seeing stage changes (chat, analysis, implementation)."
         }
       }
     }
