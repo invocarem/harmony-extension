@@ -17,6 +17,7 @@ export interface ExtensionToWebviewMessage {
     text?: string;
     context?: string;
     reasoning?: string;
+    commentary?: string;
     final?: string;
     files?: Array<{ label: string; path: string }>;
     contextSummary?: ContextSummary;

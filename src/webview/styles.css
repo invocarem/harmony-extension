@@ -148,6 +148,21 @@ body {
     color: var(--vscode-editor-foreground);
     font-size: 0.95em;
 }
+.commentary-section {
+    background: var(--vscode-textBlockQuote-background);
+    border-left: 3px solid var(--vscode-textBlockQuote-border);
+    padding: 10px 15px;
+    margin: 10px 0;
+    border-radius: 4px;
+    font-size: 0.9em;
+    color: var(--vscode-descriptionForeground);
+}
+.commentary-header {
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: var(--vscode-editor-foreground);
+    font-size: 0.95em;
+}
 .final-section {
     background: var(--vscode-textBlockQuote-background);
     border-left: 3px solid var(--vscode-textLink-foreground);

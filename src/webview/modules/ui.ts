@@ -29,7 +29,8 @@ export function addMessage(
             error?: string;
         }>;
     },
-    final?: string
+    final?: string,
+    commentary?: string
 ): void {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${isUser ? 'user-message' : 'assistant-message'}`;
@@ -155,6 +156,14 @@ export function addMessage(
         reasoningDiv.className = 'reasoning-section';
         reasoningDiv.innerHTML = '<div class="reasoning-header">💭 Reasoning</div>' + formatMarkdown(reasoning);
         messageDiv.appendChild(reasoningDiv);
+    }
+    
+    // Add commentary section if present
+    if (commentary && !isUser && commentary.trim()) {
+        const commentaryDiv = document.createElement('div');
+        commentaryDiv.className = 'commentary-section';
+        commentaryDiv.innerHTML = '<div class="commentary-header">💬 Commentary</div>' + formatMarkdown(commentary);
+        messageDiv.appendChild(commentaryDiv);
     }
     
     // Format markdown and add content

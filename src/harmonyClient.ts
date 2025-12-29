@@ -26,6 +26,7 @@ import {
 export interface HarmonyResponse {
   content: string;
   reasoning?: string;
+  commentary?: string;
   final?: string;
   toolCalls?: Array<{
     name: string;
@@ -711,6 +712,7 @@ You are in the **Implementation** stage. Your goal is to:
             return {
               content: finalContent,
               reasoning: parsed.reasoning,
+              commentary: parsed.commentary,
               final: parsed.final,
               ...(executedToolCalls !== undefined ? { toolCalls: executedToolCalls } : {}),
               isContinuation: isContinuation,
@@ -754,6 +756,7 @@ You are in the **Implementation** stage. Your goal is to:
           return {
             content: finalContent + "\n\n---\n\n" + continuationResponse.content,
             reasoning: parsed.reasoning,
+            commentary: parsed.commentary || continuationResponse.commentary,
             final: parsed.final || continuationResponse.final,
             toolCalls: allToolCalls,
             isContinuation: true,
@@ -764,6 +767,7 @@ You are in the **Implementation** stage. Your goal is to:
         return {
           content: finalContent,
           reasoning: parsed.reasoning,
+          commentary: parsed.commentary,
           final: parsed.final,
           ...(executedToolCalls !== undefined ? { toolCalls: executedToolCalls } : {}),
           isContinuation: isContinuation,
@@ -791,6 +795,7 @@ You are in the **Implementation** stage. Your goal is to:
             return {
               content: parsed.content,
               reasoning: parsed.reasoning,
+              commentary: parsed.commentary,
               final: parsed.final,
               isContinuation: isContinuation,
               verboseInfo: cannotContinueVerboseInfo,
@@ -835,6 +840,7 @@ You are in the **Implementation** stage. Your goal is to:
           return {
             content: parsed.content + "\n\n---\n\n" + continuationResponse.content,
             reasoning: parsed.reasoning,
+            commentary: parsed.commentary || continuationResponse.commentary,
             final: parsed.final || continuationResponse.final,
             toolCalls: continuationResponse.toolCalls || [],
             isContinuation: true,
@@ -866,6 +872,7 @@ You are in the **Implementation** stage. Your goal is to:
       return {
         content: parsed.content,
         reasoning: parsed.reasoning,
+        commentary: parsed.commentary,
         final: parsed.final,
         ...(executedToolCalls !== undefined ? { toolCalls: executedToolCalls } : {}),
         isContinuation: isContinuation,
@@ -1097,16 +1104,19 @@ You are in the **Implementation** stage. Your goal is to:
     }
 
     // Check for incomplete Harmony tokens (if harmonyMode is true)
-    // Unclosed tokens like <|channel|> without <|end|>
+    // Note: <|end|> tokens are optional for simple responses, so we only flag
+    // as incomplete if there are multiple channels without ends (suggesting truncation)
     if (response.includes('<|')) {
       const channelTokens = (response.match(/<\|channel\|>/g) || []).length;
       const endTokens = (response.match(/<\|end\|>/g) || []).length;
       
-      // If we have channel tokens but fewer end tokens, it might be incomplete
-      if (channelTokens > endTokens) {
+      // Only flag as incomplete if multiple channels without corresponding ends
+      // Single channel without <|end|> is valid (end token is optional for simple responses)
+      if (channelTokens > 1 && channelTokens > endTokens) {
         console.log(`[Harmony] Detected unclosed Harmony tokens (${channelTokens} channels, ${endTokens} ends)`);
         return true;
       }
+      // Single channel without end token is valid - don't flag as incomplete
     }
 
     // Check if response ends abruptly (ends in middle of word, unclosed quotes, etc.)

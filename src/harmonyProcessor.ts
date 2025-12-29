@@ -9,6 +9,7 @@ import { filterHarmonyTokens } from "./utils/harmonyTokenFilter";
 export interface HarmonyParseResult {
   content: string;
   reasoning?: string;
+  commentary?: string;
   final?: string;
   rawToolCalls?: string[];
   remaining?: string;
@@ -89,8 +90,6 @@ export class HarmonyProcessor {
         remaining: response
       };
     }
-    console.log(`[HarmonyProcessor] Parsing ${response.length} chars`);
-    
     // Check if response contains Harmony tokens
     const hasHarmonyTokens = this.validateResponse(response);
     
@@ -136,6 +135,7 @@ export class HarmonyProcessor {
     // Harmony token-based parsing (existing logic)
     let content = '';
     let reasoning: string | undefined;
+    let commentary: string | undefined;
     let final: string | undefined;
     const rawToolCalls: string[] = [];
     
@@ -155,15 +155,16 @@ export class HarmonyProcessor {
           const fullToken = response.substring(i, tokenEnd + 2);
           const tokenContent = response.substring(i + 2, tokenEnd);
           
-          console.log(`[HarmonyProcessor] Found token: "${fullToken}"`);
-          
           // Handle based on token type
           switch (tokenContent) {
             case 'channel':
               // Handle channel token
               i = this.handleChannelToken(response, tokenEnd, currentChannel);
               currentChannel = this.detectChannelType(response, i);
-              console.log(`[HarmonyProcessor] Detected channel: ${currentChannel}`);
+              // Log only valid channel types (analysis, commentary, final)
+              if (currentChannel !== 'none') {
+                console.log(`[HarmonyProcessor] Detected channel: ${currentChannel}`);
+              }
               continue;
               
             case 'message':
@@ -178,6 +179,7 @@ export class HarmonyProcessor {
               this.saveBuffer(currentChannel, currentBuffer, {
                 content: (c) => content = c,
                 reasoning: (r) => reasoning = r,
+                commentary: (c) => commentary = c,
                 final: (f) => final = f,
                 rawToolCalls: (t) => rawToolCalls.push(t)
               }, pendingToolName);
@@ -236,6 +238,7 @@ export class HarmonyProcessor {
       this.saveBuffer(currentChannel, currentBuffer, {
         content: (c) => content = c,
         reasoning: (r) => reasoning = r,
+        commentary: (c) => commentary = c,
         final: (f) => final = f,
         rawToolCalls: (t) => rawToolCalls.push(t)
       }, pendingToolName);
@@ -322,7 +325,7 @@ export class HarmonyProcessor {
       });
     }
     
-    return { content, reasoning, final, rawToolCalls, remaining: response };
+    return { content, reasoning, commentary, final, rawToolCalls, remaining: response };
   }
   
   /**
@@ -331,11 +334,6 @@ export class HarmonyProcessor {
   private handleChannelToken(response: string, tokenEnd: number, currentChannel: string): number {
     // Move past the token
     let i = tokenEnd + 2;
-    
-    // Debug: show what's next
-    const nextChars = response.substring(i, Math.min(i + 20, response.length));
-    console.log(`[HarmonyProcessor] After <|channel|>, next chars: "${nextChars}"`);
-    
     return i;
   }
   
@@ -354,17 +352,13 @@ export class HarmonyProcessor {
     const remaining = response.substring(i);
     
     if (remaining.startsWith('analysis')) {
-      console.log(`[HarmonyProcessor] Found analysis at position ${i}`);
       return 'analysis';
     } else if (remaining.startsWith('final')) {
-      console.log(`[HarmonyProcessor] Found final at position ${i}`);
       return 'final';
     } else if (remaining.startsWith('commentary')) {
-      console.log(`[HarmonyProcessor] Found commentary at position ${i}`);
       return 'commentary';
     }
     
-    console.log(`[HarmonyProcessor] No channel type found at position ${i}, next: "${response.substring(i, Math.min(i + 10, response.length))}"`);
     return 'none';
   }
   
@@ -377,6 +371,7 @@ export class HarmonyProcessor {
     setters: {
       content: (c: string) => void,
       reasoning: (r: string) => void,
+      commentary?: (c: string) => void,
       final?: (f: string) => void,
       rawToolCalls: (t: string) => void
     },
@@ -498,8 +493,13 @@ export class HarmonyProcessor {
         if (looksLikeMcpOrJsonCommentary || looksLikeXmlCommentary) {
           setters.rawToolCalls(trimmed);
         } else {
-          // Regular commentary text - treat as content
-          setters.content(trimmed);
+          // Regular commentary text - save to commentary field
+          if (setters.commentary) {
+            setters.commentary(trimmed);
+          } else {
+            // Fallback to content if commentary setter not available
+            setters.content(trimmed);
+          }
         }
         break;
       default:

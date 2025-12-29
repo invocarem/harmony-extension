@@ -71,13 +71,14 @@ Line 3<|end|>`;
       });
 
       it("should detect commentary channel", () => {
-        // Commentary channel content goes to content unless it looks like a tool call
+        // Commentary channel content goes to commentary field unless it looks like a tool call
         const response =
           "<|channel|>commentary<|message|>Commentary content<|end|>";
         const result = processor.parseResponse(response);
 
-        // Regular commentary text should be treated as content
-        expect(result.content).toBe("Commentary content");
+        // Regular commentary text should be saved to commentary field
+        expect(result.commentary).toBe("Commentary content");
+        expect(result.content).toBe("");
 
         // If commentary contains a tool call, it should go to rawToolCalls
         const responseWithToolCall =

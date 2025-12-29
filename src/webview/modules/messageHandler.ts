@@ -18,7 +18,7 @@ export function handleExtensionMessage(message: ExtensionToWebviewMessage): void
     switch (message.command) {
         case 'receiveMessage':
             removeTypingIndicator();
-            addMessage(message.text || '', false, message.reasoning, undefined, message.verboseInfo, message.final);
+            addMessage(message.text || '', false, message.reasoning, undefined, message.verboseInfo, message.final, message.commentary);
             break;
         case 'updateContext':
             if (message.context) {

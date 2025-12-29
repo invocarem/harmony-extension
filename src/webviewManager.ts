@@ -8,6 +8,7 @@ export interface WebviewMessage {
     text?: string;
     context?: string;
     reasoning?: string;
+    commentary?: string;
     final?: string;
     files?: Array<{ label: string; path: string }>;
     contextSummary?: { rulesCount?: number; mcpToolsCount?: number; files?: string[] };
@@ -155,6 +156,7 @@ export class WebviewManager {
 
         const content = response.content || "No response received from the model.";
         const reasoning = response.reasoning;
+        const commentary = response.commentary;
         const verboseInfo = response.verboseInfo;
         const final = response.final;
 
@@ -163,6 +165,7 @@ export class WebviewManager {
             command: "receiveMessage",
             text: content,
             reasoning: reasoning,
+            commentary: commentary,
             verboseInfo: verboseInfo,
             final: final,
         });
