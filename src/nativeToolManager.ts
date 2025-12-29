@@ -115,8 +115,34 @@ export class NativeToolsManager {
         },
       },
       {
+        name: "find_files",
+        description: "Find files by name pattern. Searches for files whose name contains or matches the given pattern. Useful for finding files when you know part of the filename (e.g., 'Psalm105ATests'). Returns matching file paths.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            name_pattern: {
+              type: "string",
+              description: "The name pattern to search for. Can be a partial filename (e.g., 'Psalm105ATests'), full filename, or regex pattern. The search matches if the pattern appears anywhere in the filename.",
+            },
+            directory_path: {
+              type: "string",
+              description: "Directory to search in. Can be relative to workspace root or absolute. If not provided, defaults to the current editor's directory (if a file is open) or workspace root.",
+            },
+            case_sensitive: {
+              type: "boolean",
+              description: "Whether the search should be case sensitive. Defaults to false.",
+            },
+            use_regex: {
+              type: "boolean",
+              description: "Whether to treat the name_pattern as a regular expression. Defaults to false (simple substring match).",
+            },
+          },
+          required: ["name_pattern"],
+        },
+      },
+      {
         name: "grep_files",
-        description: "Search for a pattern in files. Returns matching lines with file paths and line numbers.",
+        description: "Search for a text pattern in file contents. Returns matching lines with file paths and line numbers. Use this to find text content within files.",
         inputSchema: {
           type: "object",
           properties: {
@@ -126,7 +152,7 @@ export class NativeToolsManager {
             },
             directory_path: {
               type: "string",
-              description: "Directory to search in. Can be relative to workspace root or absolute. Defaults to workspace root if not provided.",
+              description: "Directory to search in. Can be relative to workspace root or absolute. If not provided, defaults to the current editor's directory (if a file is open) or workspace root.",
             },
             file_pattern: {
               type: "string",
@@ -157,6 +183,13 @@ export class NativeToolsManager {
             arguments_.directory_path,
             arguments_.recursive || false,
             arguments_.include_hidden || false
+          );
+        case "find_files":
+          return await this.findFiles(
+            arguments_.name_pattern,
+            arguments_.directory_path,
+            arguments_.case_sensitive || false,
+            arguments_.use_regex || false
           );
         case "grep_files":
           return await this.grepFiles(
@@ -189,17 +222,46 @@ export class NativeToolsManager {
     }
   }
 
-  private resolvePath(filePath: string): string {
+  private resolvePath(filePath: string, useCurrentEditor: boolean = false): string {
     // If absolute path, use as-is (treat /Tests as absolute)
     if (path.isAbsolute(filePath)) {
       return filePath;
     }
+    
+    // Handle "." as current directory - use current editor's directory if available
+    if (filePath === "." || filePath === "./") {
+      if (useCurrentEditor) {
+        const editor = vscode.window.activeTextEditor;
+        if (editor && editor.document && !editor.document.isUntitled) {
+          return path.dirname(editor.document.fileName);
+        }
+      }
+      // Fall back to workspace root or cwd
+      if (this.workspaceRoot) {
+        return this.workspaceRoot;
+      }
+      return process.cwd();
+    }
+    
     // Otherwise, resolve relative to workspace root
     if (this.workspaceRoot) {
       return path.resolve(this.workspaceRoot, filePath);
     }
     // Fallback: resolve relative to current working directory
     return path.resolve(filePath);
+  }
+
+  private resolveDirectoryPath(directoryPath?: string): string {
+    if (!directoryPath) {
+      // If no path specified, try to use current editor's directory as a smart default
+      const editor = vscode.window.activeTextEditor;
+      if (editor && editor.document && !editor.document.isUntitled) {
+        return path.dirname(editor.document.fileName);
+      }
+      // Fall back to workspace root
+      return this.workspaceRoot || process.cwd();
+    }
+    return this.resolvePath(directoryPath, true);
   }
 
   private async readFile(filePath: string): Promise<NativeToolResult> {
@@ -323,8 +385,8 @@ export class NativeToolsManager {
   ): Promise<NativeToolResult> {
     try {
       const resolvedPath = directoryPath
-        ? this.resolvePath(directoryPath)
-        : this.workspaceRoot || process.cwd();
+        ? this.resolvePath(directoryPath, true)
+        : this.resolveDirectoryPath();
 
       const stats = await stat(resolvedPath);
       if (!stats.isDirectory()) {
@@ -429,6 +491,100 @@ export class NativeToolsManager {
     }
   }
 
+  private async findFiles(
+    namePattern: string,
+    directoryPath?: string,
+    caseSensitive: boolean = false,
+    useRegex: boolean = false
+  ): Promise<NativeToolResult> {
+    try {
+      const resolvedPath = this.resolveDirectoryPath(directoryPath);
+
+      const results: Array<{
+        file: string;
+        path: string;
+      }> = [];
+
+      // Get all files to search
+      const filesToSearch: string[] = [];
+      await this.collectFiles(resolvedPath, filesToSearch);
+
+      // Create matching function
+      let matchesPattern: (filename: string) => boolean;
+      if (useRegex) {
+        // Use regex matching
+        try {
+          const regex = new RegExp(namePattern, caseSensitive ? "" : "i");
+          matchesPattern = (filename: string) => regex.test(filename);
+        } catch (error: any) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Error: Invalid regex pattern "${namePattern}": ${error.message}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      } else {
+        // Simple substring matching
+        const searchPattern = caseSensitive ? namePattern : namePattern.toLowerCase();
+        matchesPattern = (filename: string) => {
+          const filenameToSearch = caseSensitive ? filename : filename.toLowerCase();
+          return filenameToSearch.includes(searchPattern);
+        };
+      }
+
+      // Search for matching files
+      for (const file of filesToSearch) {
+        const filename = path.basename(file);
+        if (matchesPattern(filename)) {
+          const relativePath = path.relative(resolvedPath, file);
+          results.push({
+            file: filename,
+            path: relativePath,
+          });
+        }
+      }
+
+      // Format results
+      if (results.length === 0) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `No files found matching pattern "${namePattern}"`,
+            },
+          ],
+        };
+      }
+
+      const formatted = results
+        .map((item) => `📄 ${item.path}`)
+        .join("\n");
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Found ${results.length} file(s) matching "${namePattern}":\n\n${formatted}`,
+          },
+        ],
+      };
+    } catch (error: any) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error finding files: ${error.message}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
   private async grepFiles(
     pattern: string,
     directoryPath?: string,
@@ -436,9 +592,7 @@ export class NativeToolsManager {
     caseSensitive: boolean = false
   ): Promise<NativeToolResult> {
     try {
-      const resolvedPath = directoryPath
-        ? this.resolvePath(directoryPath)
-        : this.workspaceRoot || process.cwd();
+      const resolvedPath = this.resolveDirectoryPath(directoryPath);
 
       const results: Array<{
         file: string;
@@ -450,6 +604,21 @@ export class NativeToolsManager {
       const filesToSearch: string[] = [];
       await this.collectFiles(resolvedPath, filesToSearch, filePattern);
 
+      // Validate regex pattern
+      try {
+        new RegExp(pattern);
+      } catch (error: any) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: Invalid regex pattern "${pattern}": ${error.message}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+
       // Search in each file
       for (const file of filesToSearch) {
         try {
@@ -458,9 +627,9 @@ export class NativeToolsManager {
           const relativePath = path.relative(resolvedPath, file);
 
           lines.forEach((line, index) => {
-            // Create a fresh regex for each test to avoid global flag issues
-            const testRegex = new RegExp(pattern, caseSensitive ? "g" : "gi");
-            if (testRegex.test(line)) {
+            // Create a fresh regex for each test to avoid any state issues
+            const regex = new RegExp(pattern, caseSensitive ? "" : "i");
+            if (regex.test(line)) {
               results.push({
                 file: relativePath,
                 line: index + 1,

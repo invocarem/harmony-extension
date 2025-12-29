@@ -1,10 +1,117 @@
 import { FileContextExtractor, FileReference } from '../utils/fileContextExtractor';
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
+
+// Mock fs
+jest.mock('fs', () => ({
+  promises: {
+    stat: jest.fn(),
+    readFile: jest.fn(),
+    readdir: jest.fn(),
+  },
+}));
 
 // Get the mocked workspace
 const mockAsRelativePath = (vscode.workspace.asRelativePath as jest.MockedFunction<typeof vscode.workspace.asRelativePath>);
 
 describe('FileContextExtractor', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    // Set up workspace folders mock
+    (vscode.workspace as any).workspaceFolders = [
+      {
+        uri: {
+          fsPath: '/home/chenchen/code/ordo',
+        },
+      },
+    ];
+    mockAsRelativePath.mockImplementation((pathOrUri: string | any) => {
+      return typeof pathOrUri === 'string' ? pathOrUri : pathOrUri.fsPath || pathOrUri.toString();
+    });
+  });
+
+  describe('extractFileReferences', () => {
+    it('should fail to resolve file when only filename is provided and file is in subdirectory', async () => {
+      const workspaceRoot = '/home/chenchen/code/ordo';
+      const actualFilePath = path.join(workspaceRoot, 'Tests/LatinServices/Psalm71Tests.swift');
+      const filenameOnly = 'Psalm71Tests.swift';
+      const wrongPath = path.join(workspaceRoot, filenameOnly); // This is where it will try to resolve
+
+      // Mock that file does NOT exist at the wrong location (workspace root + filename)
+      (fs.promises.stat as jest.Mock).mockImplementation((filePath: any) => {
+        const resolvedPath = typeof filePath === 'string' ? filePath : filePath.toString();
+        if (resolvedPath === wrongPath) {
+          // File doesn't exist at workspace root + filename
+          return Promise.reject(new Error(`ENOENT: no such file or directory, open '${wrongPath}'`));
+        }
+        if (resolvedPath === actualFilePath) {
+          // File exists at the actual location
+          return Promise.resolve({
+            isFile: () => true,
+            isDirectory: () => false,
+          } as fs.Stats);
+        }
+        return Promise.reject(new Error(`ENOENT: no such file or directory, open '${resolvedPath}'`));
+      });
+
+      // Message with file reference containing only filename (not relative path)
+      const message = `Please review @file:${filenameOnly}`;
+
+      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      const result = await FileContextExtractor.extractFileReferences(message);
+
+      // Should fail to extract the file context and keep the reference in the message
+      expect(result.fileContexts).toHaveLength(0);
+      expect(result.cleanMessage).toContain(`@file:${filenameOnly}`);
+      
+      // Should have attempted to stat the wrong path (workspace root + filename)
+      expect(fs.promises.stat).toHaveBeenCalledWith(wrongPath);
+      
+      // Should have logged a warning
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Failed to get file context for ${filenameOnly}`),
+        expect.any(String)
+      );
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('should successfully resolve file when relative path is provided', async () => {
+      const workspaceRoot = '/home/chenchen/code/ordo';
+      const relativePath = 'Tests/LatinServices/Psalm71Tests.swift';
+      const actualFilePath = path.join(workspaceRoot, relativePath);
+      const fileContent = '// File content here';
+
+      // Mock that file exists at the correct location
+      (fs.promises.stat as jest.Mock).mockResolvedValue({
+        isFile: () => true,
+        isDirectory: () => false,
+      } as fs.Stats);
+
+      (fs.promises.readFile as jest.Mock).mockResolvedValue(fileContent);
+
+      // Message with file reference containing relative path
+      const message = `Please review @file:${relativePath}`;
+
+      const result = await FileContextExtractor.extractFileReferences(message);
+
+      // Should successfully extract the file context
+      expect(result.fileContexts).toHaveLength(1);
+      expect(result.fileContexts[0].path).toBe(actualFilePath);
+      expect(result.fileContexts[0].content).toBe(fileContent);
+      expect(result.fileContexts[0].type).toBe('file');
+      
+      // Should have removed the file reference from the message
+      expect(result.cleanMessage).not.toContain(`@file:${relativePath}`);
+      
+      // Should have called stat with the resolved path
+      expect(fs.promises.stat).toHaveBeenCalledWith(actualFilePath);
+      expect(fs.promises.readFile).toHaveBeenCalledWith(actualFilePath, 'utf-8');
+    });
+  });
+
   describe('formatFileContexts', () => {
     beforeEach(() => {
       jest.clearAllMocks();

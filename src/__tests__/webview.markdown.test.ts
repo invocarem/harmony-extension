@@ -323,6 +323,198 @@ More text with /* 25 */ comment.`;
     });
   });
 
+  describe('Table parsing', () => {
+    it('should parse a simple 2-column table', () => {
+      const input = `| Section | Purpose |
+|--------|---------|
+| Properties | Test content |
+| Test Data | More content |`;
+      const result = formatMarkdown(input);
+      
+      expect(result).toContain('<table>');
+      expect(result).toContain('<thead>');
+      expect(result).toContain('<tbody>');
+      expect(result).toContain('<th>Section</th>');
+      expect(result).toContain('<th>Purpose</th>');
+      expect(result).toContain('<td>Properties</td>');
+      expect(result).toContain('<td>Test content</td>');
+      expect(result).toContain('<td>Test Data</td>');
+      expect(result).toContain('<td>More content</td>');
+    });
+
+    it('should parse a multi-column table', () => {
+      const input = `| Col1 | Col2 | Col3 |
+|------|------|------|
+| A | B | C |
+| D | E | F |`;
+      const result = formatMarkdown(input);
+      
+      expect(result).toContain('<table>');
+      expect(result).toContain('<th>Col1</th>');
+      expect(result).toContain('<th>Col2</th>');
+      expect(result).toContain('<th>Col3</th>');
+      expect(result).toContain('<td>A</td>');
+      expect(result).toContain('<td>B</td>');
+      expect(result).toContain('<td>C</td>');
+    });
+
+    it('should parse tables with alignment markers', () => {
+      const input = `| Left | Center | Right |
+|:-----|:------:|------:|
+| A | B | C |`;
+      const result = formatMarkdown(input);
+      
+      expect(result).toContain('<table>');
+      expect(result).toContain('<th>Left</th>');
+      expect(result).toContain('<th>Center</th>');
+      expect(result).toContain('<th>Right</th>');
+      // Alignment markers are in the separator, not in the HTML output
+      expect(result).toContain('<td>A</td>');
+    });
+
+    it('should parse tables with inline markdown in cells', () => {
+      const input = `| Name | Description |
+|------|-------------|
+| **Bold** | *Italic* text |
+| \`code\` | Normal text |`;
+      const result = formatMarkdown(input);
+      
+      expect(result).toContain('<table>');
+      // Note: Markdown in table cells is preserved as-is (not processed) because
+      // tables are extracted early, similar to code blocks
+      expect(result).toContain('**Bold**');
+      expect(result).toContain('*Italic*');
+      expect(result).toContain('`code`');
+    });
+
+    it('should handle tables with empty cells', () => {
+      const input = `| Col1 | Col2 | Col3 |
+|------|------|------|
+| A | | C |
+| | B | |`;
+      const result = formatMarkdown(input);
+      
+      expect(result).toContain('<table>');
+      expect(result).toContain('<td>A</td>');
+      expect(result).toContain('<td>C</td>');
+      expect(result).toContain('<td>B</td>');
+      // Empty cells should still create <td></td> tags
+      // First row: A, empty, C (1 empty)
+      // Second row: empty, B, empty (2 empty)
+      // Total: 3 empty cells
+      expect(result.match(/<td><\/td>/g) || []).toHaveLength(3);
+    });
+
+    it('should not parse incomplete tables (no separator)', () => {
+      const input = `| Section | Purpose |
+| Properties | Test content |`;
+      const result = formatMarkdown(input);
+      
+      // Should not contain table HTML
+      expect(result).not.toContain('<table>');
+      expect(result).not.toContain('<thead>');
+      // Should still contain the pipes (escaped or as-is)
+      expect(result).toContain('Section');
+    });
+
+    it('should not parse incomplete tables (no data rows)', () => {
+      const input = `| Section | Purpose |
+|--------|---------|`;
+      const result = formatMarkdown(input);
+      
+      // Should not contain table HTML (needs at least header + separator + 1 data row)
+      expect(result).not.toContain('<table>');
+      expect(result).not.toContain('<thead>');
+    });
+
+    it('should handle tables with extra whitespace', () => {
+      const input = `|  Section  |  Purpose  |
+|  --------  |  ---------  |
+|  Properties  |  Test content  |`;
+      const result = formatMarkdown(input);
+      
+      expect(result).toContain('<table>');
+      expect(result).toContain('<th>Section</th>');
+      expect(result).toContain('<th>Purpose</th>');
+      expect(result).toContain('<td>Properties</td>');
+      expect(result).toContain('<td>Test content</td>');
+    });
+
+    it('should parse multiple tables in the same text', () => {
+      const input = `First table:
+| A | B |
+|---|---|
+| 1 | 2 |
+
+Second table:
+| X | Y |
+|---|---|
+| 3 | 4 |`;
+      const result = formatMarkdown(input);
+      
+      const tableMatches = result.match(/<table>/g) || [];
+      expect(tableMatches.length).toBeGreaterThanOrEqual(2);
+      expect(result).toContain('<td>1</td>');
+      expect(result).toContain('<td>2</td>');
+      expect(result).toContain('<td>3</td>');
+      expect(result).toContain('<td>4</td>');
+    });
+
+    it('should handle tables mixed with other markdown', () => {
+      const input = `# Header
+
+Some text before.
+
+| Section | Purpose |
+|--------|---------|
+| Properties | Content |
+
+More text after.`;
+      const result = formatMarkdown(input);
+      
+      expect(result).toContain('<h1>Header</h1>');
+      expect(result).toContain('<table>');
+      expect(result).toContain('<th>Section</th>');
+      expect(result).toContain('<th>Purpose</th>');
+      expect(result).toContain('Some text before');
+      expect(result).toContain('More text after');
+    });
+
+    it('should handle tables with special characters in cells', () => {
+      const input = `| Name | Value |
+|------|-------|
+| Test & Value | <tag> |
+| "Quote" | 'Single' |`;
+      const result = formatMarkdown(input);
+      
+      expect(result).toContain('<table>');
+      // Special characters should be HTML escaped
+      expect(result).toContain('&amp;'); // & escaped
+      expect(result).toContain('&lt;'); // < escaped
+      expect(result).toContain('&gt;'); // > escaped
+      expect(result).toContain('&quot;'); // " escaped
+      expect(result).toContain('&#39;'); // ' escaped
+    });
+
+    it('should handle tables that look like code block fences (should not interfere)', () => {
+      const input = `\`\`\`
+| Not a table |
+\`\`\`
+
+| Real | Table |
+|------|-------|
+| Data | Here |`;
+      const result = formatMarkdown(input);
+      
+      // Code block should be preserved
+      expect(result).toContain('code-block');
+      // Table should still be parsed
+      expect(result).toContain('<table>');
+      expect(result).toContain('<th>Real</th>');
+      expect(result).toContain('<th>Table</th>');
+    });
+  });
+
   describe('Line breaks', () => {
     it('should convert newlines to br tags', () => {
       const input = 'Line 1\nLine 2';

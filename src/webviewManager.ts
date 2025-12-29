@@ -30,18 +30,23 @@ export interface WebviewMessage {
 }
 
 export class WebviewManager {
-    private panel: vscode.WebviewPanel | undefined;
+    private view: vscode.WebviewView | undefined;
     private messageHandlerDisposable: vscode.Disposable | undefined;
     private messageHandlers: Map<
         string,
         (message: WebviewMessage) => Promise<void> | void
     > = new Map();
-    private onPanelDisposeCallback: (() => void) | undefined;
+    private onViewDisposeCallback: (() => void) | undefined;
 
     constructor(private context: vscode.ExtensionContext) { }
 
+    setOnViewDispose(callback: () => void): void {
+        this.onViewDisposeCallback = callback;
+    }
+
+    // Alias for backward compatibility
     setOnPanelDispose(callback: () => void): void {
-        this.onPanelDisposeCallback = callback;
+        this.setOnViewDispose(callback);
     }
 
     registerMessageHandler(
@@ -51,42 +56,50 @@ export class WebviewManager {
         this.messageHandlers.set(command, handler);
     }
 
-    async openChat(viewColumn: vscode.ViewColumn = vscode.ViewColumn.Two): Promise<void> {
-        console.log(`[DEBUG] openChat called with viewColumn: ${viewColumn}`);
+    async openChat(): Promise<void> {
+        console.log(`[DEBUG] openChat called`);
 
-        if (this.panel) {
-            console.log(`[DEBUG] Panel already exists, revealing...`);
-            this.panel.reveal(viewColumn); // Reveal in specified column
-            return;
+        // If view exists, show it
+        if (this.view) {
+            console.log(`[DEBUG] View exists, showing...`);
+            this.view.show(true); // Show and focus the view
+        } else {
+            // The view will be created by the provider when the sidebar is opened
+            // We can try to reveal the Harmony sidebar container
+            await vscode.commands.executeCommand('workbench.view.extension.harmony');
+            console.log(`[DEBUG] View will be created by provider when sidebar is opened`);
         }
+    }
 
-        console.log(`[DEBUG] Creating new panel...`);
-        this.panel = vscode.window.createWebviewPanel(
-            "harmonyChat",
-            "Harmony",
-            viewColumn, // Use the specified column
-            {
-                enableScripts: true,
-                retainContextWhenHidden: true,
-                localResourceRoots: [
-                    vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview')
-                ]
-            }
-        );
+    resolveWebviewView(
+        webviewView: vscode.WebviewView,
+        context: vscode.WebviewViewResolveContext,
+        token: vscode.CancellationToken
+    ): void {
+        console.log(`[DEBUG] Resolving webview view...`);
+        
+        this.view = webviewView;
+        
+        webviewView.webview.options = {
+            enableScripts: true,
+            localResourceRoots: [
+                vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview')
+            ]
+        };
 
         console.log(`[DEBUG] Setting webview HTML...`);
-        this.panel.webview.html = this.getWebviewContent();
+        webviewView.webview.html = this.getWebviewContent();
 
-        this.panel.onDidDispose(() => {
-            console.log(`[DEBUG] Panel disposed`);
-            this.panel = undefined;
+        webviewView.onDidDispose(() => {
+            console.log(`[DEBUG] View disposed`);
+            this.view = undefined;
             if (this.messageHandlerDisposable) {
                 this.messageHandlerDisposable.dispose();
                 this.messageHandlerDisposable = undefined;
             }
             // Call the dispose callback if registered
-            if (this.onPanelDisposeCallback) {
-                this.onPanelDisposeCallback();
+            if (this.onViewDisposeCallback) {
+                this.onViewDisposeCallback();
             }
         });
 
@@ -94,8 +107,8 @@ export class WebviewManager {
     }
 
     private setupMessageHandler(): void {
-        if (!this.panel) {
-            console.error(`[DEBUG] Cannot setup message handler - panel is undefined`);
+        if (!this.view) {
+            console.error(`[DEBUG] Cannot setup message handler - view is undefined`);
             return;
         }
 
@@ -105,7 +118,7 @@ export class WebviewManager {
         }
 
         console.log(`[DEBUG] Setting up message handler...`);
-        this.messageHandlerDisposable = this.panel.webview.onDidReceiveMessage(
+        this.messageHandlerDisposable = this.view.webview.onDidReceiveMessage(
             async (message: WebviewMessage) => {
                 console.log(`[DEBUG] Webview message received:`, message);
 
@@ -123,8 +136,8 @@ export class WebviewManager {
                     }
                 } catch (error: any) {
                     console.error(`[DEBUG] Error handling message:`, error);
-                    if (this.panel) {
-                        this.panel.webview.postMessage({
+                    if (this.view) {
+                        this.view.webview.postMessage({
                             command: "receiveMessage",
                             text: `❌ Error processing request: ${error.message}`,
                         });
@@ -135,8 +148,8 @@ export class WebviewManager {
     }
 
     async sendMessage(response: HarmonyResponse): Promise<void> {
-        if (!this.panel) {
-            console.error(`[DEBUG] Panel is undefined!`);
+        if (!this.view) {
+            console.error(`[DEBUG] View is undefined!`);
             return;
         }
 
@@ -146,7 +159,7 @@ export class WebviewManager {
         const final = response.final;
 
         console.log(`[DEBUG] Posting message to webview`);
-        this.panel.webview.postMessage({
+        this.view.webview.postMessage({
             command: "receiveMessage",
             text: content,
             reasoning: reasoning,
@@ -157,35 +170,35 @@ export class WebviewManager {
     }
 
     async sendCodeContext(context: string): Promise<void> {
-        if (!this.panel) {
+        if (!this.view) {
             return;
         }
 
-        this.panel.webview.postMessage({
+        this.view.webview.postMessage({
             command: "updateContext",
             context: context,
         });
     }
 
     async sendFileList(files: Array<{ label: string; path: string }>): Promise<void> {
-        if (!this.panel) {
+        if (!this.view) {
             return;
         }
 
-        this.panel.webview.postMessage({
+        this.view.webview.postMessage({
             command: "showFileAutocomplete",
             files: files,
         });
     }
 
     async insertTextIntoInput(text: string): Promise<boolean> {
-        if (!this.panel) {
-            console.warn('[WebviewManager] Cannot insert text: panel is closed');
+        if (!this.view) {
+            console.warn('[WebviewManager] Cannot insert text: view is closed');
             return false;
         }
 
         try {
-            this.panel.webview.postMessage({
+            this.view.webview.postMessage({
                 command: "insertText",
                 text: text
             });
@@ -197,26 +210,26 @@ export class WebviewManager {
     }
 
     async updateContextSummary(contextSummary: { rulesCount?: number; mcpToolsCount?: number; files?: string[] }): Promise<void> {
-        if (!this.panel) {
+        if (!this.view) {
             return;
         }
 
-        this.panel.webview.postMessage({
+        this.view.webview.postMessage({
             command: "updateContextSummary",
             contextSummary: contextSummary,
         });
     }
 
     private getWebviewContent(): string {
-        if (!this.panel) {
+        if (!this.view) {
             return '';
         }
 
         // Get URIs for webview resources
-        const scriptUri = this.panel.webview.asWebviewUri(
+        const scriptUri = this.view.webview.asWebviewUri(
             vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'main.js')
         );
-        const stylesUri = this.panel.webview.asWebviewUri(
+        const stylesUri = this.view.webview.asWebviewUri(
             vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview', 'styles.css')
         );
 
@@ -261,6 +274,11 @@ export class WebviewManager {
     }
 
     dispose(): void {
-        this.panel?.dispose();
+        // WebviewView doesn't need explicit disposal, it's managed by VS Code
+        if (this.messageHandlerDisposable) {
+            this.messageHandlerDisposable.dispose();
+            this.messageHandlerDisposable = undefined;
+        }
+        this.view = undefined;
     }
 }

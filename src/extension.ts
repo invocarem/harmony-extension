@@ -22,6 +22,8 @@ export class HarmonyAssistant {
   private rulesManager: RulesManager;
   private nativeToolsManager: NativeToolsManager;
   private conversationManager: ConversationManager;
+  private lastActiveTextEditor: vscode.TextEditor | undefined;
+  private editorChangeDisposable: vscode.Disposable | undefined;
 
   constructor(context: vscode.ExtensionContext) {
     this.config = loadConfig();
@@ -40,6 +42,11 @@ export class HarmonyAssistant {
     // Clear conversation history when webview panel is disposed (chat window closed)
     this.webviewManager.setOnPanelDispose(() => {
       this.clearConversationHistory();
+      // Dispose editor change listener
+      if (this.editorChangeDisposable) {
+        this.editorChangeDisposable.dispose();
+        this.editorChangeDisposable = undefined;
+      }
     });
 
     this.initializeMCP();
@@ -121,7 +128,7 @@ export class HarmonyAssistant {
       );
       // Send a test response back
       this.webviewManager.sendMessage({
-        content: "✅ Webview communication test successful! You can now send messages.",
+        content: "✅ All set! Feel free to start a conversation.",
       });
     });
 
@@ -184,7 +191,31 @@ export class HarmonyAssistant {
   }
 
   public async openChat(): Promise<void> {
+    // Track the last active text editor before opening the webview
+    // This ensures we can still access the source file even when webview is active
+    const currentEditor = vscode.window.activeTextEditor;
+    if (currentEditor && currentEditor.document.uri.scheme !== 'vscode-webview') {
+      this.lastActiveTextEditor = currentEditor;
+    }
+    
+    // Dispose existing listener if any
+    if (this.editorChangeDisposable) {
+      this.editorChangeDisposable.dispose();
+    }
+    
+    // Listen for editor changes to keep track of the last text editor
+    this.editorChangeDisposable = vscode.window.onDidChangeActiveTextEditor((editor) => {
+      // Only update if it's a text editor (not the webview)
+      if (editor && editor.document.uri.scheme !== 'vscode-webview') {
+        this.lastActiveTextEditor = editor;
+      }
+    });
+    
     await this.webviewManager.openChat();
+  }
+
+  public getWebviewManager(): WebviewManager {
+    return this.webviewManager;
   }
 
   private async handleChatMessage(text: string): Promise<void> {
@@ -377,7 +408,22 @@ export class HarmonyAssistant {
   }
 
   private async sendCodeContext(): Promise<void> {
-    const editor = vscode.window.activeTextEditor;
+    // Try to get the active editor first
+    let editor = vscode.window.activeTextEditor;
+    
+    // If active editor is null or is the webview, use the last tracked text editor
+    if (!editor || editor.document.uri.scheme === 'vscode-webview') {
+      editor = this.lastActiveTextEditor;
+    }
+    
+    // If still no editor, try to get the first visible text editor
+    if (!editor && vscode.window.visibleTextEditors.length > 0) {
+      // Find the first editor that's not a webview
+      editor = vscode.window.visibleTextEditors.find(
+        e => e.document.uri.scheme !== 'vscode-webview'
+      );
+    }
+    
     if (editor) {
       const document = editor.document;
       const selection = editor.selection;
@@ -394,6 +440,9 @@ export class HarmonyAssistant {
       }
 
       await this.webviewManager.sendCodeContext(context);
+    } else {
+      // Show a message if no editor is available
+      vscode.window.showWarningMessage('No active file found. Please open a file in the editor first.');
     }
   }
 
@@ -426,6 +475,10 @@ export class HarmonyAssistant {
   }
 
   public dispose(): void {
+    if (this.editorChangeDisposable) {
+      this.editorChangeDisposable.dispose();
+      this.editorChangeDisposable = undefined;
+    }
     this.webviewManager.dispose();
     this.mcpManager.dispose();
     this.rulesManager.dispose();
@@ -434,6 +487,25 @@ export class HarmonyAssistant {
 
 export function activate(context: vscode.ExtensionContext) {
   const assistant = new HarmonyAssistant(context);
+
+  // Register webview view provider
+  const webviewViewProvider = {
+    resolveWebviewView: (
+      webviewView: vscode.WebviewView,
+      _context: vscode.WebviewViewResolveContext,
+      _token: vscode.CancellationToken
+    ) => {
+      assistant.getWebviewManager().resolveWebviewView(webviewView, _context, _token);
+    }
+  };
+
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider('harmonyChat', webviewViewProvider, {
+      webviewOptions: {
+        retainContextWhenHidden: true
+      }
+    })
+  );
 
   // Register commands
   context.subscriptions.push(

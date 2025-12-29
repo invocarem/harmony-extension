@@ -53,10 +53,11 @@
       }
     ],
     "views": {
-      "explorer": [
+      "harmony": [
         {
-          "id": "harmony",
-          "name": "Harmony"
+          "id": "harmonyChat",
+          "name": "Chat",
+          "type": "webview"
         }
       ]
     },

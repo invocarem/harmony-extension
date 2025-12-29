@@ -29,6 +29,56 @@ function escapeHtmlAttribute(text: string): string {
         .replace(/>/g, '&gt;');
 }
 
+function parseTable(tableText: string): string {
+    const lines = tableText.trim().split('\n').filter(line => line.trim());
+    if (lines.length < 2) return escapeHtml(tableText); // Not a valid table
+    
+    // First line is header
+    const headerLine = lines[0];
+    // Second line is separator (we'll skip it)
+    // Remaining lines are data rows
+    
+    // Parse header
+    const headerCells = headerLine.split('|').map(cell => cell.trim()).filter(cell => cell);
+    
+    // Parse data rows (skip the separator line at index 1)
+    const dataRows: string[][] = [];
+    for (let i = 2; i < lines.length; i++) {
+        const cells = lines[i].split('|').map(cell => cell.trim()).filter(cell => cell);
+        if (cells.length > 0) {
+            dataRows.push(cells);
+        }
+    }
+    
+    // Build HTML table
+    let html = '<table>';
+    
+    // Add header row
+    html += '<thead><tr>';
+    for (const cell of headerCells) {
+        html += `<th>${escapeHtml(cell)}</th>`;
+    }
+    html += '</tr></thead>';
+    
+    // Add body rows
+    if (dataRows.length > 0) {
+        html += '<tbody>';
+        for (const row of dataRows) {
+            html += '<tr>';
+            // Ensure we have the same number of cells as headers
+            for (let i = 0; i < headerCells.length; i++) {
+                const cell = row[i] || '';
+                html += `<td>${escapeHtml(cell)}</td>`;
+            }
+            html += '</tr>';
+        }
+        html += '</tbody>';
+    }
+    
+    html += '</table>';
+    return html;
+}
+
 export function formatMarkdown(text: string): string {
     if (!text) return '';
     
@@ -42,6 +92,10 @@ export function formatMarkdown(text: string): string {
     const comments: string[] = [];
     let commentIndex = 0;
     
+    // Store tables with placeholders to protect them from markdown processing
+    const tables: string[] = [];
+    let tableIndex = 0;
+    
     // Extract code blocks first (before processing headers)
     // Updated regex to handle code blocks with or without newline after language identifier
     // Matches: ```lang optional-whitespace optional-newline code-content ```
@@ -53,6 +107,51 @@ export function formatMarkdown(text: string): string {
             return placeholder;
         }
     );
+    
+    // Extract markdown tables before other processing
+    // Process line by line to identify table blocks
+    const lines = formatted.split('\n');
+    const processedLines: string[] = [];
+    let i = 0;
+    
+    while (i < lines.length) {
+        const line = lines[i];
+        const isTableRow = /^\s*\|.+\|\s*$/.test(line);
+        
+        if (isTableRow && i + 1 < lines.length) {
+            // Check if next line is a separator (allows multiple columns: |----|----|)
+            const nextLine = lines[i + 1];
+            const isSeparator = /^\s*\|([\s\-:]+\|)+\s*$/.test(nextLine);
+            
+            if (isSeparator && i + 2 < lines.length) {
+                // Potential table start - collect all consecutive table rows
+                const tableRows: string[] = [line, nextLine];
+                let j = i + 2;
+                
+                // Collect data rows
+                while (j < lines.length && /^\s*\|.+\|\s*$/.test(lines[j])) {
+                    tableRows.push(lines[j]);
+                    j++;
+                }
+                
+                // Only treat as table if we have at least 3 rows (header + separator + 1+ data)
+                if (tableRows.length >= 3) {
+                    const tableText = tableRows.join('\n');
+                    const placeholder = `__TABLE_${tableIndex}__`;
+                    tables[tableIndex] = tableText;
+                    processedLines.push(placeholder);
+                    i = j; // Skip all table lines
+                    tableIndex++;
+                    continue;
+                }
+            }
+        }
+        
+        processedLines.push(line);
+        i++;
+    }
+    
+    formatted = processedLines.join('\n');
     
     // Extract C-style comments (/* ... */) to protect them from italic processing
     formatted = formatted.replace(/\/\*([\s\S]*?)\*\//g,
@@ -132,7 +231,14 @@ export function formatMarkdown(text: string): string {
         formatted = formatted.replace(placeholder, codeBlockHtml);
     }
     
-    // Line breaks (after code blocks are restored)
+    // Restore tables with proper HTML formatting
+    for (let i = 0; i < tables.length; i++) {
+        const placeholder = `__TABLE_${i}__`;
+        const tableHtml = parseTable(tables[i]);
+        formatted = formatted.replace(placeholder, tableHtml);
+    }
+    
+    // Line breaks (after code blocks and tables are restored)
     formatted = formatted.replace(/\n/g, '<br>');
     
     return formatted;
