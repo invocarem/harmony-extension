@@ -5,6 +5,7 @@ import { MCPToolCall } from "./mcpClient";
 import { ToolCallExtractor } from "./utils/toolCallExtractor";
 import { XmlProcessor } from "./utils/xmlProcessor";
 import { filterHarmonyTokens } from "./utils/harmonyTokenFilter";
+import { Role } from "./harmony/role";
 
 export interface HarmonyParseResult {
   content: string;
@@ -145,6 +146,8 @@ export class HarmonyProcessor {
     let currentBuffer = '';
     // Track tool name from variant tokens like <|analysis tool_call=name
     let pendingToolName: string | undefined = undefined;
+    // Track current role to avoid extracting tool calls from user messages
+    let currentRole: Role | null = null;
     
     while (i < response.length) {
       // Check for token start
@@ -194,10 +197,31 @@ export class HarmonyProcessor {
               
             case 'start':
               // Start token - reset state
+              // Check if this is a role token (<|start|>user or <|start|>assistant)
+              // The role comes after the |> delimiter, so we need to check the text after the token
+              const textAfterToken = response.substring(tokenEnd + 2);
+              // Match word characters (user or assistant) that come immediately after |>
+              // Stop at whitespace or the next <| token
+              const roleMatch = textAfterToken.match(/^(\w+)(?=\s|<\||$)/);
+              if (roleMatch) {
+                const roleToken = fullToken + roleMatch[1];
+                const role = Role.fromToken(roleToken);
+                if (role) {
+                  currentRole = role;
+                  console.log(`[HarmonyProcessor] Detected role: ${role.getType()}`);
+                  // Skip past the role name
+                  i = tokenEnd + 2 + roleMatch[1].length;
+                } else {
+                  currentRole = null;
+                  i = tokenEnd + 2;
+                }
+              } else {
+                currentRole = null;
+                i = tokenEnd + 2;
+              }
               currentChannel = 'none';
               inMessage = false;
               currentBuffer = '';
-              i = tokenEnd + 2;
               continue;
               
             default:
@@ -245,12 +269,23 @@ export class HarmonyProcessor {
     }
     
     // Special handling: If content contains tool calls, extract them
+    // Only extract tool calls from assistant messages, not from user messages
     if (content && (content.includes('<tool_call') || content.includes('<MCP_CALL'))) {
-      const extracted = ToolCallExtractor.extractFromText(content);
-      if (extracted.length > 0) {
-        rawToolCalls.push(...extracted.map(e => e.raw));
-        // Clear content since it's just a tool call
-        content = '';
+      // Check if we're in an assistant role context
+      // If currentRole is null or user, we should be cautious about extracting tool calls
+      // Tool calls should typically come from assistant responses
+      const shouldExtractToolCalls = currentRole === null || currentRole.isAssistant();
+      
+      if (shouldExtractToolCalls) {
+        const extracted = ToolCallExtractor.extractFromText(content);
+        if (extracted.length > 0) {
+          console.log(`[HarmonyProcessor] Extracted ${extracted.length} tool call(s) from assistant content`);
+          rawToolCalls.push(...extracted.map(e => e.raw));
+          // Clear content since it's just a tool call
+          content = '';
+        }
+      } else {
+        console.log(`[HarmonyProcessor] Skipping tool call extraction from user message`);
       }
     }
     

@@ -8,6 +8,20 @@
 </head>
 <body>
     <div class="chat-container">
+        <div class="stage-indicator">
+            <div class="stage-light" id="stage-light-chat" title="Chat/Reasoning">
+                <div class="light-bulb"></div>
+                <span class="stage-label">Chat</span>
+            </div>
+            <div class="stage-light" id="stage-light-assumptions" title="Assumptions/Analysis">
+                <div class="light-bulb"></div>
+                <span class="stage-label">Assumptions</span>
+            </div>
+            <div class="stage-light" id="stage-light-implementation" title="Implementation">
+                <div class="light-bulb"></div>
+                <span class="stage-label">Implementation</span>
+            </div>
+        </div>
         <div id="messages" class="messages"></div>
         <div class="input-container">
             <div class="shortcut-hint" id="shortcutHint">Ctrl+F to insert file</div>

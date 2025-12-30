@@ -579,4 +579,64 @@ tr:nth-child(even) {
     border-radius: 3px;
     border: 1px solid var(--vscode-input-border);
 }
+/* Stage indicator lights */
+.stage-indicator {
+    display: flex;
+    gap: 15px;
+    padding: 12px 15px;
+    margin-bottom: 15px;
+    background: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-input-border);
+    border-radius: 5px;
+    align-items: center;
+    justify-content: center;
+}
+.stage-light {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+    max-width: 120px;
+}
+.light-bulb {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--vscode-input-background);
+    border: 2px solid var(--vscode-input-border);
+    position: relative;
+    transition: all 0.3s ease;
+}
+.stage-light.active .light-bulb {
+    background: var(--vscode-button-background);
+    border-color: var(--vscode-button-background);
+    box-shadow: 0 0 12px rgba(0, 123, 255, 0.4), 0 0 24px rgba(0, 123, 255, 0.2);
+}
+.stage-light.active#stage-light-chat .light-bulb {
+    background: #4EC9B0;
+    border-color: #4EC9B0;
+    box-shadow: 0 0 12px rgba(78, 201, 176, 0.6), 0 0 24px rgba(78, 201, 176, 0.3);
+}
+.stage-light.active#stage-light-assumptions .light-bulb {
+    background: #DCDCAA;
+    border-color: #DCDCAA;
+    box-shadow: 0 0 12px rgba(220, 220, 170, 0.6), 0 0 24px rgba(220, 220, 170, 0.3);
+}
+.stage-light.active#stage-light-implementation .light-bulb {
+    background: #CE9178;
+    border-color: #CE9178;
+    box-shadow: 0 0 12px rgba(206, 145, 120, 0.6), 0 0 24px rgba(206, 145, 120, 0.3);
+}
+.stage-label {
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+    font-weight: 500;
+    text-align: center;
+    transition: color 0.3s ease;
+}
+.stage-light.active .stage-label {
+    color: var(--vscode-editor-foreground);
+    font-weight: 600;
+}
 

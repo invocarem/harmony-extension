@@ -323,21 +323,20 @@ describe('HarmonyClient', () => {
       });
 
       it('should automatically fallback from create_file to replace_file when file exists', async () => {
-        // First transition to assumptions stage, then implementation (required per state machine)
-        const mockResponse1 = {
+        // First, transition to implementation stage using explicit command
+        const transitionResponse = {
           status: 200,
           data: {
-            choices: [{ text: '<|channel|>final<|message|>Here is the code<|end|>' }],
+            choices: [{ text: '<|channel|>final<|message|>Ready to implement<|end|>' }],
           },
         };
-        mockedAxios.post.mockResolvedValueOnce(mockResponse1);
-        const parseResult1: HarmonyParseResult = {
-          content: 'Here is the code',
+        mockedAxios.post.mockResolvedValueOnce(transitionResponse);
+        mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
+          content: 'Ready to implement',
           rawToolCalls: [],
-        };
-        mockHarmonyProcessor.parseResponse.mockReturnValueOnce(parseResult1);
+        });
         mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
-        await client.callServer('how to create a file');
+        await client.callServer('moveto implementation');
 
         // Now test the fallback in implementation stage
         const mockResponse = {
@@ -402,7 +401,7 @@ describe('HarmonyClient', () => {
             isError: false,
           });
 
-        const result = await client.callServer('now create the file test.txt');
+        const result = await client.callServer('now create test.txt with new content');
 
         // Verify create_file was called first
         expect(mockNativeToolsManager.callTool).toHaveBeenNthCalledWith(1, 'create_file', {
@@ -429,21 +428,20 @@ describe('HarmonyClient', () => {
       });
 
       it('should not fallback to replace_file when create_file succeeds', async () => {
-        // First transition to assumptions stage, then implementation (required per state machine)
-        const mockResponse1 = {
+        // First, transition to implementation stage using explicit command
+        const transitionResponse = {
           status: 200,
           data: {
-            choices: [{ text: '<|channel|>final<|message|>Here is the code<|end|>' }],
+            choices: [{ text: '<|channel|>final<|message|>Ready to implement<|end|>' }],
           },
         };
-        mockedAxios.post.mockResolvedValueOnce(mockResponse1);
-        const parseResult1: HarmonyParseResult = {
-          content: 'Here is the code',
+        mockedAxios.post.mockResolvedValueOnce(transitionResponse);
+        mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
+          content: 'Ready to implement',
           rawToolCalls: [],
-        };
-        mockHarmonyProcessor.parseResponse.mockReturnValueOnce(parseResult1);
+        });
         mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
-        await client.callServer('how to create a file');
+        await client.callServer('moveto implementation');
 
         // Now test the successful create_file in implementation stage
         const mockResponse = {
@@ -489,7 +487,7 @@ describe('HarmonyClient', () => {
           isError: false,
         });
 
-        const result = await client.callServer('now create the file newfile.txt');
+        const result = await client.callServer('now create newfile.txt with new content');
 
         // Verify create_file was called only once
         expect(mockNativeToolsManager.callTool).toHaveBeenCalledTimes(1);
@@ -809,76 +807,91 @@ describe('HarmonyClient', () => {
         const mockResponse = {
           status: 200,
           data: {
-            choices: [{ text: '<|channel|>final<|message|><tool_call name="read_file" args=\'{"file_path": "test.txt"}\' /><|end|>' }],
+            choices: [{ text: '<|channel|>final<|message|>Now I will read the file<tool_call name="read_file" args=\'{"file_path": "test.txt"}\' /><|end|>' }],
           },
         };
 
-        mockedAxios.post.mockResolvedValue(mockResponse);
-
-        const parseResult: HarmonyParseResult = {
-          content: '',
-          rawToolCalls: ['<tool_call name="read_file" args=\'{"file_path": "test.txt"}\' />'],
-        };
-
-        mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
-
-        const toolCalls: MCPToolCall[] = [
-          { name: 'read_file', arguments: { file_path: 'test.txt' } },
-        ];
-
-        mockHarmonyProcessor.extractToolCalls.mockReturnValue(toolCalls);
-
-        const toolResult: MCPToolResult = {
-          content: [{ type: 'text', text: 'File content' }],
-          isError: false,
-        };
-
-        mockMCPManager.findToolServer.mockReturnValue('test-server');
-        mockMCPManager.callTool.mockResolvedValue(toolResult);
-
-        // Mock continuation response
+        // Mock continuation response - use read_file again (allowed in chat stage) to test continuation
         const continuationResponse = {
           status: 200,
           data: {
-            choices: [{ text: '<|channel|>final<|message|><tool_call name="create_file" args=\'{"file_path": "output.txt", "content": "output"}\' /><|end|>' }],
+            choices: [{ text: '<|channel|>final<|message|>Now I will read another file<tool_call name="read_file" args=\'{"file_path": "output.txt"}\' /><|end|>' }],
           },
         };
 
         mockedAxios.post
           .mockResolvedValueOnce(mockResponse)
-          .mockResolvedValueOnce(continuationResponse);
+          .mockResolvedValueOnce(continuationResponse)
+          .mockResolvedValue({
+            status: 200,
+            data: {
+              choices: [{ text: '<|channel|>final<|message|>Done<|end|>' }],
+            },
+          }); // Fallback for any extra calls
+
+        const parseResult: HarmonyParseResult = {
+          content: 'Now I will read the file',
+          rawToolCalls: ['<tool_call name="read_file" args=\'{"file_path": "test.txt"}\' />'],
+        };
 
         const continuationParseResult: HarmonyParseResult = {
-          content: 'Task completed',
-          rawToolCalls: ['<tool_call name="create_file" args=\'{"file_path": "output.txt", "content": "output"}\' />'],
+          content: 'Now I will read another file',
+          rawToolCalls: ['<tool_call name="read_file" args=\'{"file_path": "output.txt"}\' />'],
         };
 
         mockHarmonyProcessor.parseResponse
           .mockReturnValueOnce(parseResult)
-          .mockReturnValueOnce(continuationParseResult);
+          .mockReturnValueOnce(continuationParseResult)
+          .mockReturnValue({ 
+            content: '', 
+            rawToolCalls: [],
+            reasoning: undefined,
+            commentary: undefined,
+            final: undefined
+          }); // Fallback for any extra calls - ensure all required fields
+
+        const toolCalls: MCPToolCall[] = [
+          { name: 'read_file', arguments: { file_path: 'test.txt' } },
+        ];
 
         const continuationToolCalls: MCPToolCall[] = [
-          { name: 'create_file', arguments: { file_path: 'output.txt', content: 'output' } },
+          { name: 'read_file', arguments: { file_path: 'output.txt' } },
         ];
 
         mockHarmonyProcessor.extractToolCalls
           .mockReturnValueOnce(toolCalls)
-          .mockReturnValueOnce(continuationToolCalls);
+          .mockReturnValueOnce(continuationToolCalls)
+          .mockReturnValue([]); // Fallback for any extra calls
 
-        const createFileResult: MCPToolResult = {
-          content: [{ type: 'text', text: 'File created' }],
+        const readFileTool: NativeTool = {
+          name: 'read_file',
+          description: 'Read a file',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              file_path: { type: 'string', description: 'Path to the file' },
+            },
+            required: ['file_path'],
+          },
+        } as any;
+
+        mockNativeToolsManager.getAvailableTools.mockReturnValue([readFileTool]);
+
+        const toolResult = {
+          content: [{ type: 'text', text: 'File content' }],
           isError: false,
         };
 
-        mockMCPManager.callTool
-          .mockResolvedValueOnce(toolResult)
-          .mockResolvedValueOnce(createFileResult);
+        const secondFileResult = {
+          content: [{ type: 'text', text: 'Second file content' }],
+          isError: false,
+        };
 
-        mockMCPManager.findToolServer
-          .mockReturnValueOnce('test-server')
-          .mockReturnValueOnce('test-server');
+        mockNativeToolsManager.callTool
+          .mockResolvedValueOnce(toolResult as any)
+          .mockResolvedValueOnce(secondFileResult as any);
 
-        const result = await client.callServer('create output.txt');
+        const result = await client.callServer('read test.txt and output.txt');
 
         // Should have made two API calls
         expect(mockedAxios.post).toHaveBeenCalledTimes(2);
@@ -887,11 +900,26 @@ describe('HarmonyClient', () => {
       });
 
       it('should continue from read_file to replace_file', async () => {
-        // First response: read_file
+        // First, transition to implementation stage so replace_file is allowed
+        const transitionResponse = {
+          status: 200,
+          data: {
+            choices: [{ text: '<|channel|>final<|message|>Ready to implement<|end|>' }],
+          },
+        };
+        mockedAxios.post.mockResolvedValueOnce(transitionResponse);
+        mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
+          content: 'Ready to implement',
+          rawToolCalls: [],
+        });
+        mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
+        await client.callServer('moveto implementation');
+
+        // First response: read_file - needs continuation hint to trigger continuation
         const readFileResponse = {
           status: 200,
           data: {
-            choices: [{ text: '<|channel|>final<|message|><tool_call name="read_file" args=\'{"file_path": "test.txt"}\' /><|end|>' }],
+            choices: [{ text: '<|channel|>final<|message|>Now I will read the file<tool_call name="read_file" args=\'{"file_path": "test.txt"}\' /><|end|>' }],
           },
         };
 
@@ -899,31 +927,40 @@ describe('HarmonyClient', () => {
         const replaceFileResponse = {
           status: 200,
           data: {
-            choices: [{ text: '<|channel|>final<|message|><tool_call name="replace_file" args=\'{"file_path": "test.txt", "content": "Updated content"}\' /><|end|>' }],
+            choices: [{ text: '<|channel|>final<|message|>Now I will update the file<tool_call name="replace_file" args=\'{"file_path": "test.txt", "content": "Updated content"}\' /><|end|>' }],
           },
         };
 
         mockedAxios.post
           .mockResolvedValueOnce(readFileResponse)
-          .mockResolvedValueOnce(replaceFileResponse);
+          .mockResolvedValueOnce(replaceFileResponse)
+          .mockResolvedValue({
+            status: 200,
+            data: {
+              choices: [{ text: '<|channel|>final<|message|>Done<|end|>' }],
+            },
+          }); // Fallback for any extra calls
 
         const readFileParseResult: HarmonyParseResult = {
-          content: '',
+          content: 'Now I will read the file',
           rawToolCalls: ['<tool_call name="read_file" args=\'{"file_path": "test.txt"}\' />'],
         };
 
         const replaceFileParseResult: HarmonyParseResult = {
-          content: 'File updated successfully',
+          content: 'Now I will update the file',
           rawToolCalls: ['<tool_call name="replace_file" args=\'{"file_path": "test.txt", "content": "Updated content"}\' />'],
         };
 
         mockHarmonyProcessor.parseResponse
           .mockReturnValueOnce(readFileParseResult)
-          .mockReturnValueOnce(replaceFileParseResult);
-
-        mockHarmonyProcessor.formatPrompt
-          .mockReturnValueOnce('<|start|>user<|channel|>final<|message|>update test.txt to have new content<|end|>')
-          .mockReturnValueOnce('<|start|>user<|channel|>final<|message|>Please use the appropriate tool calls...<|end|>');
+          .mockReturnValueOnce(replaceFileParseResult)
+          .mockReturnValue({ 
+            content: '', 
+            rawToolCalls: [],
+            reasoning: undefined,
+            commentary: undefined,
+            final: undefined
+          }); // Fallback for any extra calls - ensure all required fields
 
         const readFileToolCalls: MCPToolCall[] = [
           { name: 'read_file', arguments: { file_path: 'test.txt' } },
@@ -934,8 +971,10 @@ describe('HarmonyClient', () => {
         ];
 
         mockHarmonyProcessor.extractToolCalls
+          .mockReturnValueOnce([]) // Transition call
           .mockReturnValueOnce(readFileToolCalls)
-          .mockReturnValueOnce(replaceFileToolCalls);
+          .mockReturnValueOnce(replaceFileToolCalls)
+          .mockReturnValue([]); // Fallback for any extra calls
 
         const readFileResult: MCPToolResult = {
           content: [{ type: 'text', text: 'Original file content' }],
@@ -984,8 +1023,8 @@ describe('HarmonyClient', () => {
 
         const result = await client.callServer('update test.txt to have new content');
 
-        // Should have made two API calls (initial + continuation)
-        expect(mockedAxios.post).toHaveBeenCalledTimes(2);
+        // Should have made three API calls (transition + initial + continuation)
+        expect(mockedAxios.post).toHaveBeenCalledTimes(3);
         
         // Should have executed both tool calls
         expect(mockNativeToolsManager.callTool).toHaveBeenCalledTimes(2);
@@ -1004,7 +1043,7 @@ describe('HarmonyClient', () => {
         expect(result.toolCalls?.[1].name).toBe('replace_file');
         
         // Content should include the final message
-        expect(result.content).toContain('File updated successfully');
+        expect(result.content).toContain('Now I will update the file');
       });
 
       it('should stop continuation at max steps', async () => {

@@ -3,7 +3,7 @@
  */
 
 import { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../types';
-import { addMessage, removeTypingIndicator, updateLastUserMessageContextSummary } from './ui';
+import { addMessage, removeTypingIndicator, updateLastUserMessageContextSummary, updateStageIndicator } from './ui';
 import { populateAutocomplete, insertFileReference, checkForAutocomplete } from './autocomplete';
 
 declare const vscode: {
@@ -19,6 +19,10 @@ export function handleExtensionMessage(message: ExtensionToWebviewMessage): void
         case 'receiveMessage':
             removeTypingIndicator();
             addMessage(message.text || '', false, message.reasoning, undefined, message.verboseInfo, message.final, message.commentary);
+            // Update stage indicator lights
+            if (message.verboseInfo?.stage) {
+                updateStageIndicator(message.verboseInfo.stage);
+            }
             break;
         case 'updateContext':
             if (message.context) {

@@ -58,16 +58,29 @@ export class StageStateMachine {
     // Explicit stage transition commands
     // Note: Chat → Implementation is NOT ALLOWED per state machine rules
     // Must go through Analysis stage first
-    if (/\b(move\s+to|go\s+to|start|begin)\s+(implementation|implement)\b/i.test(promptLower)) {
-      // Explicit "move to implementation" command - only valid from Analysis stage
+    // Handle both "move to" (with space) and "moveto" (without space)
+    if (/\b(move\s+to|moveto|go\s+to|goto|start|begin)\s+(implementation|implement)\b/i.test(promptLower)) {
+      // Explicit "move to implementation" or "moveto implementation" command - only valid from Analysis stage
       const target = 'implementation';
-      return this.canTransition(currentStage, target) ? target : null;
+      if (this.canTransition(currentStage, target)) {
+        console.log(`[StageStateMachine] Transitioning from ${currentStage} to ${target} based on explicit command`);
+        return target;
+      } else {
+        console.log(`[StageStateMachine] Cannot transition from ${currentStage} to ${target} - invalid transition`);
+        return null;
+      }
     }
     
-    if (/\b(move\s+to|go\s+to|start|begin)\s+(create|modify|write|edit)\b/i.test(promptLower)) {
-      // Commands like "move to create" - check if valid transition
+    if (/\b(move\s+to|moveto|go\s+to|goto|start|begin)\s+(create|modify|write|edit)\b/i.test(promptLower)) {
+      // Commands like "move to create" or "moveto create" - check if valid transition
       const target = 'implementation';
-      return this.canTransition(currentStage, target) ? target : null;
+      if (this.canTransition(currentStage, target)) {
+        console.log(`[StageStateMachine] Transitioning from ${currentStage} to ${target} based on create/modify command`);
+        return target;
+      } else {
+        console.log(`[StageStateMachine] Cannot transition from ${currentStage} to ${target} - invalid transition`);
+        return null;
+      }
     }
     
     // Direct implementation commands (e.g., "now create the file", "implement it")
@@ -79,14 +92,22 @@ export class StageStateMachine {
       return this.canTransition(currentStage, target) ? target : null;
     }
     
-    if (/\b(move\s+to|go\s+to|start|begin)\s+(assumptions|analysis|analyze|plan|design)\b/i.test(promptLower)) {
+    if (/\b(move\s+to|moveto|go\s+to|goto|start|begin)\s+(assumptions|analysis|analyze|plan|design)\b/i.test(promptLower)) {
       const target = 'assumptions';
-      return this.canTransition(currentStage, target) ? target : null;
+      if (this.canTransition(currentStage, target)) {
+        console.log(`[StageStateMachine] Transitioning from ${currentStage} to ${target} based on explicit command`);
+        return target;
+      }
+      return null;
     }
     
-    if (/\b(move\s+to|go\s+to|back\s+to|return\s+to|clarify|chat|talk|discuss)\s+(chat|discussion|clarification)\b/i.test(promptLower)) {
+    if (/\b(move\s+to|moveto|go\s+to|goto|back\s+to|return\s+to|clarify|chat|talk|discuss)\s+(chat|discussion|clarification)\b/i.test(promptLower)) {
       const target = 'chat';
-      return this.canTransition(currentStage, target) ? target : null;
+      if (this.canTransition(currentStage, target)) {
+        console.log(`[StageStateMachine] Transitioning from ${currentStage} to ${target} based on explicit command`);
+        return target;
+      }
+      return null;
     }
 
     // Chat → Analysis: Code-related questions or file operation intent (without explicit extensions)
@@ -110,14 +131,26 @@ export class StageStateMachine {
       }
     }
 
-    // Analysis → Implementation: Explicit file operations with extensions
-    // Per STATE_MACHINE.md: File operations WITH extensions go to Implementation
+    // Analysis → Implementation: Only explicit transition commands allowed
+    // Auto-transition from Assumptions to Implementation is DISABLED
+    // Users must explicitly type "move to implementation" or "moveto implementation" to transition
+    // This ensures users have control over when to proceed to implementation stage
+    // 
+    // Previously, file operations with extensions would auto-transition, but that's now disabled:
+    // if (currentStage === 'assumptions') {
+    //   const fileOperationWithExtension = /\b(create|write|make|add|implement|code|generate|build|update|modify|edit|change)(?:\s+\w+)*\s+\w+\.\w{2,4}(\s|$)/i;
+    //   if (fileOperationWithExtension.test(promptLower)) {
+    //     return this.canTransition(currentStage, 'implementation') ? 'implementation' : null;
+    //   }
+    // }
+    
+    // Only explicit implementation commands work from Analysis stage
     if (currentStage === 'assumptions') {
-      const fileOperationWithExtension = /\b(create|write|make|add|implement|code|generate|build|update|modify|edit|change)(?:\s+\w+)*\s+\w+\.\w{2,4}(\s|$)/i;
       const explicitFileOps = /\b(create_file|write_file|replace_file|update_file|edit_file|modify_file)\b/i;
       const explicitImplementation = /\b(now|then|next|please|do\s+it|implement\s+it|create\s+it)\b/i;
       
-      if (fileOperationWithExtension.test(promptLower) || explicitFileOps.test(promptLower) || explicitImplementation.test(promptLower)) {
+      // Only transition on explicit commands, not just file operations with extensions
+      if (explicitFileOps.test(promptLower) || explicitImplementation.test(promptLower)) {
         return this.canTransition(currentStage, 'implementation') ? 'implementation' : null;
       }
     }
@@ -178,6 +211,94 @@ export class StageStateMachine {
     });
 
     return hasFileModificationErrors;
+  }
+
+  /**
+   * Get stage-specific instructions for prompts
+   */
+  getInstructions(stage: WorkflowStage): string {
+    switch (stage) {
+      case 'chat':
+        return `## Current Stage: CHAT/CLARIFICATION
+
+You are in the **Chat/Clarification** stage. Your goal is to:
+- **CRITICAL: ALWAYS restate the user's problem FIRST** - Your response MUST begin by restating their question/problem in your own words to show understanding
+- Understand and clarify the user's problem or question
+- Ask clarifying questions if needed
+- Provide helpful explanations and guidance
+- Do NOT use file modification tools (create_file, replace_file, etc.)
+- Do NOT generate code or create files yet
+- You may use read-only tools (read_file, list_files, grep_files) to gather context if helpful
+
+**Stage Flow**: Chat → Analysis (code generation) → Implementation (file creation). Never skip stages.
+**IMPORTANT**: Your response must ALWAYS start by restating the user's problem/question in your own words, then provide your answer or clarification.`;
+
+      case 'assumptions':
+        return `## Current Stage: ASSUMPTIONS/ANALYSIS
+
+You are in the **Assumptions/Analysis** stage. Your goal is to:
+- **Analyze the problem** and break it down into steps (create a plan/todo list for complex tasks)
+- Explain your assumptions about the codebase
+- **For multi-step tasks**: Provide a clear plan with numbered steps (e.g., "1. Create hello.py", "2. Add greeting function", etc.)
+- Provide code snippets/examples for each step
+- Show code solutions in formatted code blocks with file paths
+- Do NOT use file modification tools (create_file, replace_file, etc.) - provide code snippets only
+- You may use read/search tools (read_file, grep_files, list_files) to understand the codebase
+
+**CRITICAL**: When rules specify "provide code snippets", you MUST follow them. Only provide code snippets, never attempt to modify files.
+**For complex tasks**: Break down the task into steps and create a clear implementation plan before providing code snippets.`;
+
+      case 'implementation':
+        return `## Current Stage: IMPLEMENTATION
+
+You are in the **Implementation** stage. Your goal is to:
+- **Call create_file or replace_file tool** to actually create/modify files
+- Use create_file for new files, replace_file for modifying existing files
+- All tools are available, including file modification tools
+
+**CODE SOURCE PRIORITY**:
+1. **First, check conversation history** - If code snippets were generated in the Analysis stage, use that existing code (avoid regenerating)
+2. **If no code exists in history** - Then generate the code content needed for the file
+
+**IMPORTANT**:
+- Your response MUST include a tool call (create_file or replace_file) to create the file
+- If code exists in conversation history, extract and use it (be efficient)
+- If code doesn't exist, generate it as part of your tool call
+- Keep responses concise - focus on executing the file creation
+- Example: <tool_call name="create_file" args='{"file_path": "hello.py", "content": "print(\\\"Hello!\\\")"}' />
+
+**Note**: Prefer using code from Analysis stage if available. Generate code only if needed.`;
+
+      default:
+        return '';
+    }
+  }
+
+  /**
+   * Filter tools based on current workflow stage
+   * Returns only the tools that are allowed in the given stage
+   */
+  getAllowedTools<T extends { name: string }>(
+    allTools: T[],
+    stage: WorkflowStage
+  ): T[] {
+    if (stage === 'chat') {
+      // Chat stage: Only allow read-only tools for context gathering
+      const readOnlyTools = ['read_file', 'list_files', 'grep_files', 'search_files', 'read_directory'];
+      return allTools.filter(tool => 
+        readOnlyTools.includes(tool.name) || 
+        !['create_file', 'replace_file', 'write_file', 'update_file', 'delete_file', 'edit_file', 'modify_file'].includes(tool.name)
+      );
+    }
+    
+    if (stage === 'assumptions') {
+      // Assumptions stage: Allow read/search tools, but NO file modification tools
+      const fileModificationTools = ['create_file', 'replace_file', 'write_file', 'update_file', 'delete_file', 'edit_file', 'modify_file'];
+      return allTools.filter(tool => !fileModificationTools.includes(tool.name));
+    }
+    
+    // Implementation stage: All tools allowed
+    return allTools;
   }
 }
 

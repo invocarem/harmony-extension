@@ -311,10 +311,16 @@ export class HarmonyAssistant {
       const files = await vscode.workspace.findFiles('**/*', excludePatterns);
       
       // Format files for display
-      let fileItems = files.map(file => ({
-        label: vscode.workspace.asRelativePath(file),
-        path: vscode.workspace.asRelativePath(file)
-      }));
+      let fileItems = files
+        .map(file => ({
+          label: vscode.workspace.asRelativePath(file),
+          path: vscode.workspace.asRelativePath(file)
+        }))
+        .filter(file => {
+          // Explicitly filter out .build folder and any files inside it
+          const normalizedPath = file.path.replace(/\\/g, '/');
+          return !normalizedPath.includes('/.build/') && !normalizedPath.startsWith('.build/');
+        });
 
       // Filter files based on search term (exact substring match)
       if (searchTerm) {
@@ -370,12 +376,18 @@ export class HarmonyAssistant {
 
       const files = await vscode.workspace.findFiles('**/*', excludePatterns);
       
-      const items = files.map(file => ({
-        label: vscode.workspace.asRelativePath(file),
-        description: '',
-        detail: file.fsPath,
-        filePath: vscode.workspace.asRelativePath(file)
-      }));
+      const items = files
+        .map(file => ({
+          label: vscode.workspace.asRelativePath(file),
+          description: '',
+          detail: file.fsPath,
+          filePath: vscode.workspace.asRelativePath(file)
+        }))
+        .filter(item => {
+          // Explicitly filter out .build folder and any files inside it
+          const normalizedPath = item.filePath.replace(/\\/g, '/');
+          return !normalizedPath.includes('/.build/') && !normalizedPath.startsWith('.build/');
+        });
 
       // Sort alphabetically
       items.sort((a, b) => a.label.localeCompare(b.label));

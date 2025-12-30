@@ -263,3 +263,20 @@ export function removeTypingIndicator(): void {
     }
 }
 
+/**
+ * Update stage indicator lights based on current stage
+ */
+export function updateStageIndicator(stage?: 'chat' | 'assumptions' | 'implementation'): void {
+    // Remove active class from all lights
+    const allLights = document.querySelectorAll('.stage-light');
+    allLights.forEach(light => light.classList.remove('active'));
+    
+    // Activate the appropriate light based on stage
+    if (stage) {
+        const stageLight = document.getElementById(`stage-light-${stage}`);
+        if (stageLight) {
+            stageLight.classList.add('active');
+        }
+    }
+}
+

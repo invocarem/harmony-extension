@@ -103,14 +103,120 @@ export class XmlProcessor {
             }
         }
         
+        // Handle incomplete/truncated tool calls (e.g., when streaming is cut off)
+        // Look for <tool_call that appears at the end of text or doesn't have a closing /> or </tool_call>
+        // We'll check for patterns that start with <tool_call but don't have proper closing
+        
+        // Find all positions where <tool_call or <MCP_CALL appears
+        const toolCallStartPattern = /<(?:tool_call|MCP_CALL)(?=\s)/g;
+        let startMatch: RegExpExecArray | null;
+        
+        while ((startMatch = toolCallStartPattern.exec(text)) !== null) {
+            const startPos = startMatch.index;
+            
+            // Check if this is already part of a complete match we found
+            const isAlreadyMatched = results.some(result => {
+                const resultStart = text.indexOf(result.raw);
+                return resultStart !== -1 && startPos >= resultStart && startPos < resultStart + result.raw.length;
+            });
+            
+            if (isAlreadyMatched) {
+                continue;
+            }
+            
+            // Look for closing /> or </tool_call> or </MCP_CALL> after this position
+            // Check up to a reasonable distance (e.g., 10000 chars) to avoid scanning entire text
+            const searchEnd = Math.min(startPos + 10000, text.length);
+            const remainingText = text.substring(startPos, searchEnd);
+            
+            // Check if there's a proper closing tag
+            const hasSelfClosing = /\s*\/>/.test(remainingText);
+            const hasClosingTag = /<\/tool_call>/.test(remainingText) || /<\/MCP_CALL>/.test(remainingText);
+            
+            if (hasSelfClosing || hasClosingTag) {
+                // This appears to be a complete tool call that our earlier patterns missed
+                // Try to extract it using a more lenient pattern
+                const lenientMatch = remainingText.match(/<(?:tool_call|MCP_CALL)\s+([^>]*?)(?:\s*\/>|>)/);
+                if (lenientMatch) {
+                    const attributes = lenientMatch[1];
+                    const raw = lenientMatch[0];
+                    const parsed = this.parseAttributes(attributes, raw);
+                    if (parsed) {
+                        results.push(parsed);
+                        continue;
+                    }
+                }
+                // If extraction failed, skip it (might be malformed)
+                continue;
+            }
+            
+            // No closing tag found - this appears to be an incomplete tool call
+            // Extract what we can from the remaining text
+            const incompleteMatch = remainingText.match(/<(?:tool_call|MCP_CALL)\s+(.*)/);
+            if (incompleteMatch) {
+                // Get everything from startPos to end of text as the "raw" incomplete tool call
+                const raw = text.substring(startPos);
+                // Try to extract attributes (might be incomplete)
+                const attributesMatch = raw.match(/<(?:tool_call|MCP_CALL)\s+([^>]*?)(?:\s*$|(?=\s|>))/);
+                const attributes = attributesMatch ? attributesMatch[1] : incompleteMatch[1];
+                
+                console.log(`[XmlProcessor] Found incomplete tool call, attempting to extract: "${raw.substring(0, 200)}"`);
+                
+                // For incomplete tool calls, try to extract from the full raw string
+                // since the JSON might extend beyond what was captured in attributes
+                let parsed: XmlToolCall | null = null;
+                
+                // First try with just attributes
+                parsed = this.parseAttributes(attributes, raw, true);
+                
+                // If that failed and we have args=' or args=" in the raw string, try extracting from raw
+                if (!parsed && (raw.includes("args='") || raw.includes('args="'))) {
+                    // Extract the part after args=' or args="
+                    const argsStartMatch = raw.match(/args\s*=\s*(["'])/);
+                    if (argsStartMatch) {
+                        const quoteChar = argsStartMatch[1];
+                        const argsStartPos = argsStartMatch.index! + argsStartMatch[0].length;
+                        // Try to find complete JSON using brace matching from this position
+                        const jsonMatch = this.extractJsonFromPosition(raw, argsStartPos);
+                        if (jsonMatch) {
+                            // Try to construct a minimal attributes string for parsing
+                            const nameMatch = raw.match(/name\s*=\s*(["'])([^"']+)\1/);
+                            if (nameMatch) {
+                                const name = nameMatch[2];
+                                try {
+                                    const args = JSON.parse(jsonMatch);
+                                    console.log(`[XmlProcessor] Successfully extracted from incomplete tool call using raw string: ${name}`);
+                                    parsed = {
+                                        raw,
+                                        name,
+                                        args
+                                    };
+                                } catch (error) {
+                                    console.warn(`[XmlProcessor] Failed to parse JSON from incomplete tool call: ${jsonMatch.substring(0, 100)}`, error);
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                if (parsed) {
+                    console.log(`[XmlProcessor] Successfully extracted from incomplete tool call: ${parsed.name}`);
+                    results.push(parsed);
+                } else {
+                    console.warn(`[XmlProcessor] Could not extract from incomplete tool call: "${raw.substring(0, 100)}"`);
+                }
+            }
+        }
+        
         return results;
     }
     
     /**
      * Parse attributes from XML tool call
      * This replicates the logic from ToolCallExtractor.parseToolCallAttributes
+     * @param allowIncomplete If true, be more lenient when parsing incomplete/truncated tool calls
      */
-    private static parseAttributes(attributes: string, raw: string): XmlToolCall | null {
+    private static parseAttributes(attributes: string, raw: string, allowIncomplete: boolean = false): XmlToolCall | null {
         console.log(`[XmlProcessor] parseAttributes called with attributes: "${attributes}"`);
         
         // Extract name
@@ -176,14 +282,18 @@ export class XmlProcessor {
                     argsStr = argsStr.replace(/\\'/g, "'").replace(/\\\\/g, '\\');
                 }
             } else {
-                console.warn(`[XmlProcessor] Could not find closing ${quoteChar} for args attribute`);
+                // If we didn't find a closing quote and allowIncomplete is true, try brace matching
+                // This handles cases where the XML is truncated but the JSON might still be complete
+                if (allowIncomplete) {
+                    console.log(`[XmlProcessor] No closing quote found, but allowIncomplete=true, trying brace matching...`);
+                    argsStr = this.extractArgsUsingBraceMatching(attributes);
+                    if (argsStr) {
+                        console.log(`[XmlProcessor] Successfully extracted args using brace matching for incomplete tool call`);
+                    }
+                } else {
+                    console.warn(`[XmlProcessor] Could not find closing ${quoteChar} for args attribute`);
+                }
             }
-        }
-        
-        // If quote-based extraction failed, try brace matching as fallback
-        if (!argsStr) {
-            console.log(`[XmlProcessor] Quote-based extraction failed, trying brace matching fallback...`);
-            argsStr = this.extractArgsUsingBraceMatching(attributes);
         }
         
         // If quote-based extraction failed, try brace matching as fallback
@@ -247,6 +357,72 @@ export class XmlProcessor {
             name: nameMatch[1],
             args
         };
+    }
+    
+    /**
+     * Extract JSON from a specific position in a string using brace matching
+     * This is used for incomplete tool calls where the JSON might extend beyond the attributes
+     */
+    private static extractJsonFromPosition(text: string, startPos: number): string | null {
+        // Find the first opening brace after startPos
+        let braceStartPos = startPos;
+        while (braceStartPos < text.length && text[braceStartPos] !== '{') {
+            braceStartPos++;
+        }
+        
+        if (braceStartPos >= text.length) {
+            return null;
+        }
+        
+        // Use brace matching to find the closing brace
+        let braceCount = 1; // We've already seen the opening {
+        let pos = braceStartPos + 1;
+        
+        while (pos < text.length && braceCount > 0) {
+            const char = text[pos];
+            
+            // Handle string literals - skip entire string content
+            if (char === '"' || char === "'") {
+                const stringStartQuote = char;
+                pos++; // Skip opening quote
+                
+                // Find the matching closing quote, handling escapes
+                while (pos < text.length) {
+                    if (text[pos] === '\\' && pos + 1 < text.length) {
+                        // Skip escaped character
+                        pos += 2;
+                        continue;
+                    }
+                    
+                    if (text[pos] === stringStartQuote) {
+                        // Found closing quote - skip it and break
+                        pos++;
+                        break;
+                    }
+                    
+                    pos++;
+                }
+                continue;
+            }
+            
+            // Handle braces (we're outside any string at this point)
+            if (char === '{') {
+                braceCount++;
+            } else if (char === '}') {
+                braceCount--;
+                if (braceCount === 0) {
+                    // Found the matching closing brace
+                    const jsonStr = text.substring(braceStartPos, pos + 1);
+                    console.log(`[XmlProcessor] extractJsonFromPosition: Extracted JSON (${jsonStr.length} chars)`);
+                    return jsonStr;
+                }
+            }
+            
+            pos++;
+        }
+        
+        console.warn(`[XmlProcessor] extractJsonFromPosition: Could not find matching closing brace`);
+        return null;
     }
     
     /**
