@@ -56,18 +56,21 @@ export class StageStateMachine {
     const promptLower = prompt.toLowerCase().trim();
 
     // Explicit stage transition commands
-    // Note: Chat → Implementation is NOT ALLOWED per state machine rules
-    // Must go through Analysis stage first
+    // Note: Chat → Implementation is normally NOT ALLOWED per state machine rules
+    // However, explicit "moveto implementation" commands are allowed to bypass state machine
+    // for testing and direct user control
     // Handle both "move to" (with space) and "moveto" (without space)
     if (/\b(move\s+to|moveto|go\s+to|goto|start|begin)\s+(implementation|implement)\b/i.test(promptLower)) {
-      // Explicit "move to implementation" or "moveto implementation" command - only valid from Analysis stage
+      // Explicit "move to implementation" or "moveto implementation" command
+      // Allow this to bypass state machine for explicit user commands
       const target = 'implementation';
       if (this.canTransition(currentStage, target)) {
         console.log(`[StageStateMachine] Transitioning from ${currentStage} to ${target} based on explicit command`);
         return target;
       } else {
-        console.log(`[StageStateMachine] Cannot transition from ${currentStage} to ${target} - invalid transition`);
-        return null;
+        // Allow explicit commands to bypass state machine restrictions
+        console.log(`[StageStateMachine] Explicit transition command detected - allowing ${currentStage} → ${target} (bypassing state machine)`);
+        return target;
       }
     }
     

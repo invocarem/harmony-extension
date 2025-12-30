@@ -13,9 +13,34 @@ export class CodeContext {
    */
   static fromCodeBlock(codeBlock: string, filePath?: string): CodeContext | null {
     // Extract code content from markdown code block
-    const codeBlockMatch = codeBlock.match(/```(?:\w+)?\s*[\n ]([\s\S]*?)```/);
+    // Pattern: ```language optional_file_path\ncode``` or ```language\ncode```
+    const codeBlockMatch = codeBlock.match(/```(?:\w+)?(?:\s+[^\n]+)?\n([\s\S]*?)```/);
     if (!codeBlockMatch) {
-      return null;
+      // Try alternative pattern without newline after language
+      const altMatch = codeBlock.match(/```(?:\w+)?\s*([\s\S]*?)```/);
+      if (!altMatch) {
+        return null;
+      }
+      // If no newline after ```, the first line might be file path or code
+      const altContent = altMatch[1].trim();
+      if (!altContent || altContent.length < 10) {
+        return null;
+      }
+      // Check if first line looks like a file path
+      const firstLine = altContent.split('\n')[0];
+      const looksLikeFilePath = /^[\w\/\.\-]+\.\w{2,4}$/.test(firstLine.trim());
+      if (looksLikeFilePath && altContent.split('\n').length > 1) {
+        // First line is file path, rest is code
+        const lines = altContent.split('\n');
+        const contentLines = lines.slice(1);
+        const fileName = filePath || firstLine.trim();
+        return new CodeContext(fileName, contentLines, true);
+      } else {
+        // All content is code
+        const contentLines = altContent.split('\n');
+        const fileName = filePath || 'file';
+        return new CodeContext(fileName, contentLines, true);
+      }
     }
 
     const codeContent = codeBlockMatch[1].trim();
@@ -25,6 +50,11 @@ export class CodeContext {
 
     // Split code content into lines (array of strings)
     const contentLines = codeContent.split('\n');
+    
+    // Ensure contentLines is not empty and contains actual content
+    if (contentLines.length === 0 || !contentLines.some(line => line.trim().length > 0)) {
+      return null;
+    }
 
     // Extract file path if not provided
     let fileName = filePath;
@@ -63,7 +93,12 @@ export class CodeContext {
    * Get the content as a single string (joined with newlines)
    */
   getContentAsString(): string {
-    return this.content.join('\n');
+    if (!this.content || this.content.length === 0) {
+      return '';
+    }
+    // Filter out any undefined or null lines
+    const validLines = this.content.filter(line => line != null);
+    return validLines.join('\n');
   }
 }
 

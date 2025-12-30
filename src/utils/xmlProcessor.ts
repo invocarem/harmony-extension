@@ -177,7 +177,34 @@ export class XmlProcessor {
                         const quoteChar = argsStartMatch[1];
                         const argsStartPos = argsStartMatch.index! + argsStartMatch[0].length;
                         // Try to find complete JSON using brace matching from this position
-                        const jsonMatch = this.extractJsonFromPosition(raw, argsStartPos);
+                        let jsonMatch = this.extractJsonFromPosition(raw, argsStartPos);
+                        
+                        // If brace matching failed (JSON is incomplete), try to extract partial JSON
+                        if (!jsonMatch) {
+                            // Find where the JSON starts (after the opening quote)
+                            const jsonStart = argsStartPos;
+                            // Try to find the last complete property before truncation
+                            // Look for patterns like "key":"value" or "key":value
+                            const partialJsonMatch = raw.substring(jsonStart).match(/^(\{[^}]*"file_path"\s*:\s*"[^"]*"[^}]*)/);
+                            if (partialJsonMatch) {
+                                // Try to close the JSON object
+                                let partialJson = partialJsonMatch[1];
+                                // If it doesn't end with }, try to add it
+                                if (!partialJson.trim().endsWith('}')) {
+                                    // Try to extract what we have and make it valid JSON
+                                    // Remove any incomplete property at the end
+                                    const lastComma = partialJson.lastIndexOf(',');
+                                    if (lastComma > 0) {
+                                        partialJson = partialJson.substring(0, lastComma) + '}';
+                                    } else {
+                                        partialJson = partialJson + '}';
+                                    }
+                                }
+                                jsonMatch = partialJson;
+                                console.log(`[XmlProcessor] Extracted partial JSON from incomplete tool call: ${jsonMatch.substring(0, 100)}`);
+                            }
+                        }
+                        
                         if (jsonMatch) {
                             // Try to construct a minimal attributes string for parsing
                             const nameMatch = raw.match(/name\s*=\s*(["'])([^"']+)\1/);
@@ -192,7 +219,46 @@ export class XmlProcessor {
                                         args
                                     };
                                 } catch (error) {
-                                    console.warn(`[XmlProcessor] Failed to parse JSON from incomplete tool call: ${jsonMatch.substring(0, 100)}`, error);
+                                    // If JSON parsing still fails, try to extract partial information using regex
+                                    // This handles cases where JSON is truncated mid-string
+                                    console.log(`[XmlProcessor] JSON parse failed, attempting partial extraction from incomplete tool call...`);
+                                    
+                                    // Extract file_path if present (for file operations)
+                                    const filePathMatch = jsonMatch.match(/"file_path"\s*:\s*"([^"]+)"/);
+                                    const filePath = filePathMatch ? filePathMatch[1] : null;
+                                    
+                                    // Extract content - handle incomplete strings
+                                    // Look for "content":" and extract everything after until end of string or end of jsonMatch
+                                    const contentStartMatch = jsonMatch.match(/"content"\s*:\s*"/);
+                                    let content = '';
+                                    if (contentStartMatch) {
+                                        const contentStartPos = contentStartMatch.index! + contentStartMatch[0].length;
+                                        // Extract everything from content start to end of jsonMatch
+                                        // This will include the incomplete string
+                                        const rawContent = jsonMatch.substring(contentStartPos);
+                                        // Unescape any escaped characters we can see
+                                        content = rawContent
+                                            .replace(/\\n/g, '\n')
+                                            .replace(/\\t/g, '\t')
+                                            .replace(/\\r/g, '\r')
+                                            .replace(/\\"/g, '"')
+                                            .replace(/\\'/g, "'")
+                                            .replace(/\\\\/g, '\\');
+                                    }
+                                    
+                                    if (filePath || content) {
+                                        console.log(`[XmlProcessor] Extracted partial args from incomplete tool call: file_path=${filePath || 'N/A'}, content length=${content.length}`);
+                                        parsed = {
+                                            raw,
+                                            name,
+                                            args: {
+                                                ...(filePath ? { file_path: filePath } : {}),
+                                                ...(content !== undefined ? { content: content } : {})
+                                            }
+                                        };
+                                    } else {
+                                        console.warn(`[XmlProcessor] Failed to parse JSON and couldn't extract any useful info from incomplete tool call: ${jsonMatch.substring(0, 100)}`, error);
+                                    }
                                 }
                             }
                         }

@@ -27,9 +27,26 @@ export class ContinuationManager {
       return false;
     }
     
+      // If we're already in a continuation and we've executed tool calls, be very conservative
+      // The continuation response has already done work, so only continue if explicitly needed
+      if (isAlreadyContinuation && executedToolCalls.length > 0) {
+        const suggestsCompletion = /(?:done|complete|finished|ready|all|both|each)/i.test(currentContent.toLowerCase());
+        if (suggestsCompletion) {
+          console.log(`[Harmony] Already in continuation and content suggests completion, not continuing`);
+          return false;
+        }
+        // After a continuation has executed tool calls, only continue if content explicitly says MORE work is needed
+        // Simple action statements like "Now I will read another file" don't count - they describe what was just done
+        const explicitlyNeedsMore = /(?:still|also|need to|must|should|more|additional|further|next step|continue|then)/i.test(currentContent.toLowerCase());
+        if (!explicitlyNeedsMore) {
+          console.log(`[Harmony] Already in continuation with executed tool calls, content doesn't explicitly need more work, not continuing`);
+          return false;
+        }
+      }
+    
     // Stage-specific completion logic
     if (currentStage === 'chat') {
-      return this.shouldContinueInChatStage(originalPrompt, executedToolCalls, currentContent);
+      return this.shouldContinueInChatStage(originalPrompt, executedToolCalls, currentContent, isAlreadyContinuation);
     }
     
     if (currentStage === 'assumptions') {
@@ -43,10 +60,11 @@ export class ContinuationManager {
   private shouldContinueInChatStage(
     originalPrompt: string,
     executedToolCalls: Array<{ name: string; arguments: Record<string, any>; result?: MCPToolResult }>,
-    currentContent: string
+    currentContent: string,
+    isAlreadyContinuation: boolean = false
   ): boolean {
     // Check if this is a file task with only discovery tools - allow continuation
-    const isFileTask = /(?:update|create|write|modify|edit|generate).*\.(?:md|txt|json|js|ts|py|java|cpp|c|html|css)/i.test(originalPrompt.toLowerCase());
+    const isFileTask = /(?:update|create|write|modify|edit|generate|read).*\.(?:md|txt|json|js|ts|py|java|cpp|c|html|css)/i.test(originalPrompt.toLowerCase());
     const onlyDiscoveryTools = executedToolCalls.every(tc => 
       ['list_files', 'read_file', 'grep_files', 'search', 'find'].includes(tc.name)
     );
@@ -55,6 +73,22 @@ export class ContinuationManager {
     );
     
     if (isFileTask && onlyDiscoveryTools && !hasFileModification) {
+      // Check if content suggests the task is complete
+      const suggestsCompletion = /(?:done|complete|finished|ready|here|below|above)/i.test(currentContent.toLowerCase());
+      if (suggestsCompletion) {
+        console.log(`[Harmony] Chat stage: File task appears complete, not continuing`);
+        return false;
+      }
+      
+      // If we're already in a continuation, be more conservative - only continue if content explicitly suggests more work
+      if (isAlreadyContinuation) {
+        const explicitlySuggestsMore = /(?:next|another|also|still|more|need to|should)/i.test(currentContent.toLowerCase());
+        if (!explicitlySuggestsMore) {
+          console.log(`[Harmony] Chat stage: Already in continuation and no explicit suggestion of more work, not continuing`);
+          return false;
+        }
+      }
+      
       console.log(`[Harmony] Chat stage: File task with only discovery tools, continuing`);
       return true;
     }

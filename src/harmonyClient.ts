@@ -149,17 +149,25 @@ export class HarmonyClient {
           // Context exists, just update stage if needed
           const context = this.contextManager.getContext();
           if (context) {
-            const detectedStage = this.stageDetector.detectStage(
-              prompt,
-              conversationHistory,
-              context
-            );
             const previousStage = context.currentStage;
-            if (detectedStage !== previousStage) {
-              console.log(`[Harmony] Stage transition: ${previousStage} -> ${detectedStage}`);
-              this.contextManager.updateStage(detectedStage, prompt);
+            // Only detect and update stage if prompt is an explicit transition command
+            // Otherwise, maintain current stage (especially for implementation stage)
+            const isExplicitTransition = /\b(move\s+to|moveto|go\s+to|goto|transition\s+to|switch\s+to)\s+(chat|assumptions|implementation|implement)\b/i.test(prompt.trim());
+            if (isExplicitTransition) {
+              const detectedStage = this.stageDetector.detectStage(
+                prompt,
+                conversationHistory,
+                context
+              );
+              if (detectedStage !== previousStage) {
+                console.log(`[Harmony] Stage transition: ${previousStage} -> ${detectedStage}`);
+                this.contextManager.updateStage(detectedStage, prompt);
+              } else {
+                console.log(`[Harmony] Stage remains: ${previousStage} (no transition needed)`);
+              }
             } else {
-              console.log(`[Harmony] Stage remains: ${previousStage} (no transition needed)`);
+              // Not an explicit transition - maintain current stage
+              console.log(`[Harmony] Stage remains: ${previousStage} (maintaining current stage, no explicit transition)`);
             }
           }
         }
@@ -202,21 +210,10 @@ export class HarmonyClient {
 
       const endpoint = `${this.config.serverUrl}/v1/completions`;
       
-      // Always detect the stage first to handle explicit transition commands (e.g., "moveto implementation")
-      // If context exists, use it as a hint, but let the detector determine if a transition is needed
-      const detectedStage = this.stageDetector.detectStage(
-        prompt,
-        conversationHistory,
-        context
-      );
-      
-      // Update context if stage changed
-      if (context && detectedStage !== context.currentStage) {
-        console.log(`[Harmony] Stage transition detected: ${context.currentStage} → ${detectedStage}`);
-        this.contextManager.updateStage(detectedStage, prompt);
-      }
-      
-      let currentStage = detectedStage;
+      // Use the current stage from context (already set earlier in this function)
+      // Don't detect again here to avoid overriding explicit transitions (e.g., "moveto implementation")
+      // Stage detection already happened earlier: lines 136-144 (new context) or 152-160 (existing context) or 170-179 (continuations)
+      let currentStage = context?.currentStage || 'chat';
 
       if (context) {
         console.log(
@@ -227,6 +224,200 @@ export class HarmonyClient {
       }
 
       logApiRequest(endpoint, prompt, 100);
+
+      // In implementation stage, check if we have CodeContext with content
+      // If so, create the files IMMEDIATELY and return early (skip LLM call)
+      // This handles transition from assumptions to implementation
+      if (currentStage === 'implementation' && context && this.nativeToolsManager) {
+        const codeContexts = this.contextManager.getCodeContexts();
+        console.log(`[Harmony] Implementation stage: Checking for CodeContext... context exists: ${!!context}, nativeToolsManager exists: ${!!this.nativeToolsManager}, codeContexts found: ${codeContexts.length}`);
+        if (codeContexts.length > 0) {
+          console.log(`[Harmony] Implementation stage: Found ${codeContexts.length} code context(s), creating files from CodeContext...`);
+          codeContexts.forEach((cc, idx) => {
+            console.log(`[Harmony] Implementation stage: CodeContext[${idx}]: name="${cc.name}", waitForCreate=${cc.waitForCreate}, contentLines=${cc.content.length}`);
+          });
+          
+          const createdFiles: string[] = [];
+          const toolCalls: Array<{
+            name: string;
+            arguments: Record<string, any>;
+            result?: any;
+          }> = [];
+          
+          for (const codeContext of codeContexts) {
+            if (codeContext.waitForCreate && codeContext.content && codeContext.content.length > 0) {
+              try {
+                const filePath = codeContext.name;
+                
+                // Validate CodeContext has valid content array
+                if (!codeContext.content || !Array.isArray(codeContext.content) || codeContext.content.length === 0) {
+                  console.warn(`[Harmony] Implementation stage: CodeContext for ${filePath} has invalid content array, skipping...`);
+                  console.warn(`[Harmony] Implementation stage: Content array: ${JSON.stringify(codeContext.content)}`);
+                  continue;
+                }
+                
+                // Get content as string
+                let content: string;
+                try {
+                  content = codeContext.getContentAsString();
+                } catch (error) {
+                  console.warn(`[Harmony] Implementation stage: Error calling getContentAsString() for ${filePath}:`, error);
+                  // Fallback: manually join the content array
+                  content = codeContext.content.filter(line => line != null).join('\n');
+                }
+                
+                // Validate content is not empty or undefined
+                if (!content || typeof content !== 'string' || content.trim().length === 0) {
+                  console.warn(`[Harmony] Implementation stage: CodeContext for ${filePath} has empty or invalid content, skipping...`);
+                  console.warn(`[Harmony] Implementation stage: Content type: ${typeof content}, length: ${content?.length}, contentLines: ${codeContext.content.length}`);
+                  console.warn(`[Harmony] Implementation stage: First few content lines: ${JSON.stringify(codeContext.content.slice(0, 3))}`);
+                  continue;
+                }
+                
+                console.log(`[Harmony] Implementation stage: Creating file ${filePath} from CodeContext (${content.length} chars, ${codeContext.content.length} lines)...`);
+                
+                // Ensure content is a string (double-check)
+                const fileContent = String(content);
+                
+                if (!fileContent || fileContent.length === 0) {
+                  console.warn(`[Harmony] Implementation stage: File content is empty after conversion, skipping ${filePath}...`);
+                  continue;
+                }
+                
+                // Try to create the file directly (don't check if it exists first - let create_file handle it)
+                const createResult = await this.nativeToolsManager.callTool('create_file', {
+                  file_path: filePath,
+                  content: fileContent
+                });
+                
+                if (!createResult.isError) {
+                  createdFiles.push(filePath);
+                  this.contextManager.markCodeContextCreated(filePath);
+                  toolCalls.push({
+                    name: 'create_file',
+                    arguments: { file_path: filePath, content: fileContent },
+                    result: createResult
+                  });
+                  console.log(`[Harmony] Implementation stage: Successfully created file ${filePath} from CodeContext`);
+                } else if (createResult.content?.[0]?.text?.includes('already exists')) {
+                  // File exists, use replace_file
+                  console.log(`[Harmony] Implementation stage: File ${filePath} exists, using replace_file...`);
+                  const replaceResult = await this.nativeToolsManager.callTool('replace_file', {
+                    file_path: filePath,
+                    content: fileContent
+                  });
+                  if (!replaceResult.isError) {
+                    createdFiles.push(filePath);
+                    this.contextManager.markCodeContextCreated(filePath);
+                    toolCalls.push({
+                      name: 'replace_file',
+                      arguments: { file_path: filePath, content: fileContent },
+                      result: replaceResult
+                    });
+                    console.log(`[Harmony] Implementation stage: Successfully updated file ${filePath} from CodeContext`);
+                  } else {
+                    console.warn(`[Harmony] Implementation stage: Failed to update file ${filePath}: ${replaceResult.content?.[0]?.text || 'Unknown error'}`);
+                  }
+                } else {
+                  console.warn(`[Harmony] Implementation stage: Failed to create file ${filePath}: ${createResult.content?.[0]?.text || 'Unknown error'}`);
+                }
+              } catch (error: any) {
+                console.warn(`[Harmony] Implementation stage: Error creating file ${codeContext.name}:`, error);
+              }
+            }
+          }
+          
+          // If we created any files, return early with success (skip LLM call)
+          if (createdFiles.length > 0) {
+            console.log(`[Harmony] Implementation stage: Created ${createdFiles.length} file(s) from CodeContext, returning early (skipping LLM call)`);
+            return {
+              content: `Successfully created ${createdFiles.length} file(s) from code snippets: ${createdFiles.join(', ')}`,
+              reasoning: undefined,
+              commentary: undefined,
+              final: undefined,
+              toolCalls: toolCalls,
+              isContinuation: isContinuation,
+              verboseInfo: {
+                stage: currentStage,
+                isComplete: true,
+                toolCalls: toolCalls.map(tc => ({
+                  name: tc.name,
+                  stage: currentStage,
+                  success: !tc.result?.isError,
+                  error: tc.result?.isError ? (tc.result?.content?.[0]?.text || 'Unknown error') : undefined
+                }))
+              }
+            };
+          }
+        }
+      }
+
+      // In assumptions stage, check if we have CodeContext with content but files don't exist
+      // If so, create the files before calling LLM
+      if (currentStage === 'assumptions' && context && this.nativeToolsManager) {
+        const codeContexts = this.contextManager.getCodeContexts();
+        if (codeContexts.length > 0) {
+          console.log(`[Harmony] Assumptions stage: Found ${codeContexts.length} code context(s), checking if files need to be created...`);
+          
+          for (const codeContext of codeContexts) {
+            if (codeContext.waitForCreate && codeContext.content.length > 0) {
+              try {
+                // Check if file exists by trying to read it
+                const filePath = codeContext.name;
+                const checkResult = await this.nativeToolsManager.callTool('read_file', { file_path: filePath });
+                
+                // If file doesn't exist (read_file returns error with "ENOENT" or "not found"), create it
+                const errorText = checkResult.content?.[0]?.text || '';
+                const fileNotFound = checkResult.isError && (
+                  errorText.includes('Error reading file') ||
+                  errorText.includes('ENOENT') ||
+                  errorText.includes('not found') ||
+                  errorText.includes('No such file')
+                );
+                
+                if (fileNotFound) {
+                  console.log(`[Harmony] Assumptions stage: File ${filePath} doesn't exist, creating from CodeContext...`);
+                  const content = codeContext.getContentAsString();
+                  const createResult = await this.nativeToolsManager.callTool('create_file', {
+                    file_path: filePath,
+                    content: content
+                  });
+                  
+                  if (!createResult.isError) {
+                    console.log(`[Harmony] Assumptions stage: Successfully created file ${filePath} from CodeContext`);
+                    // Mark as created so we don't try again
+                    this.contextManager.markCodeContextCreated(filePath);
+                  } else {
+                    // If create_file fails because file exists, try replace_file instead
+                    if (createResult.content?.[0]?.text?.includes('already exists')) {
+                      console.log(`[Harmony] Assumptions stage: File ${filePath} exists, using replace_file instead...`);
+                      const replaceResult = await this.nativeToolsManager.callTool('replace_file', {
+                        file_path: filePath,
+                        content: content
+                      });
+                      if (!replaceResult.isError) {
+                        console.log(`[Harmony] Assumptions stage: Successfully updated file ${filePath} from CodeContext`);
+                        this.contextManager.markCodeContextCreated(filePath);
+                      } else {
+                        console.warn(`[Harmony] Assumptions stage: Failed to update file ${filePath}: ${replaceResult.content?.[0]?.text || 'Unknown error'}`);
+                      }
+                    } else {
+                      console.warn(`[Harmony] Assumptions stage: Failed to create file ${filePath}: ${createResult.content?.[0]?.text || 'Unknown error'}`);
+                    }
+                  }
+                } else {
+                  console.log(`[Harmony] Assumptions stage: File ${filePath} already exists, skipping creation`);
+                  // Mark as created since file already exists
+                  this.contextManager.markCodeContextCreated(filePath);
+                }
+              } catch (error: any) {
+                console.warn(`[Harmony] Assumptions stage: Error checking/creating file ${codeContext.name}:`, error);
+                // Continue with other code contexts
+              }
+            }
+          }
+        }
+      }
 
       // Build prompt using PromptBuilder
       const finalPrompt = await this.promptBuilder.buildPrompt(
@@ -786,7 +977,82 @@ export class HarmonyClient {
       let finalContent = parsed.content;
       if (!finalContent || !finalContent.trim()) {
         if (currentStage === "implementation" && toolCalls.length === 0 && !toolCallsWereBlocked) {
+          // First, check if we have CodeContext objects ready to create
+          const codeContexts = this.contextManager.getCodeContexts();
           const codeSnippets = CodeExtractor.extractCodeSnippetsFromHistory(conversationHistory);
+
+          // If we have CodeContext, use that (it's more reliable than extracting from history)
+          if (codeContexts.length > 0 && context) {
+            if (context.currentStep + 1 <= context.maxSteps) {
+              console.log(
+                `[Harmony] Implementation stage: Empty content but found ${codeContexts.length} code context(s). Creating files...`
+              );
+
+              // Create files from CodeContext
+              const createdFiles: string[] = [];
+              for (const codeContext of codeContexts) {
+                if (codeContext.waitForCreate && codeContext.content.length > 0 && this.nativeToolsManager) {
+                  try {
+                    const filePath = codeContext.name;
+                    const content = codeContext.getContentAsString();
+                    
+                    // Try to create the file
+                    const createResult = await this.nativeToolsManager.callTool('create_file', {
+                      file_path: filePath,
+                      content: content
+                    });
+                    
+                    if (!createResult.isError) {
+                      createdFiles.push(filePath);
+                      this.contextManager.markCodeContextCreated(filePath);
+                      console.log(`[Harmony] Implementation stage: Created file ${filePath} from CodeContext`);
+                    } else if (createResult.content?.[0]?.text?.includes('already exists')) {
+                      // File exists, use replace_file
+                      const replaceResult = await this.nativeToolsManager.callTool('replace_file', {
+                        file_path: filePath,
+                        content: content
+                      });
+                      if (!replaceResult.isError) {
+                        createdFiles.push(filePath);
+                        this.contextManager.markCodeContextCreated(filePath);
+                        console.log(`[Harmony] Implementation stage: Updated file ${filePath} from CodeContext`);
+                      }
+                    }
+                  } catch (error: any) {
+                    console.warn(`[Harmony] Implementation stage: Error creating file ${codeContext.name}:`, error);
+                  }
+                }
+              }
+              
+              if (createdFiles.length > 0) {
+                return {
+                  content: `Successfully created ${createdFiles.length} file(s): ${createdFiles.join(', ')}`,
+                  reasoning: parsed.reasoning,
+                  commentary: parsed.commentary,
+                  final: parsed.final,
+                  toolCalls: createdFiles.map(filePath => {
+                    const codeContext = codeContexts.find(cc => cc.name === filePath);
+                    return {
+                      name: 'create_file',
+                      arguments: {
+                        file_path: filePath,
+                        content: codeContext?.getContentAsString() || ''
+                      },
+                      result: {
+                        content: [{ type: 'text', text: `Successfully created file: ${filePath}` }],
+                        isError: false
+                      }
+                    };
+                  }),
+                  isContinuation: isContinuation,
+                  verboseInfo: {
+                    stage: currentStage,
+                    isComplete: true,
+                  },
+                };
+              }
+            }
+          }
 
           if (codeSnippets.length > 0 && context) {
             if (context.currentStep + 1 <= context.maxSteps) {
