@@ -12,9 +12,7 @@
   ],
   "activationEvents": [
     "onCommand:harmony.chat",
-    "onCommand:harmony.explain",
-    "onCommand:harmony.refactor",
-    "onCommand:harmony.generate"
+    "onCommand:harmony.explain"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -27,16 +25,6 @@
       {
         "command": "harmony.explain",
         "title": "Explain Code",
-        "category": "Harmony"
-      },
-      {
-        "command": "harmony.refactor",
-        "title": "Refactor Code",
-        "category": "Harmony"
-      },
-      {
-        "command": "harmony.generate",
-        "title": "Generate Code",
         "category": "Harmony"
       },
       {

@@ -1,5 +1,5 @@
 import { MCPToolResult } from "../mcpClient";
-import { WorkflowStage } from "../stageStateMachine";
+import { WorkflowStage } from "./stageStateMachine";
 import { ConversationContext } from "./conversationContext";
 
 /**
@@ -118,7 +118,7 @@ export class ContinuationManager {
     );
     
     // Auto-transition from Assumptions to Implementation is DISABLED
-    // Users must explicitly type "move to implementation" or "moveto implementation" to transition
+    // Users must explicitly type "move to implementation" to transition
     // This ensures users have control over when to proceed to implementation stage
     // 
     // Previously, if it was a file task with only discovery tools, we would auto-transition.

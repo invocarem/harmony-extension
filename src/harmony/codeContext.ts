@@ -2,6 +2,8 @@
  * Represents a code snippet that's ready for file creation
  */
 export class CodeContext {
+  private _contentString?: string;  // Cached string representation of content
+
   constructor(
     public name: string,  // File name or identifier
     public content: string[],  // The code content itself (array of lines/strings)
@@ -91,14 +93,31 @@ export class CodeContext {
 
   /**
    * Get the content as a single string (joined with newlines)
+   * Uses cached string if available, otherwise computes and caches it
    */
   getContentAsString(): string {
     if (!this.content || this.content.length === 0) {
+      this._contentString = '';
       return '';
     }
-    // Filter out any undefined or null lines
+    
+    // Return cached string if available
+    if (this._contentString !== undefined) {
+      return this._contentString;
+    }
+    
+    // Filter out any undefined or null lines and join
     const validLines = this.content.filter(line => line != null);
-    return validLines.join('\n');
+    this._contentString = validLines.join('\n');
+    return this._contentString;
+  }
+
+  /**
+   * Invalidate the cached string representation
+   * Call this when content array is modified directly
+   */
+  invalidateCache(): void {
+    this._contentString = undefined;
   }
 }
 

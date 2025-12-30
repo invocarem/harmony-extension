@@ -1,6 +1,6 @@
 // Export types
 export type { ConversationContext } from './conversationContext';
-export type { WorkflowStage } from '../stageStateMachine';
+export type { WorkflowStage } from './stageStateMachine';
 
 // Export classes
 export { Role } from './role';
@@ -15,4 +15,6 @@ export { ToolResultFormatter } from './toolResultFormatter';
 export { ContinuationManager } from './continuationManager';
 export { AutoTransitionManager } from './autoTransitionManager';
 export { StageDetector } from './stageDetector';
+export { StageStateMachine } from './stageStateMachine';
+export { IntentionDetector, UserIntent } from './intentionDetector';
 

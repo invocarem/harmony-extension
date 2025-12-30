@@ -1,5 +1,5 @@
 import { MCPToolCall } from "../mcpClient";
-import { WorkflowStage } from "../stageStateMachine";
+import { WorkflowStage } from "./stageStateMachine";
 import { CodeExtractor } from "./codeExtractor";
 import { HarmonyParseResult } from "../harmonyProcessor";
 

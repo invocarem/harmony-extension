@@ -1,5 +1,5 @@
 import { ChatMessage } from "../conversationManager";
-import { StageStateMachine, WorkflowStage } from "../stageStateMachine";
+import { StageStateMachine, WorkflowStage } from "./stageStateMachine";
 import { ConversationContext } from "./conversationContext";
 
 /**

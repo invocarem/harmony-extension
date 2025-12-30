@@ -4,11 +4,16 @@ body {
     background: var(--vscode-editor-background);
     color: var(--vscode-editor-foreground);
     line-height: 1.5;
+    margin: 0;
+    height: 100vh;
+    overflow: hidden;
+    box-sizing: border-box;
 }
 .chat-container {
     display: flex;
     flex-direction: column;
-    height: calc(100vh - 40px);
+    height: 100vh;
+    min-height: 0;
 }
 .messages {
     flex: 1;
@@ -583,30 +588,33 @@ tr:nth-child(even) {
 .stage-indicator {
     display: flex;
     gap: 15px;
-    padding: 12px 15px;
+    padding: 6px 15px;
     margin-bottom: 15px;
     background: var(--vscode-editor-background);
     border: 1px solid var(--vscode-input-border);
     border-radius: 5px;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0;
 }
 .stage-light {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
     flex: 1;
     max-width: 120px;
+    min-width: 0;
 }
 .light-bulb {
-    width: 32px;
-    height: 32px;
+    width: 20px;
+    height: 20px;
     border-radius: 50%;
     background: var(--vscode-input-background);
     border: 2px solid var(--vscode-input-border);
     position: relative;
     transition: all 0.3s ease;
+    flex-shrink: 0;
 }
 .stage-light.active .light-bulb {
     background: var(--vscode-button-background);
@@ -629,11 +637,16 @@ tr:nth-child(even) {
     box-shadow: 0 0 12px rgba(206, 145, 120, 0.6), 0 0 24px rgba(206, 145, 120, 0.3);
 }
 .stage-label {
-    font-size: 11px;
+    font-size: 10px;
     color: var(--vscode-descriptionForeground);
     font-weight: 500;
     text-align: center;
     transition: color 0.3s ease;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    width: 100%;
 }
 .stage-light.active .stage-label {
     color: var(--vscode-editor-foreground);

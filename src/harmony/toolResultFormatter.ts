@@ -2,7 +2,7 @@ import axios from "axios";
 import { LlamaConfig } from "../config";
 import { MCPToolResult } from "../mcpClient";
 import { RulesManager, Rule } from "../rulesManager";
-import { WorkflowStage } from "../stageStateMachine";
+import { WorkflowStage } from "./stageStateMachine";
 import { HarmonyProcessor } from "../harmonyProcessor";
 
 /**

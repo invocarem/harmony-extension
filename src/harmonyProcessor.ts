@@ -6,6 +6,7 @@ import { ToolCallExtractor } from "./utils/toolCallExtractor";
 import { XmlProcessor } from "./utils/xmlProcessor";
 import { filterHarmonyTokens } from "./utils/harmonyTokenFilter";
 import { Role } from "./harmony/role";
+import { IntentionDetector } from "./harmony/intentionDetector";
 
 export interface HarmonyParseResult {
   content: string;
@@ -17,14 +18,23 @@ export interface HarmonyParseResult {
 }
 
 export class HarmonyProcessor {
-  constructor(private harmonyMode: boolean = true) {}
+  private intentionDetector: IntentionDetector;
+  private currentUserPrompt?: string;
+
+  constructor(private harmonyMode: boolean = true) {
+    this.intentionDetector = new IntentionDetector();
+  }
 
   /**
    * Parse Harmony response using token-based approach
    * Falls back to plain text if no Harmony tokens are detected
    * When harmonyMode is false, treats response as plain jinja and filters tokens
+   * @param response The response string to parse
+   * @param userPrompt Optional user prompt for intent detection (used to prevent false positive file extraction)
    */
-  parseResponse(response: string): HarmonyParseResult {
+  parseResponse(response: string, userPrompt?: string): HarmonyParseResult {
+    // Store user prompt for use in extraction methods
+    this.currentUserPrompt = userPrompt;
     // If harmony mode is disabled, treat as plain jinja output
     if (!this.harmonyMode) {
       console.log(`[HarmonyProcessor] Harmony mode disabled, treating as plain jinja output`);
@@ -72,6 +82,7 @@ export class HarmonyProcessor {
       
       // Check if content describes a file update with code blocks
       // This handles cases where the model describes a file instead of making a tool call
+      // Note: extractFileUpdateFromContent will check user intent if available
       const extractedToolCall = this.extractFileUpdateFromContent(trimmed);
       if (extractedToolCall) {
         console.log(`[HarmonyProcessor] Extracted file update from plain jinja content: ${extractedToolCall.name} for ${extractedToolCall.arguments.file_path}`);
@@ -113,6 +124,7 @@ export class HarmonyProcessor {
       
       // Check if content describes a file update with code blocks
       // This handles cases where the model describes a file instead of making a tool call
+      // Note: extractFileUpdateFromContent will check user intent if available
       const extractedToolCall = this.extractFileUpdateFromContent(trimmed);
       if (extractedToolCall) {
         console.log(`[HarmonyProcessor] Extracted file update from plain text content: ${extractedToolCall.name} for ${extractedToolCall.arguments.file_path}`);
@@ -292,6 +304,7 @@ export class HarmonyProcessor {
     // Extract file updates from content if model describes files but didn't make tool calls
     if (rawToolCalls.length === 0 && content) {
       // Try to extract file update from content (handles cases where model describes file with code block)
+      // Note: extractFileUpdateFromContent will check user intent if available
       const extractedToolCall = this.extractFileUpdateFromContent(content);
       if (extractedToolCall) {
         console.log(`[HarmonyProcessor] Extracted file update from content (with Harmony tokens): ${extractedToolCall.name} for ${extractedToolCall.arguments.file_path}`);
@@ -497,6 +510,7 @@ export class HarmonyProcessor {
           setters.rawToolCalls(toolCallText);
         } else {
           // Check if content contains file update claims with code blocks
+          // Note: extractFileUpdateFromContent will check user intent if available
           const extractedToolCall = this.extractFileUpdateFromContent(trimmed);
           if (extractedToolCall) {
             console.log(`[HarmonyProcessor] Extracted file update from content: ${extractedToolCall.name} for ${extractedToolCall.arguments.file_path}`);
@@ -546,8 +560,20 @@ export class HarmonyProcessor {
    * Extract file update from content that claims to have updated/created a file
    * but doesn't make an explicit tool call
    * Also extracts when code block with file name is present (even without explicit claims)
+   * Uses IntentionDetector to prevent false positives (e.g., when user asks to explain code)
    */
   private extractFileUpdateFromContent(content: string): { raw: string; name: string; arguments: { file_path: string; content: string } } | null {
+    // Check user intent if prompt is available
+    // This prevents extracting files when user asks to explain/review code
+    if (this.currentUserPrompt) {
+      const intent = this.intentionDetector.detectIntent(this.currentUserPrompt);
+      if (!this.intentionDetector.shouldAllowFileExtraction(intent)) {
+        console.log(`[HarmonyProcessor] User intent is ${intent}, skipping file extraction to prevent false positive`);
+        return null;
+      }
+      console.log(`[HarmonyProcessor] User intent is ${intent}, allowing file extraction`);
+    }
+    
     // First, try to extract code block content
     // Handle both formats: with newline after language (```swift\n) and without (```swift ) due to whitespace normalization
     const codeBlockPattern = /```(?:\w+)?\s*[\n ]([\s\S]*?)```/;

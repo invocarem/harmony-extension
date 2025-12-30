@@ -17,46 +17,102 @@ export class XmlProcessor {
         console.log(`[XmlProcessor] extractToolCalls called with text (${text.length} chars): "${text.substring(0, 200)}${text.length > 200 ? '...' : ''}"`);
         
         // Self-closing tool call patterns - support both <tool_call> and <MCP_CALL>
-        const selfClosingPatterns = [
-            /<tool_call\s+([^>]+)\s*\/>/gs,
-            /<MCP_CALL\s+([^>]+)\s*\/>/gs
-        ];
+        // Use a more robust approach that handles > characters inside quoted strings
+        const selfClosingTagNames = ['tool_call', 'MCP_CALL'];
         
-        for (const selfClosingRegex of selfClosingPatterns) {
-            let match: RegExpExecArray | null;
-            while ((match = selfClosingRegex.exec(text)) !== null) {
-                const attributes = match[1];
-                const raw = match[0];
+        for (const tagName of selfClosingTagNames) {
+            const tagStartPattern = new RegExp(`<${tagName}(?=\\s)`, 'g');
+            let startMatch: RegExpExecArray | null;
+            
+            while ((startMatch = tagStartPattern.exec(text)) !== null) {
+                const startPos = startMatch.index;
+                const tagEnd = this.findSelfClosingTagEnd(text, startPos, tagName);
                 
-                console.log(`[XmlProcessor] Found self-closing tool call, attributes: "${attributes}", raw: "${raw}"`);
-                
-                const parsed = this.parseAttributes(attributes, raw);
-                if (parsed) {
-                    console.log(`[XmlProcessor] Successfully parsed tool call: ${parsed.name}`);
-                    results.push(parsed);
-                } else {
-                    console.warn(`[XmlProcessor] Failed to parse attributes from: "${attributes}"`);
+                if (tagEnd !== -1) {
+                    const raw = text.substring(startPos, tagEnd);
+                    // Extract attributes (everything between <tagName and />)
+                    const attributesMatch = raw.match(new RegExp(`<${tagName}\\s+(.+?)\\s*/>`, 's'));
+                    if (attributesMatch) {
+                        const attributes = attributesMatch[1];
+                        
+                        console.log(`[XmlProcessor] Found self-closing tool call, attributes: "${attributes.substring(0, 200)}${attributes.length > 200 ? '...' : ''}", raw: "${raw.substring(0, 200)}${raw.length > 200 ? '...' : ''}"`);
+                        
+                        const parsed = this.parseAttributes(attributes, raw);
+                        if (parsed) {
+                            console.log(`[XmlProcessor] Successfully parsed tool call: ${parsed.name}`);
+                            results.push(parsed);
+                        } else {
+                            console.warn(`[XmlProcessor] Failed to parse attributes from: "${attributes.substring(0, 100)}"`);
+                        }
+                    }
                 }
             }
         }
         
         // Variant patterns - support both tool_call and MCP_CALL
-        const variantPatterns = [
-            /<\|[^>]*tool_call\s+([^>]+)\s*\/>/gs,  // <|...tool_call
-            /<\|[^>]*MCP_CALL\s+([^>]+)\s*\/>/gs,  // <|...MCP_CALL
-            /(?:^|[^<])\|[^>]*tool_call\s+([^>]+)\s*\/>/gm,  // |...tool_call
-            /(?:^|[^<])\|[^>]*MCP_CALL\s+([^>]+)\s*\/>/gm  // |...MCP_CALL
-        ];
+        // These patterns look for <|...tool_call or |...tool_call variants
+        // We'll use a similar approach but look for the variant prefix first
+        // Process <| first, then | (but skip if already matched by <|)
+        const processedRanges: Array<{ start: number; end: number }> = [];
         
-        for (const pattern of variantPatterns) {
-            let match: RegExpExecArray | null;
-            while ((match = pattern.exec(text)) !== null) {
-                const attributes = match[1];
-                const raw = match[0];
+        for (const tagName of selfClosingTagNames) {
+            // First, look for <|...tool_call pattern
+            const variantPattern1 = new RegExp(`<\\|[^<]*${tagName}(?=\\s)`, 'g');
+            let variantMatch: RegExpExecArray | null;
+            
+            while ((variantMatch = variantPattern1.exec(text)) !== null) {
+                const variantStart = variantMatch.index;
+                const tagStartMatch = text.substring(variantStart).match(new RegExp(`${tagName}(?=\\s)`));
+                if (tagStartMatch && tagStartMatch.index !== undefined) {
+                    const tagStartPos = variantStart + tagStartMatch.index;
+                    const tagEnd = this.findSelfClosingTagEnd(text, tagStartPos, tagName);
+                    
+                    if (tagEnd !== -1) {
+                        const raw = text.substring(variantStart, tagEnd);
+                        // Extract attributes
+                        const attributesMatch = raw.match(new RegExp(`${tagName}\\s+(.+?)\\s*/>`, 's'));
+                        if (attributesMatch) {
+                            const attributes = attributesMatch[1];
+                            const parsed = this.parseAttributes(attributes, raw);
+                            if (parsed) {
+                                results.push(parsed);
+                                processedRanges.push({ start: variantStart, end: tagEnd });
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Then, look for |...tool_call pattern (but not if it's part of <|)
+            const variantPattern2 = new RegExp(`(?:^|[^<])\\|[^<]*${tagName}(?=\\s)`, 'gm');
+            variantMatch = null;
+            
+            while ((variantMatch = variantPattern2.exec(text)) !== null) {
+                const variantStart = variantMatch.index;
+                // Skip if this range was already processed by <| pattern
+                const isAlreadyProcessed = processedRanges.some(
+                    range => variantStart >= range.start && variantStart < range.end
+                );
                 
-                const parsed = this.parseAttributes(attributes, raw);
-                if (parsed) {
-                    results.push(parsed);
+                if (!isAlreadyProcessed) {
+                    const tagStartMatch = text.substring(variantStart).match(new RegExp(`${tagName}(?=\\s)`));
+                    if (tagStartMatch && tagStartMatch.index !== undefined) {
+                        const tagStartPos = variantStart + tagStartMatch.index;
+                        const tagEnd = this.findSelfClosingTagEnd(text, tagStartPos, tagName);
+                        
+                        if (tagEnd !== -1) {
+                            const raw = text.substring(variantStart, tagEnd);
+                            // Extract attributes
+                            const attributesMatch = raw.match(new RegExp(`${tagName}\\s+(.+?)\\s*/>`, 's'));
+                            if (attributesMatch) {
+                                const attributes = attributesMatch[1];
+                                const parsed = this.parseAttributes(attributes, raw);
+                                if (parsed) {
+                                    results.push(parsed);
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -578,6 +634,57 @@ export class XmlProcessor {
         
         console.warn(`[XmlProcessor] Brace matching: Could not find matching closing brace for JSON in args attribute`);
         return null;
+    }
+    
+    /**
+     * Find the end position of a self-closing tag, handling > characters inside quoted strings
+     * Returns the position after the closing />, or -1 if not found
+     */
+    private static findSelfClosingTagEnd(text: string, startPos: number, tagName: string): number {
+        // Start after the opening tag name
+        let pos = startPos + tagName.length + 1; // +1 for '<'
+        
+        // Track if we're inside quotes (single or double)
+        let inSingleQuote = false;
+        let inDoubleQuote = false;
+        let escapeNext = false;
+        
+        // Look for the closing />
+        while (pos < text.length) {
+            const char = text[pos];
+            
+            // Handle escape sequences
+            if (escapeNext) {
+                escapeNext = false;
+                pos++;
+                continue;
+            }
+            
+            if (char === '\\') {
+                escapeNext = true;
+                pos++;
+                continue;
+            }
+            
+            // Track quote state
+            if (char === "'" && !inDoubleQuote) {
+                inSingleQuote = !inSingleQuote;
+            } else if (char === '"' && !inSingleQuote) {
+                inDoubleQuote = !inDoubleQuote;
+            }
+            
+            // Only check for /> when we're not inside quotes
+            if (!inSingleQuote && !inDoubleQuote) {
+                // Check for closing />
+                if (char === '/' && pos + 1 < text.length && text[pos + 1] === '>') {
+                    return pos + 2; // Return position after />
+                }
+            }
+            
+            pos++;
+        }
+        
+        return -1; // Not found
     }
     
     /**

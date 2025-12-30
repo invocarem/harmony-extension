@@ -250,40 +250,6 @@ describe('HarmonyClient - Stage Control', () => {
         expect(prompt).toContain('IMPLEMENTATION');
       });
 
-      it('should detect explicit "moveto implementation" command (without space)', async () => {
-        // First transition to assumptions stage (required per state machine)
-        const mockResponse1 = createMockResponse('Here is the code...');
-        // Mock for auto-transition continuation call (implementation stage)
-        const mockAutoTransitionResponse = createMockResponse('Implementation response');
-        mockedAxios.post
-          .mockResolvedValueOnce(mockResponse1)
-          .mockResolvedValueOnce(mockAutoTransitionResponse);
-        const parseResult1 = createParseResult('Here is the code...');
-        const autoTransitionParseResult = createParseResult('Implementation response');
-        mockHarmonyProcessor.parseResponse
-          .mockReturnValueOnce(parseResult1)
-          .mockReturnValueOnce(autoTransitionParseResult);
-        mockHarmonyProcessor.extractToolCalls
-          .mockReturnValueOnce([])
-          .mockReturnValueOnce([]);
-        
-        await client.callServer('how to implement a function');
-
-        // Now test "moveto implementation" (without space) from assumptions stage
-        const mockResponse2 = createMockResponse('Creating file...');
-        mockedAxios.post.mockResolvedValueOnce(mockResponse2);
-        const parseResult2 = createParseResult('Creating file...');
-        mockHarmonyProcessor.parseResponse.mockReturnValueOnce(parseResult2);
-        mockHarmonyProcessor.extractToolCalls.mockReturnValue([]);
-
-        await client.callServer('moveto implementation');
-
-        const callArgs = mockedAxios.post.mock.calls[1];
-        const prompt = (callArgs[1] as any).prompt as string;
-
-        expect(prompt).toContain('IMPLEMENTATION');
-      });
-
       it('should detect "now create the file" as implementation stage', async () => {
         // First transition to assumptions stage (required per state machine)
         const mockResponse1 = createMockResponse('Here is the code...');
@@ -618,7 +584,7 @@ describe('HarmonyClient - Stage Control', () => {
 
       expect(prompt).toContain('ASSUMPTIONS/ANALYSIS');
       expect(prompt).toContain('code snippets');
-      expect(prompt).toContain('Do NOT use file modification tools');
+      expect(prompt).toContain('DO NOT use create_file, replace_file, or any file modification tools');
     });
 
     it('should include implementation stage instructions', async () => {
@@ -1045,53 +1011,6 @@ describe('HarmonyClient - Stage Control', () => {
       expect(result.isContinuation).toBe(true);
     });
 
-    it('should transition from assumptions to implementation when user says "moveto implementation" (without space) after "create a hello.py to greet mary"', async () => {
-      // This test covers the exact bug scenario:
-      // 1. User says "create a hello.py to greet mary" -> goes to assumptions stage
-      // 2. User says "moveto implementation" (without space) -> should transition to implementation stage
-      // The bug was that "moveto" (without space) wasn't recognized by the regex pattern
-      
-      const prompt1 = 'create a hello.py to greet mary';
-      
-      // First call: Assumptions stage response with code snippets
-      const mockAssumptionsResponse = createMockResponse('Here is the plan:\n1. Create hello.py\n2. Add greet function\n3. Add main guard\n\nCode snippet:\n```python\n# hello.py\ndef greet(name: str) -> str:\n    return f"Hello, {name}!"\n\nif __name__ == "__main__":\n    print(greet("Mary"))\n```');
-      mockedAxios.post.mockResolvedValueOnce(mockAssumptionsResponse);
-      
-      const assumptionsParseResult = createParseResult('Here is the plan:\n1. Create hello.py\n2. Add greet function\n3. Add main guard\n\nCode snippet:\n```python\n# hello.py\ndef greet(name: str) -> str:\n    return f"Hello, {name}!"\n\nif __name__ == "__main__":\n    print(greet("Mary"))\n```');
-      mockHarmonyProcessor.parseResponse.mockReturnValueOnce(assumptionsParseResult);
-      mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
-      
-      await client.callServer(prompt1);
-      
-      // Verify first call was in assumptions stage
-      const firstCallArgs = mockedAxios.post.mock.calls[0];
-      const firstPrompt = (firstCallArgs[1] as any).prompt as string;
-      expect(firstPrompt).toContain('ASSUMPTIONS/ANALYSIS');
-      expect(firstPrompt).toContain('Assumptions/Analysis');
-      
-      // Second call: User says "moveto implementation" (without space) - this was the bug
-      const prompt2 = 'moveto implementation';
-      
-      const mockImplementationResponse = createMockResponse('Creating hello.py...');
-      mockedAxios.post.mockResolvedValueOnce(mockImplementationResponse);
-      
-      const implementationParseResult = createParseResult('Creating hello.py...');
-      mockHarmonyProcessor.parseResponse.mockReturnValueOnce(implementationParseResult);
-      mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
-      
-      await client.callServer(prompt2);
-      
-      // Verify second call was in implementation stage (this is what the bug prevented)
-      const secondCallArgs = mockedAxios.post.mock.calls[1];
-      const secondPrompt = (secondCallArgs[1] as any).prompt as string;
-      
-      expect(secondPrompt).toContain('IMPLEMENTATION');
-      expect(secondPrompt).not.toContain('ASSUMPTIONS/ANALYSIS');
-      expect(secondPrompt).not.toContain('Assumptions/Analysis');
-      
-      // Verify that create_file tool is available in implementation stage
-      expect(secondPrompt).toContain('[Built-in] create_file');
-    });
   });
 });
 

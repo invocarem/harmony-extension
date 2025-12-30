@@ -1,4 +1,4 @@
-import { StageStateMachine, WorkflowStage } from '../stageStateMachine';
+import { StageStateMachine, WorkflowStage } from '../harmony/stageStateMachine';
 import { ChatMessage } from '../conversationManager';
 import { MCPToolResult } from '../mcpClient';
 

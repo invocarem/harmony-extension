@@ -141,6 +141,33 @@ describe('XmlProcessor', () => {
       });
     });
 
+    describe('Tool calls with > character in content', () => {
+      it('should extract complete tool call when content contains -> (type hints)', () => {
+        // This reproduces the bug: regex pattern [^>]+ stops at first > character
+        // The tool call content has "->" in type hints, causing regex to fail
+        const text = '<tool_call name="create_file" args=\'{"file_path": "hello.py", "content": "def greet(name: str) -> None:\\n    \\"\\"\\"Print a greeting for the given name.\\"\\"\\"\\n    print(f\\"Hello, {name}!\\")\\n\\nif __name__ == \\"__main__\\":\\n    # Greet Mary\\n    greet(\\"Mary\\")\\n"}\' />';
+        const result = XmlProcessor.extractToolCalls(text);
+        
+        expect(result).toHaveLength(1);
+        expect(result[0].name).toBe('create_file');
+        expect(result[0].args).toBeDefined();
+        expect(result[0].args.file_path).toBe('hello.py');
+        // The critical test: content should be fully extracted despite -> in type hints
+        expect(result[0].args.content).toBeDefined();
+        expect(result[0].args.content).toContain('def greet(name: str) -> None');
+        expect(result[0].args.content).toContain('greet("Mary")');
+      });
+
+      it('should handle tool calls with > characters in various places', () => {
+        const text = '<tool_call name="create_file" args=\'{"file_path": "test.py", "content": "x = 5 > 3\\nprint(x)"}\' />';
+        const result = XmlProcessor.extractToolCalls(text);
+        
+        expect(result).toHaveLength(1);
+        expect(result[0].name).toBe('create_file');
+        expect(result[0].args.content).toContain('5 > 3');
+      });
+    });
+
     describe('Edge cases', () => {
       it('should handle empty arguments', () => {
         const text = '<tool_call name="no_args" args="{}" />';

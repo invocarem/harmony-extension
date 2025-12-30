@@ -11,6 +11,7 @@ import { NativeToolsManager, NativeToolResult } from "./nativeToolManager";
 import { ConversationManager, ChatMessage } from "./conversationManager";
 import { FileContextExtractor } from "./utils/fileContextExtractor";
 import { cleanVerboseResponse } from "./utils/responseCleaner";
+import { StageStateMachine } from "./harmony/stageStateMachine";
 
 export class HarmonyAssistant {
   private webviewManager: WebviewManager;
@@ -22,6 +23,7 @@ export class HarmonyAssistant {
   private rulesManager: RulesManager;
   private nativeToolsManager: NativeToolsManager;
   private conversationManager: ConversationManager;
+  private stageStateMachine: StageStateMachine;
   private lastActiveTextEditor: vscode.TextEditor | undefined;
   private editorChangeDisposable: vscode.Disposable | undefined;
 
@@ -32,6 +34,7 @@ export class HarmonyAssistant {
     this.rulesManager = new RulesManager();
     this.nativeToolsManager = new NativeToolsManager();
     this.conversationManager = new ConversationManager();
+    this.stageStateMachine = new StageStateMachine();
     this.harmonyClient = new HarmonyClient(this.config, this.mcpManager, this.rulesManager, this.nativeToolsManager);
     this.templateRenderer = new TemplateRenderer(context, this.config.harmonyMode);
     this.codeActions = new CodeActions(
@@ -247,9 +250,39 @@ export class HarmonyAssistant {
       this.conversationManager.addMessage(userMessage);
 
       console.log(`[DEBUG] Calling Harmony server with ${this.conversationManager.getLength()} messages in history...`);
+      
+      // Select template based on current stage
+      // First try to get stage from existing context, otherwise detect from prompt
+      let currentStage = this.harmonyClient.getCurrentStage();
+      if (currentStage === 'chat') {
+        // If no context exists or we're in chat, detect stage from prompt
+        const detectedStage = this.stageStateMachine.determineNextStage(
+          'chat',
+          finalMessage,
+          this.conversationManager.getHistoryForTemplate()
+        );
+        currentStage = detectedStage || 'chat';
+      }
+      
+      let templateName: string;
+      switch (currentStage) {
+        case 'assumptions':
+          templateName = 'assumptions';
+          break;
+        case 'implementation':
+          templateName = 'implementation';
+          break;
+        case 'chat':
+        default:
+          templateName = 'chat';
+          break;
+      }
+      
+      console.log(`[Harmony] Using template: ${templateName}.j2 for stage: ${currentStage}`);
+      
       const response = await this.harmonyClient.callServer(
         finalMessage, // Use message with file context
-        "chat",
+        templateName,
         (name, ctx) => this.templateRenderer.applyTemplate(name, ctx, this.conversationManager.getHistoryForTemplate()),
         false,
         this.conversationManager.getHistoryForTemplate()
@@ -462,13 +495,6 @@ export class HarmonyAssistant {
     await this.codeActions.explainCode();
   }
 
-  public async refactorCode(): Promise<void> {
-    await this.codeActions.refactorCode();
-  }
-
-  public async generateCode(): Promise<void> {
-    await this.codeActions.generateCode();
-  }
 
   /**
    * Read a file using the native tools manager
@@ -526,12 +552,6 @@ export function activate(context: vscode.ExtensionContext) {
     }),
     vscode.commands.registerCommand("harmony.explain", () => {
       assistant.explainCode();
-    }),
-    vscode.commands.registerCommand("harmony.refactor", () => {
-      assistant.refactorCode();
-    }),
-    vscode.commands.registerCommand("harmony.generate", () => {
-      assistant.generateCode();
     }),
     vscode.commands.registerCommand("harmony.test", () => {
       assistant.testReadFile();

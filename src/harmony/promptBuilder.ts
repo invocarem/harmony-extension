@@ -3,7 +3,7 @@ import { MCPManager } from "../mcpManager";
 import { RulesManager, Rule } from "../rulesManager";
 import { NativeToolsManager } from "../nativeToolManager";
 import { ChatMessage } from "../conversationManager";
-import { StageStateMachine, WorkflowStage } from "../stageStateMachine";
+import { StageStateMachine, WorkflowStage } from "./stageStateMachine";
 import { ConversationContext } from "./conversationContext";
 
 /**

@@ -1,5 +1,5 @@
-import { ChatMessage } from "./conversationManager";
-import { MCPToolResult } from "./mcpClient";
+import { ChatMessage } from "../conversationManager";
+import { MCPToolResult } from "../mcpClient";
 
 export type WorkflowStage = 'chat' | 'assumptions' | 'implementation';
 
@@ -56,26 +56,23 @@ export class StageStateMachine {
     const promptLower = prompt.toLowerCase().trim();
 
     // Explicit stage transition commands
-    // Note: Chat → Implementation is normally NOT ALLOWED per state machine rules
-    // However, explicit "moveto implementation" commands are allowed to bypass state machine
-    // for testing and direct user control
-    // Handle both "move to" (with space) and "moveto" (without space)
-    if (/\b(move\s+to|moveto|go\s+to|goto|start|begin)\s+(implementation|implement)\b/i.test(promptLower)) {
-      // Explicit "move to implementation" or "moveto implementation" command
-      // Allow this to bypass state machine for explicit user commands
+    // Note: Chat → Implementation is NOT ALLOWED per state machine rules
+    // Users must go through Assumptions stage first
+    if (/\b(move\s+to|go\s+to|goto|start|begin)\s+(implementation|implement)\b/i.test(promptLower)) {
+      // Explicit "move to implementation" command
       const target = 'implementation';
       if (this.canTransition(currentStage, target)) {
         console.log(`[StageStateMachine] Transitioning from ${currentStage} to ${target} based on explicit command`);
         return target;
       } else {
-        // Allow explicit commands to bypass state machine restrictions
-        console.log(`[StageStateMachine] Explicit transition command detected - allowing ${currentStage} → ${target} (bypassing state machine)`);
-        return target;
+        // Invalid transition - reject it (e.g., chat → implementation is not allowed)
+        console.log(`[StageStateMachine] Cannot transition from ${currentStage} to ${target} - invalid transition per state machine rules`);
+        return null;
       }
     }
     
-    if (/\b(move\s+to|moveto|go\s+to|goto|start|begin)\s+(create|modify|write|edit)\b/i.test(promptLower)) {
-      // Commands like "move to create" or "moveto create" - check if valid transition
+    if (/\b(move\s+to|go\s+to|goto|start|begin)\s+(create|modify|write|edit)\b/i.test(promptLower)) {
+      // Commands like "move to create" - check if valid transition
       const target = 'implementation';
       if (this.canTransition(currentStage, target)) {
         console.log(`[StageStateMachine] Transitioning from ${currentStage} to ${target} based on create/modify command`);
@@ -95,7 +92,7 @@ export class StageStateMachine {
       return this.canTransition(currentStage, target) ? target : null;
     }
     
-    if (/\b(move\s+to|moveto|go\s+to|goto|start|begin)\s+(assumptions|analysis|analyze|plan|design)\b/i.test(promptLower)) {
+    if (/\b(move\s+to|go\s+to|goto|start|begin)\s+(assumptions|analysis|analyze|plan|design)\b/i.test(promptLower)) {
       const target = 'assumptions';
       if (this.canTransition(currentStage, target)) {
         console.log(`[StageStateMachine] Transitioning from ${currentStage} to ${target} based on explicit command`);
@@ -104,7 +101,7 @@ export class StageStateMachine {
       return null;
     }
     
-    if (/\b(move\s+to|moveto|go\s+to|goto|back\s+to|return\s+to|clarify|chat|talk|discuss)\s+(chat|discussion|clarification)\b/i.test(promptLower)) {
+    if (/\b(move\s+to|go\s+to|goto|back\s+to|return\s+to|clarify|chat|talk|discuss)\s+(chat|discussion|clarification)\b/i.test(promptLower)) {
       const target = 'chat';
       if (this.canTransition(currentStage, target)) {
         console.log(`[StageStateMachine] Transitioning from ${currentStage} to ${target} based on explicit command`);
@@ -136,7 +133,7 @@ export class StageStateMachine {
 
     // Analysis → Implementation: Only explicit transition commands allowed
     // Auto-transition from Assumptions to Implementation is DISABLED
-    // Users must explicitly type "move to implementation" or "moveto implementation" to transition
+    // Users must explicitly type "move to implementation" to transition
     // This ensures users have control over when to proceed to implementation stage
     // 
     // Previously, file operations with extensions would auto-transition, but that's now disabled:
@@ -239,16 +236,22 @@ You are in the **Chat/Clarification** stage. Your goal is to:
       case 'assumptions':
         return `## Current Stage: ASSUMPTIONS/ANALYSIS
 
-You are in the **Assumptions/Analysis** stage. Your goal is to:
+⚠️ **CRITICAL RESTRICTION**: You are in the **Assumptions/Analysis** stage. You MUST provide code snippets ONLY. File modification tools (create_file, replace_file, write_file, update_file, delete_file, edit_file, modify_file) are NOT available and MUST NOT be used.
+
+**Your goal is to:**
 - **Analyze the problem** and break it down into steps (create a plan/todo list for complex tasks)
 - Explain your assumptions about the codebase
 - **For multi-step tasks**: Provide a clear plan with numbered steps (e.g., "1. Create hello.py", "2. Add greeting function", etc.)
-- Provide code snippets/examples for each step
-- Show code solutions in formatted code blocks with file paths
-- Do NOT use file modification tools (create_file, replace_file, etc.) - provide code snippets only
+- **MUST provide code snippets/examples** in markdown code blocks with file paths (e.g., \`\`\`python calc.py)
+- Show code solutions in formatted code blocks - this is the ONLY way to provide code in this stage
 - You may use read/search tools (read_file, grep_files, list_files) to understand the codebase
 
-**CRITICAL**: When rules specify "provide code snippets", you MUST follow them. Only provide code snippets, never attempt to modify files.
+**ABSOLUTE REQUIREMENTS:**
+- ❌ DO NOT use create_file, replace_file, or any file modification tools
+- ✅ DO provide code snippets in markdown code blocks with file paths
+- ✅ DO format code blocks like: \`\`\`python calc.py\n[your code here]\n\`\`\`
+- When rules specify "provide code snippets", you MUST follow them exactly
+
 **For complex tasks**: Break down the task into steps and create a clear implementation plan before providing code snippets.`;
 
       case 'implementation':

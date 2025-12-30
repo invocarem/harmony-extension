@@ -1,7 +1,7 @@
 import { MCPManager } from "../mcpManager";
 import { MCPToolCall, MCPToolResult } from "../mcpClient";
 import { NativeToolsManager } from "../nativeToolManager";
-import { WorkflowStage } from "../stageStateMachine";
+import { WorkflowStage } from "./stageStateMachine";
 
 /**
  * Executes tool calls (MCP and native tools)

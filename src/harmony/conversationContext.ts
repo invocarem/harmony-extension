@@ -1,4 +1,4 @@
-import { WorkflowStage } from "../stageStateMachine";
+import { WorkflowStage } from "./stageStateMachine";
 import { ProgressPlan } from "../progressPlanManager";
 import { CodeContext } from "./codeContext";
 

@@ -8,7 +8,6 @@ import { HarmonyProcessor, HarmonyParseResult } from "./harmonyProcessor";
 import { ToolCallExtractor } from "./utils/toolCallExtractor";
 import { XmlProcessor } from "./utils/xmlProcessor";
 import { ChatMessage } from "./conversationManager";
-import { StageStateMachine, WorkflowStage } from "./stageStateMachine";
 import { ProgressPlanManager } from "./progressPlanManager";
 import {
   ConversationContextManager,
@@ -21,6 +20,8 @@ import {
   ContinuationManager,
   AutoTransitionManager,
   StageDetector,
+  StageStateMachine,
+  WorkflowStage,
 } from "./harmony";
 
 // Re-export WorkflowStage for backward compatibility
@@ -150,24 +151,17 @@ export class HarmonyClient {
           const context = this.contextManager.getContext();
           if (context) {
             const previousStage = context.currentStage;
-            // Only detect and update stage if prompt is an explicit transition command
-            // Otherwise, maintain current stage (especially for implementation stage)
-            const isExplicitTransition = /\b(move\s+to|moveto|go\s+to|goto|transition\s+to|switch\s+to)\s+(chat|assumptions|implementation|implement)\b/i.test(prompt.trim());
-            if (isExplicitTransition) {
-              const detectedStage = this.stageDetector.detectStage(
-                prompt,
-                conversationHistory,
-                context
-              );
-              if (detectedStage !== previousStage) {
-                console.log(`[Harmony] Stage transition: ${previousStage} -> ${detectedStage}`);
-                this.contextManager.updateStage(detectedStage, prompt);
-              } else {
-                console.log(`[Harmony] Stage remains: ${previousStage} (no transition needed)`);
-              }
+            // Check what stage the state machine detects for this prompt
+            const detectedStage = this.stageDetector.detectStage(
+              prompt,
+              conversationHistory,
+              context
+            );
+            if (detectedStage !== previousStage) {
+              console.log(`[Harmony] Stage transition: ${previousStage} -> ${detectedStage}`);
+              this.contextManager.updateStage(detectedStage, prompt);
             } else {
-              // Not an explicit transition - maintain current stage
-              console.log(`[Harmony] Stage remains: ${previousStage} (maintaining current stage, no explicit transition)`);
+              console.log(`[Harmony] Stage remains: ${previousStage} (no transition needed)`);
             }
           }
         }
@@ -211,7 +205,7 @@ export class HarmonyClient {
       const endpoint = `${this.config.serverUrl}/v1/completions`;
       
       // Use the current stage from context (already set earlier in this function)
-      // Don't detect again here to avoid overriding explicit transitions (e.g., "moveto implementation")
+      // Don't detect again here to avoid overriding explicit transitions
       // Stage detection already happened earlier: lines 136-144 (new context) or 152-160 (existing context) or 170-179 (continuations)
       let currentStage = context?.currentStage || 'chat';
 
@@ -514,19 +508,23 @@ export class HarmonyClient {
       }
 
       // Parse response
-      const parsed = this.harmonyProcessor.parseResponse(rawResponse);
+      // Pass user prompt for intent detection (prevents false positive file extraction)
+      const parsed = this.harmonyProcessor.parseResponse(rawResponse, prompt);
 
       if (!parsed) {
         throw new Error("HarmonyProcessor.parseResponse returned undefined");
       }
 
+      // Ensure content is defined (default to empty string if undefined)
+      let content = parsed.content ?? '';
+      
       console.log(
-        `[Harmony] Parsed response - stage: ${currentStage}, content: ${parsed.content.length} chars, reasoning: ${parsed.reasoning?.length || 0} chars`
+        `[Harmony] Parsed response - stage: ${currentStage}, content: ${content.length} chars, reasoning: ${parsed.reasoning?.length || 0} chars`
       );
       if (parsed.rawToolCalls && parsed.rawToolCalls.length > 0) {
         console.log(`[Harmony] Found ${parsed.rawToolCalls.length} raw tool call(s) in response`);
       }
-      console.log(`[Harmony] Content preview: ${parsed.content.substring(0, 300)}...`);
+      console.log(`[Harmony] Content preview: ${content.substring(0, 300)}...`);
 
       // Enforce restatement in Chat stage
       this.responseValidator.enforceRestatement(parsed, currentStage, prompt);
@@ -584,9 +582,9 @@ export class HarmonyClient {
       }
 
       // Also check content for tool calls as fallback
-      if (toolCalls.length === 0) {
+      if (toolCalls.length === 0 && content) {
         console.log(`[Harmony] No tool calls found in rawToolCalls, checking content...`);
-        toolCalls = this.harmonyProcessor.extractToolCalls([parsed.content]);
+        toolCalls = this.harmonyProcessor.extractToolCalls([content]);
         if (toolCalls.length > 0) {
           console.log(`[Harmony] Extracted ${toolCalls.length} tool call(s) from content`);
         } else {
@@ -624,6 +622,8 @@ export class HarmonyClient {
           currentStage,
           prompt
         );
+        // Update content variable after handleBlockedToolCalls modifies parsed.content
+        content = parsed.content ?? '';
       }
 
       toolCalls = validation.allowedToolCalls;
@@ -633,9 +633,9 @@ export class HarmonyClient {
       // This is a non-blocking operation that just tracks code for later use in implementation stage
       try {
         const hasToolCalls = parsed.rawToolCalls && parsed.rawToolCalls.length > 0;
-        if (currentStage === 'assumptions' && context && parsed.content && !hasToolCalls && toolCalls.length === 0) {
+        if (currentStage === 'assumptions' && context && content && !hasToolCalls && toolCalls.length === 0) {
           const codeBlockPattern = /```(?:\w+)?\s*[\n ]([\s\S]*?)```/g;
-          const matches = parsed.content.matchAll(codeBlockPattern);
+          const matches = content.matchAll(codeBlockPattern);
           let codeBlockCount = 0;
           
           for (const match of matches) {
@@ -701,7 +701,7 @@ export class HarmonyClient {
         }
 
         // Format tool results
-        let finalContent = parsed.content;
+        let finalContent = content;
         if (applicableRules.length > 0) {
           console.log(
             `[Rules] Formatting tool results according to ${applicableRules.length} rule(s) in ${currentStage} stage`
@@ -859,12 +859,12 @@ export class HarmonyClient {
       // If no tool calls but model describes actions, check if we should continue
       if (
         toolCalls.length === 0 &&
-        parsed.content &&
+        content &&
         context &&
         currentStage === "implementation"
       ) {
         const describesFileOperations = /(?:I'll|I will|going to|need to|should|will).*(?:open|read|view|see|check|examine|edit|modify|update|change|replace).*(?:file|content|property|field)/i.test(
-          parsed.content
+          content
         );
         const isFileTask = /(?:update|create|write|modify|edit|generate).*\.(?:md|txt|json|js|ts|py|java|cpp|c|html|css|swift)/i.test(
           prompt.toLowerCase()
@@ -880,7 +880,7 @@ export class HarmonyClient {
               `[Harmony] Cannot continue: next step (${context.currentStep + 1}) would exceed max steps (${context.maxSteps})`
             );
             return {
-              content: parsed.content,
+              content: content,
               reasoning: parsed.reasoning,
               commentary: parsed.commentary,
               final: parsed.final,
@@ -927,7 +927,7 @@ export class HarmonyClient {
             : noToolCallsVerboseInfo;
 
           return {
-            content: parsed.content + "\n\n---\n\n" + continuationResponse.content,
+            content: content + "\n\n---\n\n" + continuationResponse.content,
             reasoning: parsed.reasoning,
             commentary: parsed.commentary || continuationResponse.commentary,
             final: parsed.final || continuationResponse.final,
@@ -939,7 +939,7 @@ export class HarmonyClient {
       }
 
       // Auto-transition from Assumptions to Implementation is DISABLED
-      // Users must explicitly type "move to implementation" or "moveto implementation" to transition
+      // Users must explicitly type "move to implementation" to transition
       // This ensures users have control over when to proceed to implementation stage
       // The state machine will handle explicit transition commands via stageDetector
       // 
@@ -974,7 +974,7 @@ export class HarmonyClient {
       }
 
       // Ensure Implementation stage has content
-      let finalContent = parsed.content;
+      let finalContent = content;
       if (!finalContent || !finalContent.trim()) {
         if (currentStage === "implementation" && toolCalls.length === 0 && !toolCallsWereBlocked) {
           // First, check if we have CodeContext objects ready to create
@@ -1095,7 +1095,7 @@ export class HarmonyClient {
                 : noToolCallsVerboseInfo;
 
               return {
-                content: continuationResponse.content,
+                content: continuationResponse.content ?? '',
                 reasoning: parsed.reasoning || continuationResponse.reasoning,
                 commentary: parsed.commentary || continuationResponse.commentary,
                 final: parsed.final || continuationResponse.final,
@@ -1111,7 +1111,8 @@ export class HarmonyClient {
           }
 
           // If no code snippets found but we're in implementation stage, trigger continuation to generate code
-          if (context && context.currentStep + 1 <= context.maxSteps) {
+          // Only do this if we have conversation history (might have code snippets) or if explicitly continuing
+          if (context && context.currentStep + 1 <= context.maxSteps && (conversationHistory && conversationHistory.length > 0 || isContinuation)) {
             console.log(
               `[Harmony] Implementation stage: Empty content and no code snippets in history. Triggering continuation to generate code...`
             );
@@ -1147,7 +1148,7 @@ export class HarmonyClient {
               : noToolCallsVerboseInfo;
 
             return {
-              content: continuationResponse.content,
+              content: continuationResponse.content ?? '',
               reasoning: parsed.reasoning || continuationResponse.reasoning,
               commentary: parsed.commentary || continuationResponse.commentary,
               final: parsed.final || continuationResponse.final,
@@ -1157,9 +1158,13 @@ export class HarmonyClient {
             };
           }
 
-          // Fallback: only show message if we can't continue
-          finalContent =
-            "I understand you want me to create the file. Please check the conversation history for the code snippets from the Analysis stage, then use create_file tool to create the file.";
+          // Fallback: only show message if we can't continue and there were code snippets to work with
+          // If no code snippets at all, just return empty content
+          // Reuse codeContexts from earlier in the function scope
+          if (codeSnippets.length > 0 || codeContexts.length > 0) {
+            finalContent =
+              "I understand you want me to create the file. Please check the conversation history for the code snippets from the Analysis stage, then use create_file tool to create the file.";
+          }
         }
       }
 
@@ -1189,6 +1194,14 @@ export class HarmonyClient {
     this.contextManager.clear();
     this.progressPlanManager.clearAll();
     console.log(`[Harmony] Conversation context reset`);
+  }
+
+  /**
+   * Get the current stage from the conversation context
+   */
+  getCurrentStage(): WorkflowStage {
+    const context = this.contextManager.getContext();
+    return context?.currentStage || 'chat';
   }
 }
 
