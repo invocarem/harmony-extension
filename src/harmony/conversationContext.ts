@@ -40,7 +40,7 @@ export class ConversationContextManager {
   /**
    * Initialize a new conversation context
    */
-  initialize(originalPrompt: string, initialStage: WorkflowStage): ConversationContext {
+  initialize(originalPrompt: string, initialStage: WorkflowStage = 'init'): ConversationContext {
     this.context = {
       originalPrompt,
       currentStage: initialStage,

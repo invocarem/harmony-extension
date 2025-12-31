@@ -14,17 +14,17 @@ export function addMessage(
     reasoning?: string,
     contextSummary?: ContextSummary,
     verboseInfo?: {
-        stage?: 'chat' | 'assumptions' | 'implementation';
+        stage?: 'init' | 'chat' | 'assumptions' | 'implementation';
         stageTransition?: {
-            from: 'chat' | 'assumptions' | 'implementation';
-            to: 'chat' | 'assumptions' | 'implementation';
+            from: 'init' | 'chat' | 'assumptions' | 'implementation';
+            to: 'init' | 'chat' | 'assumptions' | 'implementation';
         };
         step?: number;
         maxSteps?: number;
         isComplete?: boolean;
         toolCalls?: Array<{
             name: string;
-            stage: 'chat' | 'assumptions' | 'implementation';
+            stage: 'init' | 'chat' | 'assumptions' | 'implementation';
             success: boolean;
             error?: string;
         }>;
@@ -78,6 +78,7 @@ export function addMessage(
         // Stage information
         if (verboseInfo.stage) {
             const stageEmoji = {
+                'init': '🔄',
                 'chat': '💬',
                 'assumptions': '🔍',
                 'implementation': '⚙️'
@@ -89,11 +90,13 @@ export function addMessage(
         // Stage transition
         if (verboseInfo.stageTransition) {
             const fromEmoji = {
+                'init': '🔄',
                 'chat': '💬',
                 'assumptions': '🔍',
                 'implementation': '⚙️'
             }[verboseInfo.stageTransition.from] || '📋';
             const toEmoji = {
+                'init': '🔄',
                 'chat': '💬',
                 'assumptions': '🔍',
                 'implementation': '⚙️'
@@ -121,6 +124,7 @@ export function addMessage(
                 toolCallItem.className = 'verbose-info-toolcall-item';
                 
                 const stageEmoji = {
+                    'init': '🔄',
                     'chat': '💬',
                     'assumptions': '🔍',
                     'implementation': '⚙️'
@@ -267,16 +271,23 @@ export function removeTypingIndicator(): void {
  * Update stage indicator lights based on current stage
  * Also enables/disables arrows based on valid transitions
  */
-export function updateStageIndicator(stage?: 'chat' | 'assumptions' | 'implementation'): void {
+export function updateStageIndicator(stage?: 'init' | 'chat' | 'assumptions' | 'implementation'): void {
     // Remove active class from all lights
     const allLights = document.querySelectorAll('.stage-light');
     allLights.forEach(light => light.classList.remove('active'));
     
     // Activate the appropriate light based on stage
-    if (stage) {
+    // Note: 'init' stage doesn't have a light (transitions immediately to chat)
+    if (stage && stage !== 'init') {
         const stageLight = document.getElementById(`stage-light-${stage}`);
         if (stageLight) {
             stageLight.classList.add('active');
+        }
+    } else if (stage === 'init') {
+        // Init stage: show chat light (init→chat transition)
+        const chatLight = document.getElementById('stage-light-chat');
+        if (chatLight) {
+            chatLight.classList.add('active');
         }
     }
     

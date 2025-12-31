@@ -325,6 +325,13 @@ class ChatStageHandler implements StageHandler {
 }
 
 /**
+ * Init stage handler (minimal - just pass-through, will transition to chat)
+ */
+class InitStageHandler implements StageHandler {
+  // Init stage doesn't need special processing, transitions to chat immediately
+}
+
+/**
  * Stage handler registry
  * Table-based lookup for stage handlers
  */
@@ -333,6 +340,7 @@ export class StageHandlerRegistry {
 
   constructor() {
     // Register handlers
+    this.handlers.set('init', new InitStageHandler());
     this.handlers.set('chat', new ChatStageHandler());
     this.handlers.set('assumptions', new AssumptionsStageHandler());
     this.handlers.set('implementation', new ImplementationStageHandler());
@@ -342,7 +350,7 @@ export class StageHandlerRegistry {
    * Get handler for a stage
    */
   getHandler(stage: WorkflowStage): StageHandler {
-    return this.handlers.get(stage) || new ChatStageHandler();
+    return this.handlers.get(stage) || new InitStageHandler();
   }
 }
 

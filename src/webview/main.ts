@@ -153,6 +153,10 @@ window.addEventListener('message', (event) => {
     handleExtensionMessage(event.data);
 });
 
+// Initialize stage indicator to chat (since init transitions to chat immediately)
+import { updateStageIndicator } from './modules/ui';
+updateStageIndicator('chat');
+
 // Focus input on load and add hint
 messageInput.focus();
 

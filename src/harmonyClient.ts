@@ -132,19 +132,29 @@ export class HarmonyClient {
       if (!isContinuation) {
         // Only initialize if no context exists, otherwise preserve existing context
         if (!this.contextManager.hasContext()) {
-          // Always start new conversations in 'chat' stage, then detect if we should transition
-          // This ensures transitions are properly recorded
-          this.contextManager.initialize(prompt, 'chat');
+          // Always start new conversations in 'init' stage, then transition to 'chat'
+          // This ensures proper initialization and transition recording
+          this.contextManager.initialize(prompt, 'init');
           const context = this.contextManager.getContext();
           if (context) {
-            const detectedStage = this.stageDetector.detectStage(
-              prompt,
-              conversationHistory,
-              context
-            );
-            if (detectedStage !== 'chat') {
-              console.log(`[Harmony] Stage transition detected at start: chat -> ${detectedStage}`);
-              this.contextManager.updateStage(detectedStage, prompt);
+            // Init stage always transitions to chat on first prompt
+            if (context.currentStage === 'init') {
+              console.log(`[Harmony] Initializing conversation: init -> chat`);
+              this.contextManager.updateStage('chat', prompt);
+            }
+            
+            // Now detect if we should transition further from chat
+            const updatedContext = this.contextManager.getContext();
+            if (updatedContext) {
+              const detectedStage = this.stageDetector.detectStage(
+                prompt,
+                conversationHistory,
+                updatedContext
+              );
+              if (detectedStage !== 'chat' && detectedStage !== 'init') {
+                console.log(`[Harmony] Stage transition detected at start: chat -> ${detectedStage}`);
+                this.contextManager.updateStage(detectedStage, prompt);
+              }
             }
           }
           const finalContext = this.contextManager.getContext();

@@ -18,6 +18,14 @@ export class StageDetector {
     conversationHistory: readonly ChatMessage[] | undefined,
     conversationContext: ConversationContext | null
   ): WorkflowStage {
+    // Get current stage from context or default to init
+    const currentStage = conversationContext?.currentStage || 'init';
+    
+    // Init stage always transitions to chat
+    if (currentStage === 'init') {
+      return 'chat';
+    }
+    
     const promptLower = prompt.toLowerCase().trim();
     
     // Simple greetings/questions stay in chat stage
@@ -30,9 +38,6 @@ export class StageDetector {
     if (simpleGreetings.some(pattern => pattern.test(promptLower))) {
       return 'chat';
     }
-
-    // Get current stage from context or default to chat
-    const currentStage = conversationContext?.currentStage || 'chat';
     
     // Use state machine to determine next stage
     const nextStage = this.stageStateMachine.determineNextStage(currentStage, prompt, conversationHistory);
@@ -48,7 +53,7 @@ export class StageDetector {
       return conversationContext.currentStage;
     }
 
-    // Default: chat stage for general questions
+    // Default: chat stage for general questions (if no context, we're starting fresh)
     return 'chat';
   }
 }

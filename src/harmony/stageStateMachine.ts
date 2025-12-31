@@ -1,12 +1,13 @@
 import { ChatMessage } from "../conversationManager";
 import { MCPToolResult } from "../mcpClient";
 
-export type WorkflowStage = 'chat' | 'assumptions' | 'implementation';
+export type WorkflowStage = 'init' | 'chat' | 'assumptions' | 'implementation';
 
 /**
  * Trigger types for state transitions
  */
 export type TransitionTrigger = 
+  | 'initialize'
   | 'move_to_implementation'
   | 'move_to_assumptions'
   | 'move_to_chat'
@@ -34,7 +35,10 @@ interface TransitionRule {
  * This table defines all valid state transitions
  */
 const TRANSITION_TABLE: TransitionRule[] = [
-  // Explicit commands (highest priority)
+  // Initialization (highest priority)
+  { from: 'init', trigger: 'initialize', to: 'chat', priority: 100 },
+  
+  // Explicit commands (high priority)
   { from: 'assumptions', trigger: 'move_to_implementation', to: 'implementation', priority: 100 },
   { from: 'implementation', trigger: 'move_to_assumptions', to: 'assumptions', priority: 100 },
   { from: 'implementation', trigger: 'move_to_chat', to: 'chat', priority: 100 },
@@ -62,6 +66,7 @@ const TRANSITION_TABLE: TransitionRule[] = [
  * Valid transitions map (for quick lookup)
  */
 const VALID_TRANSITIONS: Map<WorkflowStage, Set<WorkflowStage>> = new Map([
+  ['init', new Set<WorkflowStage>(['chat'])],
   ['chat', new Set<WorkflowStage>(['assumptions'])],
   ['assumptions', new Set<WorkflowStage>(['implementation', 'chat'])],
   ['implementation', new Set<WorkflowStage>(['chat', 'assumptions'])]
@@ -88,6 +93,11 @@ export class StageStateMachine {
    */
   private detectTrigger(prompt: string, currentStage: WorkflowStage): TransitionTrigger {
     const promptLower = prompt.toLowerCase().trim();
+
+    // Init stage always transitions to chat (handled separately, but included for completeness)
+    if (currentStage === 'init') {
+      return 'initialize';
+    }
 
     // Explicit commands (checked first)
     if (/\b(move\s+to|go\s+to|goto|start|begin)\s+(implementation|implement)\b/i.test(promptLower)) {
@@ -220,6 +230,10 @@ export class StageStateMachine {
    */
   getInstructions(stage: WorkflowStage): string {
     const instructions: Record<WorkflowStage, string> = {
+      'init': `## Current Stage: INITIALIZATION
+
+You are in the **Initialization** stage. The conversation is about to begin.
+This stage should quickly transition to the Chat stage.`,
       'chat': `## Current Stage: CHAT/CLARIFICATION
 
 You are in the **Chat/Clarification** stage. Your goal is to:
@@ -298,6 +312,10 @@ You are in the **Implementation** stage. Your goal is to:
     stage: WorkflowStage
   ): T[] {
     const toolRules: Record<WorkflowStage, { allowed: string[]; blocked: string[] }> = {
+      'init': {
+        allowed: [], // No tools available in init stage
+        blocked: [] // All tools blocked (conversation not started)
+      },
       'chat': {
         allowed: ['read_file', 'list_files', 'grep_files', 'search_files', 'read_directory'],
         blocked: ['create_file', 'replace_file', 'write_file', 'update_file', 'delete_file', 'edit_file', 'modify_file']
@@ -314,7 +332,7 @@ You are in the **Implementation** stage. Your goal is to:
 
     const rule = toolRules[stage];
     
-    if (rule.blocked.length === 0 && rule.allowed.length === 0) {
+    if (rule.blocked.length === 0 && rule.allowed.length === 0 && stage === 'implementation') {
       // All tools allowed (implementation stage)
       return allTools;
     }
@@ -322,6 +340,11 @@ You are in the **Implementation** stage. Your goal is to:
     if (rule.allowed.length > 0) {
       // Only allow specific tools (chat stage)
       return allTools.filter(tool => rule.allowed.includes(tool.name));
+    }
+    
+    if (stage === 'init') {
+      // No tools available in init stage
+      return [];
     }
     
     // Block specific tools (assumptions stage)

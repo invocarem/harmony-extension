@@ -10,8 +10,8 @@ export interface WebviewToExtensionMessage {
     files?: Array<{ label: string; path: string }>;
     contextSummary?: ContextSummary;
     searchTerm?: string;
-    from?: 'chat' | 'assumptions' | 'implementation';
-    to?: 'chat' | 'assumptions' | 'implementation';
+    from?: 'init' | 'chat' | 'assumptions' | 'implementation';
+    to?: 'init' | 'chat' | 'assumptions' | 'implementation';
 }
 
 export interface ExtensionToWebviewMessage {
@@ -24,17 +24,17 @@ export interface ExtensionToWebviewMessage {
     files?: Array<{ label: string; path: string }>;
     contextSummary?: ContextSummary;
     verboseInfo?: {
-        stage?: 'chat' | 'assumptions' | 'implementation';
+        stage?: 'init' | 'chat' | 'assumptions' | 'implementation';
         stageTransition?: {
-            from: 'chat' | 'assumptions' | 'implementation';
-            to: 'chat' | 'assumptions' | 'implementation';
+            from: 'init' | 'chat' | 'assumptions' | 'implementation';
+            to: 'init' | 'chat' | 'assumptions' | 'implementation';
         };
         step?: number;
         maxSteps?: number;
         isComplete?: boolean;
         toolCalls?: Array<{
             name: string;
-            stage: 'chat' | 'assumptions' | 'implementation';
+            stage: 'init' | 'chat' | 'assumptions' | 'implementation';
             success: boolean;
             error?: string;
         }>;
