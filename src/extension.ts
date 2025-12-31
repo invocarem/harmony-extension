@@ -254,12 +254,27 @@ export class HarmonyAssistant {
       // Select template based on current stage
       // First try to get stage from existing context, otherwise detect from prompt
       let currentStage = this.harmonyClient.getCurrentStage();
-      if (currentStage === 'chat') {
+      
+      // Check if prompt indicates a stage transition (e.g., "move to implementation")
+      // This must be done BEFORE template selection to use the correct template
+      const history = this.conversationManager.getHistoryForTemplate();
+      if (currentStage !== 'chat') {
+        // If we have a context, check for stage transitions from the current stage
+        const detectedStage = this.stageStateMachine.determineNextStage(
+          currentStage,
+          finalMessage,
+          history
+        );
+        if (detectedStage && detectedStage !== currentStage) {
+          console.log(`[Harmony] Stage transition detected in extension: ${currentStage} -> ${detectedStage}`);
+          currentStage = detectedStage;
+        }
+      } else {
         // If no context exists or we're in chat, detect stage from prompt
         const detectedStage = this.stageStateMachine.determineNextStage(
           'chat',
           finalMessage,
-          this.conversationManager.getHistoryForTemplate()
+          history
         );
         currentStage = detectedStage || 'chat';
       }

@@ -118,6 +118,124 @@
 | Analysis | ✅ | ❌ | ✅ (snippets) | ❌ | - |
 | Implementation | ✅ | ✅ | ❌ | ✅ | - |
 
+## ProgressPlan: Multi-Step Task Management
+
+For complex tasks (3+ steps), the system creates a **ProgressPlan** to break down the work into manageable steps and guide sequential implementation.
+
+### Plan Creation (Assumptions Stage)
+
+**When**: Plans are automatically created in the **Assumptions/Analysis** stage when:
+- Task complexity is detected as "hard" (3+ steps)
+- The LLM response contains multiple step indicators (numbered lists, "Step 1", "first/then/finally", etc.)
+
+**How**:
+1. `AutoTransitionManager.detectTaskComplexity()` analyzes the response
+2. If complexity is "hard", extracts steps from the response:
+   - Looks for numbered lists: "1. Create file.py", "2. Add function", etc.
+   - Extracts step goals and descriptions
+   - Falls back to generic steps if extraction fails
+3. Creates a `ProgressPlan` with:
+   - `taskId`: Unique identifier
+   - `originalPrompt`: The user's original request
+   - `complexity`: "hard"
+   - `steps`: Array of `PlanStep` objects, each with:
+     - `stepNumber`: Sequential number (1, 2, 3...)
+     - `goal`: What needs to be accomplished
+     - `description`: Optional detailed description
+     - `status`: "pending" | "in_progress" | "completed"
+   - `createdAt`: Timestamp
+   - `completedAt`: Set when all steps are done
+
+**Example Plan Creation**:
+```
+User: "Write Python code, provide requirements.txt, and write summary.md"
+
+Assumptions Stage Response:
+"Here's the plan:
+1. Create calc.py with calculator functions
+2. Create requirements.txt with dependencies
+3. Create README.md with documentation"
+
+→ ProgressPlan created with 3 steps
+```
+
+### Plan-Driven Implementation
+
+**In Implementation Stage**, when a `ProgressPlan` exists:
+
+1. **Current Step Focus**: The prompt includes the current pending step:
+   ```
+   **PROGRESS PLAN - CURRENT STEP**:
+   You are working on Step 1/3: Create calc.py
+   
+   **Remaining Steps**:
+   - Step 2: Create requirements.txt
+   - Step 3: Create README.md
+   
+   **FOCUS**: Complete the current step (Create calc.py) by creating the necessary files.
+   ```
+
+2. **Sequential Execution**: 
+   - LLM focuses on completing the current step
+   - After files are created, the step is automatically marked as "completed"
+   - Next call automatically moves to the next pending step
+
+3. **Step Status Updates**:
+   - When `create_file` or `replace_file` succeeds → Current step marked "completed"
+   - Steps are completed sequentially (first pending step gets completed)
+   - Plan completion is detected when all steps are "completed"
+
+### Step Update Logic
+
+**Automatic Step Updates** happen in three scenarios:
+
+1. **CodeContext File Creation** (early return path):
+   - Files created from CodeContext in implementation stage
+   - Step updated before returning
+
+2. **Tool Call Execution** (normal flow):
+   - After successful `create_file`/`replace_file` tool calls
+   - Step updated after tool execution completes
+
+3. **Code Block Extraction** (fallback):
+   - If LLM returns code blocks instead of tool calls
+   - Code blocks extracted and files created
+   - Step updated after file creation
+
+**Step Completion Criteria**:
+- At least one successful file modification tool execution
+- Tool must be: `create_file`, `replace_file`, `write_file`, or `update_file`
+- Tool execution must not have errors (`!result.isError`)
+
+### Plan Completion
+
+- When all steps have `status === 'completed'`
+- `completedAt` timestamp is automatically set
+- Plan completion is logged for tracking
+
+### Example Flow
+
+```
+1. User: "Create a Python project with calc.py, requirements.txt, and README.md"
+   → Assumptions Stage: Plan created with 3 steps
+
+2. User: "move to implementation"
+   → Implementation Stage: Step 1 focus ("Create calc.py")
+   → LLM creates calc.py
+   → Step 1 marked "completed"
+
+3. User: "continue"
+   → Implementation Stage: Step 2 focus ("Create requirements.txt")
+   → LLM creates requirements.txt
+   → Step 2 marked "completed"
+
+4. User: "continue"
+   → Implementation Stage: Step 3 focus ("Create README.md")
+   → LLM creates README.md
+   → Step 3 marked "completed"
+   → Plan marked as complete ✅
+```
+
 ## Key Rules
 
 1. **Content Generation**: Happens in Analysis stage, not Implementation
@@ -126,6 +244,9 @@
 4. **Implementation stage input**: Uses content/snippets from Analysis stage to create actual files
 5. **Never skip stages**: Chat → Analysis → Implementation (always in this order)
 6. **Chat stage**: Must always restate the user's problem in the response
+7. **ProgressPlan**: Created automatically for hard tasks (3+ steps) in Assumptions stage
+8. **Step-Driven Implementation**: Implementation stage follows plan steps sequentially
+9. **Automatic Step Updates**: Steps marked "completed" when files are successfully created
 
 ## State Transition Logic
 

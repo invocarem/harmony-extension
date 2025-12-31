@@ -39,8 +39,44 @@ export class PromptBuilder {
     // Build stage instructions (with code snippets ready flag for implementation stage)
     let stageInstructions = this.stageStateMachine.getInstructions(currentStage);
     
-    // If transitioning to implementation and code contexts are ready, add special instruction
+    // If in implementation stage, add progressPlan context if available
     if (currentStage === 'implementation' && conversationContext) {
+      // Add progressPlan guidance if plan exists
+      if (conversationContext.progressPlan) {
+        const plan = conversationContext.progressPlan;
+        const currentStep = plan.steps.find(step => 
+          step.status === 'pending' || step.status === 'in_progress'
+        );
+        
+        if (currentStep) {
+          // Show current step to focus on
+          stageInstructions += `\n\n**PROGRESS PLAN - CURRENT STEP**:\n`;
+          stageInstructions += `You are working on Step ${currentStep.stepNumber}/${plan.totalSteps}: ${currentStep.goal}\n`;
+          if (currentStep.description) {
+            stageInstructions += `Description: ${currentStep.description}\n`;
+          }
+          
+          // Show remaining steps for context
+          const remainingSteps = plan.steps.filter(s => s.status === 'pending' || s.status === 'in_progress');
+          if (remainingSteps.length > 1) {
+            stageInstructions += `\n**Remaining Steps**:\n`;
+            remainingSteps.forEach(step => {
+              if (step.stepNumber !== currentStep.stepNumber) {
+                stageInstructions += `- Step ${step.stepNumber}: ${step.goal}\n`;
+              }
+            });
+          }
+          
+          stageInstructions += `\n**FOCUS**: Complete the current step (${currentStep.goal}) by creating the necessary files. After completing this step, you will move to the next step automatically.`;
+        } else if (plan.completedAt) {
+          stageInstructions += `\n\n**PROGRESS PLAN**: All steps completed! ✅`;
+        } else {
+          // Plan exists but no current step (all completed or unknown state)
+          stageInstructions += `\n\n**PROGRESS PLAN**: Plan exists with ${plan.totalSteps} step(s).`;
+        }
+      }
+      
+      // Add code contexts instruction if available
       const codeContexts = conversationContext.codeContexts?.filter(cc => cc.waitForCreate) || [];
       if (codeContexts.length > 0) {
         const fileList = codeContexts.map(cc => cc.name).join(', ');

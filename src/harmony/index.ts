@@ -16,5 +16,6 @@ export { ContinuationManager } from './continuationManager';
 export { AutoTransitionManager } from './autoTransitionManager';
 export { StageDetector } from './stageDetector';
 export { StageStateMachine } from './stageStateMachine';
+export { StageHandlerRegistry, StageHandler } from './stageHandlers';
 export { IntentionDetector, UserIntent } from './intentionDetector';
 

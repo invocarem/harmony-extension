@@ -37,8 +37,11 @@ export class StageDetector {
     // Use state machine to determine next stage
     const nextStage = this.stageStateMachine.determineNextStage(currentStage, prompt, conversationHistory);
     if (nextStage !== null) {
-      return nextStage;
+      console.log(`[StageDetector] State machine determined stage transition: ${currentStage} -> ${nextStage}`);
+      return nextStage; // IMMEDIATELY return the new stage from state machine
     }
+    
+    console.log(`[StageDetector] State machine returned null - staying in current stage: ${currentStage}`);
 
     // For continuations, maintain current stage unless explicitly changed
     if (conversationContext) {

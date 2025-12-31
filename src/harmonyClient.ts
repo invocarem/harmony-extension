@@ -21,6 +21,7 @@ import {
   AutoTransitionManager,
   StageDetector,
   StageStateMachine,
+  StageHandlerRegistry,
   WorkflowStage,
 } from "./harmony";
 
@@ -71,6 +72,7 @@ export class HarmonyClient {
   private stageStateMachine: StageStateMachine;
   private harmonyProcessor: HarmonyProcessor;
   private progressPlanManager: ProgressPlanManager;
+  private stageHandlerRegistry: StageHandlerRegistry;
 
   // Modular components
   private contextManager: ConversationContextManager;
@@ -91,6 +93,7 @@ export class HarmonyClient {
     this.harmonyProcessor = new HarmonyProcessor(config.harmonyMode);
     this.stageStateMachine = new StageStateMachine();
     this.progressPlanManager = new ProgressPlanManager();
+    this.stageHandlerRegistry = new StageHandlerRegistry();
 
     // Initialize modular components
     this.contextManager = new ConversationContextManager();
@@ -151,15 +154,38 @@ export class HarmonyClient {
           const context = this.contextManager.getContext();
           if (context) {
             const previousStage = context.currentStage;
+            console.log(`[Harmony] Checking stage transition. Current stage: ${previousStage}, Prompt: "${prompt.substring(0, 50)}..."`);
+            
             // Check what stage the state machine detects for this prompt
+            // The state machine will IMMEDIATELY return the new stage if "move to implementation" is detected
             const detectedStage = this.stageDetector.detectStage(
               prompt,
               conversationHistory,
               context
             );
+            
+            console.log(`[Harmony] State machine detected stage: ${detectedStage} (was: ${previousStage})`);
+            
             if (detectedStage !== previousStage) {
-              console.log(`[Harmony] Stage transition: ${previousStage} -> ${detectedStage}`);
+              console.log(`[Harmony] ✅ STAGE TRANSITION APPROVED: ${previousStage} -> ${detectedStage}`);
               this.contextManager.updateStage(detectedStage, prompt);
+              
+              // Immediately refresh context to verify the update
+              const updatedContext = this.contextManager.getContext();
+              if (updatedContext) {
+                if (updatedContext.currentStage === detectedStage) {
+                  console.log(`[Harmony] ✅ Stage successfully updated in context: ${updatedContext.currentStage}`);
+                  
+                  // If transitioning to implementation via "move to implementation" command
+                  // The stage handler will determine the action based on ProgressPlan/PlanStep
+                  if (detectedStage === 'implementation' && /\b(move\s+to|go\s+to|goto|start|begin)\s+(implementation|implement)\b/i.test(prompt.toLowerCase())) {
+                    console.log(`[Harmony] "move to implementation" detected - switching to implementation stage immediately`);
+                    // Continue to stage handler pre-processing which will check ProgressPlan/PlanStep
+                  }
+                } else {
+                  console.error(`[Harmony] ❌ ERROR: Stage update failed! Expected: ${detectedStage}, Got: ${updatedContext.currentStage}`);
+                }
+              }
             } else {
               console.log(`[Harmony] Stage remains: ${previousStage} (no transition needed)`);
             }
@@ -182,6 +208,8 @@ export class HarmonyClient {
         }
       }
 
+      // Refresh context to get the latest stage after potential updates
+      // IMPORTANT: Get fresh context to ensure we have the most up-to-date stage
       const context = this.contextManager.getContext();
       if (context && isContinuation) {
         logStepInfo(context.currentStep, context.maxSteps, context.originalPrompt);
@@ -204,10 +232,27 @@ export class HarmonyClient {
 
       const endpoint = `${this.config.serverUrl}/v1/completions`;
       
-      // Use the current stage from context (already set earlier in this function)
-      // Don't detect again here to avoid overriding explicit transitions
-      // Stage detection already happened earlier: lines 136-144 (new context) or 152-160 (existing context) or 170-179 (continuations)
+      // Get the current stage from context - this is the IMMEDIATE stage after any transitions
+      // Stage detection and updates already happened earlier: lines 136-144 (new context) or 152-160 (existing context) or 170-179 (continuations)
+      // Use the context we just refreshed to ensure we have the latest stage
       let currentStage = context?.currentStage || 'chat';
+      
+      // Log stage transition if it occurred
+      if (context?.lastStageTransition) {
+        const transition = context.lastStageTransition;
+        console.log(`[Harmony] Stage transition applied: ${transition.from} -> ${transition.to}`);
+        // Ensure we're using the new stage immediately
+        if (context.currentStage === transition.to) {
+          currentStage = transition.to;
+          console.log(`[Harmony] Immediately using new stage: ${currentStage}`);
+        }
+      }
+      
+      // Verify we're using the correct stage
+      if (context && context.currentStage !== currentStage) {
+        console.warn(`[Harmony] Stage mismatch detected! Context stage: ${context.currentStage}, currentStage variable: ${currentStage}. Using context stage.`);
+        currentStage = context.currentStage;
+      }
 
       if (context) {
         console.log(
@@ -219,9 +264,27 @@ export class HarmonyClient {
 
       logApiRequest(endpoint, prompt, 100);
 
-      // In implementation stage, check if we have CodeContext with content
-      // If so, create the files IMMEDIATELY and return early (skip LLM call)
-      // This handles transition from assumptions to implementation
+      // Use stage handler for pre-processing (table-based, no if-else)
+      const preStageHandler = this.stageHandlerRegistry.getHandler(currentStage);
+      if (preStageHandler.handlePreProcessing) {
+        const preProcessResult = await preStageHandler.handlePreProcessing(
+          context,
+          prompt,
+          this.nativeToolsManager,
+          this.contextManager,
+          this.progressPlanManager
+        );
+        
+        if (preProcessResult.shouldSkipLLM && preProcessResult.response) {
+          console.log(`[Harmony] Stage handler skipped LLM call, returning early`);
+          return {
+            ...preProcessResult.response,
+            isContinuation: isContinuation,
+          };
+        }
+      }
+
+      // Legacy implementation stage check (to be removed after handler is fully tested)
       if (currentStage === 'implementation' && context && this.nativeToolsManager) {
         const codeContexts = this.contextManager.getCodeContexts();
         console.log(`[Harmony] Implementation stage: Checking for CodeContext... context exists: ${!!context}, nativeToolsManager exists: ${!!this.nativeToolsManager}, codeContexts found: ${codeContexts.length}`);
@@ -321,8 +384,49 @@ export class HarmonyClient {
             }
           }
           
-          // If we created any files, return early with success (skip LLM call)
+          // If we created any files, update progressPlan before returning early
           if (createdFiles.length > 0) {
+            // Update progressPlan if it exists
+            if (context?.progressPlan) {
+              const plan = context.progressPlan;
+              const fileModificationTools = ['create_file', 'replace_file', 'write_file', 'update_file'];
+              
+              // Count successful file modification tool executions
+              const successfulFileMods = toolCalls.filter(tc => 
+                fileModificationTools.includes(tc.name) && !tc.result?.isError
+              );
+
+              if (successfulFileMods.length > 0) {
+                // Find the first pending or in_progress step to mark as completed
+                const stepToComplete = plan.steps.find(step => 
+                  step.status === 'pending' || step.status === 'in_progress'
+                );
+
+                if (stepToComplete) {
+                  // Mark step as completed
+                  const updated = this.progressPlanManager.updateStepStatus(
+                    plan.taskId,
+                    stepToComplete.stepNumber,
+                    'completed'
+                  );
+
+                  if (updated) {
+                    console.log(
+                      `[Harmony] ProgressPlan: Marked step ${stepToComplete.stepNumber} (${stepToComplete.goal}) as completed after creating files from CodeContext`
+                    );
+
+                    // Check if plan is now complete
+                    const updatedPlan = this.progressPlanManager.getPlan(plan.taskId);
+                    if (updatedPlan?.completedAt) {
+                      console.log(
+                        `[Harmony] ProgressPlan: All steps completed! Plan "${plan.taskId}" is now complete.`
+                      );
+                    }
+                  }
+                }
+              }
+            }
+
             console.log(`[Harmony] Implementation stage: Created ${createdFiles.length} file(s) from CodeContext, returning early (skipping LLM call)`);
             return {
               content: `Successfully created ${createdFiles.length} file(s) from code snippets: ${createdFiles.join(', ')}`,
@@ -346,72 +450,9 @@ export class HarmonyClient {
         }
       }
 
-      // In assumptions stage, check if we have CodeContext with content but files don't exist
-      // If so, create the files before calling LLM
-      if (currentStage === 'assumptions' && context && this.nativeToolsManager) {
-        const codeContexts = this.contextManager.getCodeContexts();
-        if (codeContexts.length > 0) {
-          console.log(`[Harmony] Assumptions stage: Found ${codeContexts.length} code context(s), checking if files need to be created...`);
-          
-          for (const codeContext of codeContexts) {
-            if (codeContext.waitForCreate && codeContext.content.length > 0) {
-              try {
-                // Check if file exists by trying to read it
-                const filePath = codeContext.name;
-                const checkResult = await this.nativeToolsManager.callTool('read_file', { file_path: filePath });
-                
-                // If file doesn't exist (read_file returns error with "ENOENT" or "not found"), create it
-                const errorText = checkResult.content?.[0]?.text || '';
-                const fileNotFound = checkResult.isError && (
-                  errorText.includes('Error reading file') ||
-                  errorText.includes('ENOENT') ||
-                  errorText.includes('not found') ||
-                  errorText.includes('No such file')
-                );
-                
-                if (fileNotFound) {
-                  console.log(`[Harmony] Assumptions stage: File ${filePath} doesn't exist, creating from CodeContext...`);
-                  const content = codeContext.getContentAsString();
-                  const createResult = await this.nativeToolsManager.callTool('create_file', {
-                    file_path: filePath,
-                    content: content
-                  });
-                  
-                  if (!createResult.isError) {
-                    console.log(`[Harmony] Assumptions stage: Successfully created file ${filePath} from CodeContext`);
-                    // Mark as created so we don't try again
-                    this.contextManager.markCodeContextCreated(filePath);
-                  } else {
-                    // If create_file fails because file exists, try replace_file instead
-                    if (createResult.content?.[0]?.text?.includes('already exists')) {
-                      console.log(`[Harmony] Assumptions stage: File ${filePath} exists, using replace_file instead...`);
-                      const replaceResult = await this.nativeToolsManager.callTool('replace_file', {
-                        file_path: filePath,
-                        content: content
-                      });
-                      if (!replaceResult.isError) {
-                        console.log(`[Harmony] Assumptions stage: Successfully updated file ${filePath} from CodeContext`);
-                        this.contextManager.markCodeContextCreated(filePath);
-                      } else {
-                        console.warn(`[Harmony] Assumptions stage: Failed to update file ${filePath}: ${replaceResult.content?.[0]?.text || 'Unknown error'}`);
-                      }
-                    } else {
-                      console.warn(`[Harmony] Assumptions stage: Failed to create file ${filePath}: ${createResult.content?.[0]?.text || 'Unknown error'}`);
-                    }
-                  }
-                } else {
-                  console.log(`[Harmony] Assumptions stage: File ${filePath} already exists, skipping creation`);
-                  // Mark as created since file already exists
-                  this.contextManager.markCodeContextCreated(filePath);
-                }
-              } catch (error: any) {
-                console.warn(`[Harmony] Assumptions stage: Error checking/creating file ${codeContext.name}:`, error);
-                // Continue with other code contexts
-              }
-            }
-          }
-        }
-      }
+      // NOTE: Files should NOT be created in assumptions stage per state machine rules
+      // Files are only created in implementation stage (see code at line 233)
+      // This ensures proper stage flow: Chat -> Assumptions (code snippets) -> Implementation (file creation)
 
       // Build prompt using PromptBuilder
       const finalPrompt = await this.promptBuilder.buildPrompt(
@@ -628,12 +669,11 @@ export class HarmonyClient {
 
       toolCalls = validation.allowedToolCalls;
 
-      // In assumptions stage, extract code snippets and create CodeContext objects
-      // Only do this if we have content and no tool calls were extracted (code snippets, not tool calls)
-      // This is a non-blocking operation that just tracks code for later use in implementation stage
+      // Legacy assumptions stage code (to be removed after handler is fully tested)
       try {
         const hasToolCalls = parsed.rawToolCalls && parsed.rawToolCalls.length > 0;
         if (currentStage === 'assumptions' && context && content && !hasToolCalls && toolCalls.length === 0) {
+          console.log(`[Harmony] Assumptions stage: Extracting code snippets from content (${content.length} chars)...`);
           const codeBlockPattern = /```(?:\w+)?\s*[\n ]([\s\S]*?)```/g;
           const matches = content.matchAll(codeBlockPattern);
           let codeBlockCount = 0;
@@ -646,7 +686,7 @@ export class HarmonyClient {
               if (codeContext) {
                 this.contextManager.addCodeContext(codeContext);
                 codeBlockCount++;
-                console.log(`[Harmony] Assumptions stage: Extracted code context for file: ${codeContext.name}`);
+                console.log(`[Harmony] Assumptions stage: Extracted code context for file: ${codeContext.name} (${codeContext.content.length} lines)`);
               }
             } catch (error) {
               // Silently skip if code context extraction fails for a single block
@@ -656,6 +696,92 @@ export class HarmonyClient {
           
           if (codeBlockCount > 0) {
             console.log(`[Harmony] Assumptions stage: Added ${codeBlockCount} code context(s) ready for implementation`);
+            const allContexts = this.contextManager.getCodeContexts();
+            console.log(`[Harmony] Assumptions stage: Total CodeContext objects: ${allContexts.length}`);
+          } else {
+            console.log(`[Harmony] Assumptions stage: No code blocks found in content - CodeContext extraction returned 0 blocks`);
+          }
+          
+          // Check if we should create a ProgressPlan for complex tasks
+          // This happens when entering assumptions stage and the response indicates a multi-step task
+          if (currentStage === 'assumptions' && context && content && !context.progressPlan) {
+            try {
+              const complexity = this.autoTransitionManager.detectTaskComplexity(
+                content,
+                parsed.reasoning,
+                toolCalls
+              );
+              
+              if (complexity === 'hard') {
+                // Task is complex (3+ steps), create a ProgressPlan
+                const taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                const originalPrompt = context.originalPrompt || prompt;
+                
+                // Extract steps from content
+                const steps: Array<{ goal: string; description?: string; tools?: string[] }> = [];
+                
+                // Try to extract steps from numbered list or step indicators
+                const stepMatches = content.match(/(?:^|\n)(?:\d+\.|\*\s+|-\s+|Step\s+\d+[:.]?\s*)(.+?)(?=\n(?:\d+\.|\*\s+|-\s+|Step\s+\d+[:.]?|$))/gi);
+                if (stepMatches && stepMatches.length >= 3) {
+                  stepMatches.forEach((match) => {
+                    const goal = match.replace(/^(?:\d+\.|\*\s+|-\s+|Step\s+\d+[:.]?\s*)/i, '').trim();
+                    if (goal) {
+                      steps.push({ goal, description: goal });
+                    }
+                  });
+                } else {
+                  // Fallback: create generic steps based on detected complexity
+                  // Count how many steps were detected
+                  const stepPatterns = [
+                    /\b(step\s+1|first|second|third|fourth|fifth|then|next|after that|subsequently)\b/gi,
+                    /\b(1\.|2\.|3\.|4\.|5\.)/g,
+                  ];
+                  let stepCount = 0;
+                  for (const pattern of stepPatterns) {
+                    const matches = content.match(pattern);
+                    if (matches) {
+                      stepCount = Math.max(stepCount, matches.length);
+                    }
+                  }
+                  
+                  // Look for explicit step numbers
+                  const numberedSteps = content.match(/\b(?:step|stage)\s*(\d+)\b/gi);
+                  if (numberedSteps) {
+                    const maxStepNumber = Math.max(...numberedSteps.map(s => {
+                      const match = s.match(/\d+/);
+                      return match ? parseInt(match[0]) : 0;
+                    }));
+                    stepCount = Math.max(stepCount, maxStepNumber);
+                  }
+                  
+                  // Create steps (minimum 3 for 'hard' complexity)
+                  const numSteps = Math.max(3, stepCount || 3);
+                  for (let i = 1; i <= numSteps; i++) {
+                    steps.push({ 
+                      goal: `Step ${i}: Complete part ${i} of the task`, 
+                      description: `Execute step ${i} of the implementation plan` 
+                    });
+                  }
+                }
+                
+                const plan = this.progressPlanManager.createPlan(
+                  taskId,
+                  originalPrompt,
+                  'hard',
+                  steps.length > 0 ? steps : [
+                    { goal: 'Step 1: Analyze requirements', description: 'Understand the task requirements' },
+                    { goal: 'Step 2: Design solution', description: 'Plan the implementation approach' },
+                    { goal: 'Step 3: Implement solution', description: 'Execute the implementation' }
+                  ]
+                );
+                
+                this.contextManager.setProgressPlan(plan);
+                console.log(`[Harmony] Assumptions stage: Created ProgressPlan with ${plan.totalSteps} steps for complex task`);
+              }
+            } catch (error) {
+              // Don't let plan creation break the main flow
+              console.warn(`[Harmony] Error during plan creation:`, error);
+            }
           }
         }
       } catch (error) {
@@ -677,6 +803,162 @@ export class HarmonyClient {
         console.log(
           `[Harmony] Completed execution of ${executedToolCalls.length} tool call(s) in stage: ${currentStage}`
         );
+
+        // Use stage handler for post-processing (table-based, no if-else)
+        const postStageHandler = this.stageHandlerRegistry.getHandler(currentStage);
+        if (postStageHandler.handlePostProcessing) {
+          await postStageHandler.handlePostProcessing(
+            context,
+            content,
+            parsed,
+            toolCalls,
+            executedToolCalls,
+            this.contextManager,
+            this.progressPlanManager,
+            this.autoTransitionManager,
+            this.nativeToolsManager
+          );
+        }
+
+        // In implementation stage, if no tool calls were executed but content has code blocks, extract and create files
+        if (currentStage === 'implementation' && executedToolCalls.length === 0 && content && this.nativeToolsManager) {
+          const codeBlockPattern = /```(?:\w+)?\s*[\n ]([\s\S]*?)```/g;
+          const matches = content.matchAll(codeBlockPattern);
+          const codeBlocks: Array<{ codeContext: CodeContext; match: RegExpMatchArray }> = [];
+          
+          for (const match of matches) {
+            try {
+              const codeBlock = match[0];
+              const codeContext = CodeContext.fromCodeBlock(codeBlock);
+              
+              if (codeContext && codeContext.content.length > 0) {
+                codeBlocks.push({ codeContext, match });
+                console.log(`[Harmony] Implementation stage: Extracted code block for file: ${codeContext.name}`);
+              }
+            } catch (error) {
+              console.warn(`[Harmony] Implementation stage: Failed to extract code context from block:`, error);
+            }
+          }
+
+          // Create files from extracted code blocks
+          if (codeBlocks.length > 0) {
+            console.log(`[Harmony] Implementation stage: Found ${codeBlocks.length} code block(s) in response, creating files...`);
+            const createdFiles: string[] = [];
+            const fileCreationToolCalls: Array<{
+              name: string;
+              arguments: Record<string, any>;
+              result?: any;
+            }> = [];
+
+            for (const { codeContext } of codeBlocks) {
+              try {
+                const filePath = codeContext.name;
+                const fileContent = codeContext.getContentAsString();
+                
+                if (!fileContent || fileContent.trim().length === 0) {
+                  console.warn(`[Harmony] Implementation stage: Skipping empty code block for ${filePath}`);
+                  continue;
+                }
+
+                console.log(`[Harmony] Implementation stage: Creating file ${filePath} from code block (${fileContent.length} chars)...`);
+                
+                const createResult = await this.nativeToolsManager.callTool('create_file', {
+                  file_path: filePath,
+                  content: fileContent
+                });
+
+                if (!createResult.isError) {
+                  createdFiles.push(filePath);
+                  fileCreationToolCalls.push({
+                    name: 'create_file',
+                    arguments: { file_path: filePath, content: fileContent },
+                    result: createResult
+                  });
+                  console.log(`[Harmony] Implementation stage: Successfully created file ${filePath} from code block`);
+                } else if (createResult.content?.[0]?.text?.includes('already exists')) {
+                  // File exists, use replace_file
+                  console.log(`[Harmony] Implementation stage: File ${filePath} exists, using replace_file...`);
+                  const replaceResult = await this.nativeToolsManager.callTool('replace_file', {
+                    file_path: filePath,
+                    content: fileContent
+                  });
+                  
+                  if (!replaceResult.isError) {
+                    createdFiles.push(filePath);
+                    fileCreationToolCalls.push({
+                      name: 'replace_file',
+                      arguments: { file_path: filePath, content: fileContent },
+                      result: replaceResult
+                    });
+                    console.log(`[Harmony] Implementation stage: Successfully updated file ${filePath} from code block`);
+                  } else {
+                    console.warn(`[Harmony] Implementation stage: Failed to update file ${filePath}: ${replaceResult.content?.[0]?.text || 'Unknown error'}`);
+                  }
+                } else {
+                  console.warn(`[Harmony] Implementation stage: Failed to create file ${filePath}: ${createResult.content?.[0]?.text || 'Unknown error'}`);
+                }
+              } catch (error: any) {
+                console.warn(`[Harmony] Implementation stage: Error creating file ${codeContext.name}:`, error);
+              }
+            }
+
+            // Update executedToolCalls to include file creations for progressPlan update
+            if (fileCreationToolCalls.length > 0) {
+              executedToolCalls = fileCreationToolCalls.map(tc => ({
+                name: tc.name,
+                arguments: tc.arguments,
+                result: tc.result
+              }));
+            }
+          }
+        }
+
+        // Update progressPlan if it exists and we're in implementation stage
+        const contextForPlan = this.contextManager.getContext();
+        if (contextForPlan?.progressPlan && currentStage === 'implementation' && executedToolCalls.length > 0) {
+          const plan = contextForPlan.progressPlan;
+          const fileModificationTools = ['create_file', 'replace_file', 'write_file', 'update_file'];
+          
+          // Count successful file modification tool executions
+          const successfulFileMods = executedToolCalls.filter(tc => 
+            fileModificationTools.includes(tc.name) && !tc.result?.isError
+          );
+
+          if (successfulFileMods.length > 0) {
+            // Find the first pending or in_progress step to mark as completed
+            // This assumes steps are completed sequentially
+            const stepToComplete = plan.steps.find(step => 
+              step.status === 'pending' || step.status === 'in_progress'
+            );
+
+            if (stepToComplete) {
+              // Mark step as completed
+              const updated = this.progressPlanManager.updateStepStatus(
+                plan.taskId,
+                stepToComplete.stepNumber,
+                'completed'
+              );
+
+              if (updated) {
+                console.log(
+                  `[Harmony] ProgressPlan: Marked step ${stepToComplete.stepNumber} (${stepToComplete.goal}) as completed after successful file modifications`
+                );
+
+                // Check if plan is now complete (updateStepStatus already checks internally)
+                const updatedPlan = this.progressPlanManager.getPlan(plan.taskId);
+                if (updatedPlan?.completedAt) {
+                  console.log(
+                    `[Harmony] ProgressPlan: All steps completed! Plan "${plan.taskId}" is now complete.`
+                  );
+                }
+              }
+            } else {
+              console.log(
+                `[Harmony] ProgressPlan: File modifications executed but all steps are already completed or in unknown state`
+              );
+            }
+          }
+        }
 
         // Check if we should transition back to chat due to errors
         const updatedContext = this.contextManager.getContext();
@@ -1202,6 +1484,13 @@ export class HarmonyClient {
   getCurrentStage(): WorkflowStage {
     const context = this.contextManager.getContext();
     return context?.currentStage || 'chat';
+  }
+
+  /**
+   * Get the progress plan manager (for testing purposes)
+   */
+  getProgressPlanManager(): ProgressPlanManager {
+    return this.progressPlanManager;
   }
 }
 

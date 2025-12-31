@@ -47,6 +47,33 @@ export class IntentionDetector {
       return UserIntent.REVIEW;
     }
     
+    // DEBUG patterns (should allow file extraction)
+    // Check DEBUG before MODIFY to catch "fix error" before just "fix"
+    const debugPatterns = [
+      /^(?:debug|fix error|why is|what's wrong|troubleshoot|resolve|solve)/i,
+      // Match "fix" followed directly by error/bug/etc, or with "this" in between
+      // This matches "fix error", "fix this error", "fixing bug", but NOT "fix the bug"
+      /(?:fix|fixing|fixed)\s+(?:error|bug|issue|problem)/i,  // Direct: "fix error"
+      /(?:fix|fixing|fixed)\s+this\s+(?:error|bug|issue|problem)/i,  // With "this": "fix this error"
+      // General error keywords, but NOT when preceded by "fix" + article (which should be MODIFY)
+      // This matches "there is an error", "this has a bug", but NOT "fix the bug"
+      /(?<!fix\s+the\s+)(?:error|bug|issue|problem|broken|not working|doesn't work|isn't working)/i,
+    ];
+    if (debugPatterns.some(p => p.test(promptLower))) {
+      return UserIntent.DEBUG;
+    }
+    
+    // REFACTOR patterns (should allow file extraction)
+    // Check REFACTOR before CREATE to catch "make it better" before just "make"
+    const refactorPatterns = [
+      /^(?:refactor|improve|optimize|clean(?: ?up)|restructure|reorganize|modernize|enhance)/i,
+      /(?:refactor|improve|optimize|clean(?: ?up)|restructure|reorganize|modernize|enhance).*(?:code|this|file)/i,
+      /(?:make|make it).*(?:better|cleaner|more efficient|faster)/i,
+    ];
+    if (refactorPatterns.some(p => p.test(promptLower))) {
+      return UserIntent.REFACTOR;
+    }
+    
     // CREATE patterns (should allow file extraction)
     const createPatterns = [
       /^(?:create|write|generate|make|new|implement|build|set up|initialize)/i,
@@ -58,17 +85,8 @@ export class IntentionDetector {
       return UserIntent.CREATE;
     }
     
-    // REFACTOR patterns (should allow file extraction)
-    const refactorPatterns = [
-      /^(?:refactor|improve|optimize|clean up|restructure|reorganize|modernize|enhance)/i,
-      /(?:refactor|improve|optimize|clean up|restructure|reorganize|modernize|enhance).*(?:code|this|file)/i,
-      /(?:make|make it).*(?:better|cleaner|more efficient|faster)/i,
-    ];
-    if (refactorPatterns.some(p => p.test(promptLower))) {
-      return UserIntent.REFACTOR;
-    }
-    
     // MODIFY patterns (should allow file extraction)
+    // Check MODIFY last (after DEBUG) to avoid catching "fix error" as just "fix"
     const modifyPatterns = [
       /^(?:change|update|edit|modify|fix|correct|adjust|alter|replace)/i,
       /(?:change|update|edit|modify|fix|correct|adjust|alter|replace).*(?:code|file|this|the)/i,
@@ -76,16 +94,6 @@ export class IntentionDetector {
     ];
     if (modifyPatterns.some(p => p.test(promptLower))) {
       return UserIntent.MODIFY;
-    }
-    
-    // DEBUG patterns (should allow file extraction)
-    const debugPatterns = [
-      /^(?:debug|fix error|why is|what's wrong|troubleshoot|resolve|solve)/i,
-      /(?:error|bug|issue|problem|broken|not working|doesn't work|isn't working)/i,
-      /(?:fix|fixing|fixed).*(?:error|bug|issue|problem)/i,
-    ];
-    if (debugPatterns.some(p => p.test(promptLower))) {
-      return UserIntent.DEBUG;
     }
     
     return UserIntent.UNKNOWN;

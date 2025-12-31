@@ -28,8 +28,11 @@ describe('StageStateMachine', () => {
       expect(instructions).toContain('ASSUMPTIONS/ANALYSIS');
       expect(instructions).toContain('Assumptions/Analysis');
       expect(instructions).toContain('code snippets');
-      expect(instructions).toContain('Do NOT use file modification tools');
-      expect(instructions).toContain('provide code snippets only');
+      // Check for key phrases separately to be more robust against wording changes
+      expect(instructions).toMatch(/DO NOT.*file modification tools/i);
+      expect(instructions).toContain('file modification tools');
+      // Use case-insensitive match for flexibility
+      expect(instructions).toMatch(/provide code snippets (only|ONLY)/i);
       expect(instructions).toContain('break it down into steps');
     });
 

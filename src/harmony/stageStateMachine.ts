@@ -4,181 +4,186 @@ import { MCPToolResult } from "../mcpClient";
 export type WorkflowStage = 'chat' | 'assumptions' | 'implementation';
 
 /**
- * State machine for workflow stage transitions
- * Follows the rules defined in STATE_MACHINE.md
- * 
- * Valid Transitions:
- * - Chat → Analysis (Assumptions)
- * - Analysis → Implementation
- * - Analysis → Chat
- * - Implementation → Chat
- * - Implementation → Analysis
- * 
- * Invalid Transitions:
- * - Chat → Implementation (NOT ALLOWED - must go through Analysis first)
+ * Trigger types for state transitions
+ */
+export type TransitionTrigger = 
+  | 'move_to_implementation'
+  | 'move_to_assumptions'
+  | 'move_to_chat'
+  | 'code_keywords'
+  | 'file_operations_without_ext'
+  | 'file_operations_with_ext'
+  | 'explicit_implementation_command'
+  | 'error_recovery'
+  | 'regenerate_code'
+  | 'clarification_request'
+  | 'none';
+
+/**
+ * Transition table entry
+ */
+interface TransitionRule {
+  from: WorkflowStage;
+  trigger: TransitionTrigger;
+  to: WorkflowStage;
+  priority: number; // Higher priority = checked first
+}
+
+/**
+ * State machine transition table
+ * This table defines all valid state transitions
+ */
+const TRANSITION_TABLE: TransitionRule[] = [
+  // Explicit commands (highest priority)
+  { from: 'assumptions', trigger: 'move_to_implementation', to: 'implementation', priority: 100 },
+  { from: 'implementation', trigger: 'move_to_assumptions', to: 'assumptions', priority: 100 },
+  { from: 'implementation', trigger: 'move_to_chat', to: 'chat', priority: 100 },
+  { from: 'chat', trigger: 'move_to_assumptions', to: 'assumptions', priority: 100 },
+  
+  // Explicit implementation commands from assumptions
+  { from: 'assumptions', trigger: 'explicit_implementation_command', to: 'implementation', priority: 90 },
+  
+  // Error recovery (high priority)
+  { from: 'implementation', trigger: 'error_recovery', to: 'chat', priority: 80 },
+  
+  // Code regeneration
+  { from: 'implementation', trigger: 'regenerate_code', to: 'assumptions', priority: 70 },
+  
+  // Clarification requests
+  { from: 'implementation', trigger: 'clarification_request', to: 'chat', priority: 60 },
+  
+  // Chat -> Assumptions transitions
+  { from: 'chat', trigger: 'code_keywords', to: 'assumptions', priority: 50 },
+  { from: 'chat', trigger: 'file_operations_without_ext', to: 'assumptions', priority: 50 },
+  { from: 'chat', trigger: 'file_operations_with_ext', to: 'assumptions', priority: 50 },
+];
+
+/**
+ * Valid transitions map (for quick lookup)
+ */
+const VALID_TRANSITIONS: Map<WorkflowStage, Set<WorkflowStage>> = new Map([
+  ['chat', new Set<WorkflowStage>(['assumptions'])],
+  ['assumptions', new Set<WorkflowStage>(['implementation', 'chat'])],
+  ['implementation', new Set<WorkflowStage>(['chat', 'assumptions'])]
+]);
+
+/**
+ * Table-based state machine for workflow stage transitions
+ * Uses a transition table instead of if-else chains
  */
 export class StageStateMachine {
-  // Valid transitions: from -> [to stages]
-  private readonly validTransitions: Map<WorkflowStage, Set<WorkflowStage>>;
-
-  constructor() {
-    this.validTransitions = new Map([
-      ['chat', new Set<WorkflowStage>(['assumptions'])],
-      ['assumptions', new Set<WorkflowStage>(['implementation', 'chat'])],
-      ['implementation', new Set<WorkflowStage>(['chat', 'assumptions'])]
-    ]);
-  }
-
   /**
    * Check if a transition from one stage to another is valid
    */
   canTransition(from: WorkflowStage, to: WorkflowStage): boolean {
-    if (from === to) return true; // Can stay in same stage
-    const allowed = this.validTransitions.get(from);
+    if (from === to) {
+      return true; // Can stay in same stage
+    }
+    const allowed = VALID_TRANSITIONS.get(from);
     return allowed ? allowed.has(to) : false;
   }
 
   /**
-   * Determine next stage based on prompt and current stage
+   * Detect trigger from prompt
+   */
+  private detectTrigger(prompt: string, currentStage: WorkflowStage): TransitionTrigger {
+    const promptLower = prompt.toLowerCase().trim();
+
+    // Explicit commands (checked first)
+    if (/\b(move\s+to|go\s+to|goto|start|begin)\s+(implementation|implement)\b/i.test(promptLower)) {
+      return 'move_to_implementation';
+    }
+    
+    if (/\b(move\s+to|go\s+to|goto|start|begin)\s+(assumptions|analysis|analyze|plan|design)\b/i.test(promptLower)) {
+      return 'move_to_assumptions';
+    }
+    
+    if (/\b(move\s+to|go\s+to|goto|back\s+to|return\s+to|clarify|chat|talk|discuss)\s+(chat|discussion|clarification)\b/i.test(promptLower)) {
+      return 'move_to_chat';
+    }
+
+    // Explicit implementation commands
+    if (/\b(now|then|next|please)\s+(create|write|make|implement|build|generate).*\b(file|code|implementation)\b/i.test(promptLower) ||
+        /\b(do\s+it|implement\s+it|create\s+it|create\s+the\s+file|write\s+the\s+file|make\s+the\s+file)\b/i.test(promptLower) ||
+        /\b(create_file|write_file|replace_file|update_file|edit_file|modify_file)\b/i.test(promptLower)) {
+      return 'explicit_implementation_command';
+    }
+
+    // Error recovery and clarification (from implementation)
+    if (currentStage === 'implementation') {
+      const clarificationKeywords = /\b(what|how|why|clarify|explain|understand|confused|error|wrong|doesn'?t\s+work|not\s+working)\b/i;
+      if (clarificationKeywords.test(promptLower)) {
+        return 'clarification_request';
+      }
+      
+      const regenerateKeywords = /\b(regenerate|redo|fix\s+the\s+code|update\s+the\s+code|change\s+the\s+code|modify\s+the\s+code)\b/i;
+      if (regenerateKeywords.test(promptLower)) {
+        return 'regenerate_code';
+      }
+    }
+
+    // Chat -> Assumptions triggers
+    if (currentStage === 'chat') {
+      const codeKeywords = /\b(code|snippet|example|solution|how\s+to|fix|update|refactor|improve).*\b(code|function|class|method|variable|snippet)\b/i;
+      if (codeKeywords.test(promptLower)) {
+        return 'code_keywords';
+      }
+      
+      const fileOperationKeywords = /\b(create|write|make|add|implement|code|generate|build|update|modify|edit|change).*\b(file|module|class|function|component|feature)\b/i;
+      if (fileOperationKeywords.test(promptLower)) {
+        return 'file_operations_without_ext';
+      }
+      
+      const fileOperationWithExtension = /\b(create|write|make|add|implement|code|generate|build|update|modify|edit|change)(?:\s+\w+)*\s+\w+\.\w{2,4}(\s|$)/i;
+      if (fileOperationWithExtension.test(promptLower)) {
+        return 'file_operations_with_ext';
+      }
+    }
+
+    return 'none';
+  }
+
+  /**
+   * Determine next stage using transition table
    * Returns the target stage, or null if should stay in current stage
-   * 
-   * Follows STATE_MACHINE.md rules:
-   * - Chat → Analysis: Code-related keywords or file operations without extensions
-   * - Analysis → Implementation: Explicit file operations with extensions
-   * - Implementation → Chat: Error indicators or clarification requests
-   * - Implementation → Analysis: Need to regenerate code
    */
   determineNextStage(
     currentStage: WorkflowStage,
     prompt: string,
     conversationHistory?: readonly ChatMessage[]
   ): WorkflowStage | null {
-    const promptLower = prompt.toLowerCase().trim();
+    // Detect trigger from prompt
+    const trigger = this.detectTrigger(prompt, currentStage);
+    
+    if (trigger === 'none') {
+      return null; // Stay in current stage
+    }
 
-    // Explicit stage transition commands
-    // Note: Chat → Implementation is NOT ALLOWED per state machine rules
-    // Users must go through Assumptions stage first
-    if (/\b(move\s+to|go\s+to|goto|start|begin)\s+(implementation|implement)\b/i.test(promptLower)) {
-      // Explicit "move to implementation" command
-      const target = 'implementation';
-      if (this.canTransition(currentStage, target)) {
-        console.log(`[StageStateMachine] Transitioning from ${currentStage} to ${target} based on explicit command`);
-        return target;
-      } else {
-        // Invalid transition - reject it (e.g., chat → implementation is not allowed)
-        console.log(`[StageStateMachine] Cannot transition from ${currentStage} to ${target} - invalid transition per state machine rules`);
-        return null;
-      }
-    }
-    
-    if (/\b(move\s+to|go\s+to|goto|start|begin)\s+(create|modify|write|edit)\b/i.test(promptLower)) {
-      // Commands like "move to create" - check if valid transition
-      const target = 'implementation';
-      if (this.canTransition(currentStage, target)) {
-        console.log(`[StageStateMachine] Transitioning from ${currentStage} to ${target} based on create/modify command`);
-        return target;
-      } else {
-        console.log(`[StageStateMachine] Cannot transition from ${currentStage} to ${target} - invalid transition`);
-        return null;
-      }
-    }
-    
-    // Direct implementation commands (e.g., "now create the file", "implement it")
-    // These should only work from Analysis stage (not from Chat, per state machine rules)
-    if (/\b(now|then|next|please)\s+(create|write|make|implement|build|generate).*\b(file|code|implementation)\b/i.test(promptLower) ||
-        /\b(do\s+it|implement\s+it|create\s+it|create\s+the\s+file|write\s+the\s+file|make\s+the\s+file)\b/i.test(promptLower)) {
-      // Explicit implementation command - only valid from Analysis stage
-      const target = 'implementation';
-      return this.canTransition(currentStage, target) ? target : null;
-    }
-    
-    if (/\b(move\s+to|go\s+to|goto|start|begin)\s+(assumptions|analysis|analyze|plan|design)\b/i.test(promptLower)) {
-      const target = 'assumptions';
-      if (this.canTransition(currentStage, target)) {
-        console.log(`[StageStateMachine] Transitioning from ${currentStage} to ${target} based on explicit command`);
-        return target;
-      }
-      return null;
-    }
-    
-    if (/\b(move\s+to|go\s+to|goto|back\s+to|return\s+to|clarify|chat|talk|discuss)\s+(chat|discussion|clarification)\b/i.test(promptLower)) {
-      const target = 'chat';
-      if (this.canTransition(currentStage, target)) {
-        console.log(`[StageStateMachine] Transitioning from ${currentStage} to ${target} based on explicit command`);
-        return target;
-      }
+    // Find matching transition in table (sorted by priority)
+    const matchingTransitions = TRANSITION_TABLE
+      .filter(rule => rule.from === currentStage && rule.trigger === trigger)
+      .sort((a, b) => b.priority - a.priority);
+
+    if (matchingTransitions.length === 0) {
+      console.log(`[StageStateMachine] No transition found for: ${currentStage} + ${trigger}`);
       return null;
     }
 
-    // Chat → Analysis: Code-related questions or file operation intent (without explicit extensions)
-    // Per STATE_MACHINE.md: File operations WITHOUT explicit extensions go to Analysis first
-    if (currentStage === 'chat') {
-      const codeKeywords = /\b(code|snippet|example|solution|how\s+to|fix|update|refactor|improve).*\b(code|function|class|method|variable|snippet)\b/i;
-      const fileOperationKeywords = /\b(create|write|make|add|implement|code|generate|build|update|modify|edit|change).*\b(file|module|class|function|component|feature)\b/i;
-      
-      // File operations WITH explicit extensions should go to Analysis first (then Implementation)
-      // But if we're in chat and see a file extension, we should still go to Analysis first
-      const fileOperationWithExtension = /\b(create|write|make|add|implement|code|generate|build|update|modify|edit|change)(?:\s+\w+)*\s+\w+\.\w{2,4}(\s|$)/i;
-      
-      // If it has an extension, it's a file operation - go to Analysis first
-      // This follows STATE_MACHINE.md: Chat → Analysis → Implementation (never skip stages)
-      if (fileOperationWithExtension.test(promptLower)) {
-        return this.canTransition(currentStage, 'assumptions') ? 'assumptions' : null;
-      }
-      
-      if (codeKeywords.test(promptLower) || fileOperationKeywords.test(promptLower)) {
-        return this.canTransition(currentStage, 'assumptions') ? 'assumptions' : null;
-      }
-    }
-
-    // Analysis → Implementation: Only explicit transition commands allowed
-    // Auto-transition from Assumptions to Implementation is DISABLED
-    // Users must explicitly type "move to implementation" to transition
-    // This ensures users have control over when to proceed to implementation stage
-    // 
-    // Previously, file operations with extensions would auto-transition, but that's now disabled:
-    // if (currentStage === 'assumptions') {
-    //   const fileOperationWithExtension = /\b(create|write|make|add|implement|code|generate|build|update|modify|edit|change)(?:\s+\w+)*\s+\w+\.\w{2,4}(\s|$)/i;
-    //   if (fileOperationWithExtension.test(promptLower)) {
-    //     return this.canTransition(currentStage, 'implementation') ? 'implementation' : null;
-    //   }
-    // }
+    // Use highest priority matching transition
+    const transition = matchingTransitions[0];
     
-    // Only explicit implementation commands work from Analysis stage
-    if (currentStage === 'assumptions') {
-      const explicitFileOps = /\b(create_file|write_file|replace_file|update_file|edit_file|modify_file)\b/i;
-      const explicitImplementation = /\b(now|then|next|please|do\s+it|implement\s+it|create\s+it)\b/i;
-      
-      // Only transition on explicit commands, not just file operations with extensions
-      if (explicitFileOps.test(promptLower) || explicitImplementation.test(promptLower)) {
-        return this.canTransition(currentStage, 'implementation') ? 'implementation' : null;
-      }
+    // Verify transition is valid
+    if (!this.canTransition(currentStage, transition.to)) {
+      console.log(`[StageStateMachine] Transition rejected: ${currentStage} -> ${transition.to} (invalid per state machine rules)`);
+      return null;
     }
 
-    // Implementation → Chat: Error indicators or clarification requests
-    // Per STATE_MACHINE.md: Error recovery transitions
-    if (currentStage === 'implementation') {
-      const clarificationKeywords = /\b(what|how|why|clarify|explain|understand|confused|error|wrong|doesn'?t\s+work|not\s+working)\b/i;
-      if (clarificationKeywords.test(promptLower)) {
-        return this.canTransition(currentStage, 'chat') ? 'chat' : null;
-      }
-    }
-
-    // Implementation → Analysis: Need to regenerate code
-    // Per STATE_MACHINE.md: Need to regenerate code or fix code issues
-    if (currentStage === 'implementation') {
-      const regenerateKeywords = /\b(regenerate|redo|fix\s+the\s+code|update\s+the\s+code|change\s+the\s+code|modify\s+the\s+code)\b/i;
-      if (regenerateKeywords.test(promptLower)) {
-        return this.canTransition(currentStage, 'assumptions') ? 'assumptions' : null;
-      }
-    }
-
-    return null; // Stay in current stage
+    console.log(`[StageStateMachine] ✅ Transition approved: ${currentStage} -> ${transition.to} (trigger: ${trigger})`);
+    return transition.to;
   }
 
   /**
    * Check if we should transition back to chat due to errors in tool execution
-   * Per STATE_MACHINE.md: Auto-transition from Implementation to Chat on errors
    */
   shouldTransitionToChatOnError(
     currentStage: WorkflowStage,
@@ -190,14 +195,11 @@ export class StageStateMachine {
     }
 
     // Check if there are significant errors that require clarification
-    // Per STATE_MACHINE.md: File modification errors with keywords like "not found", etc.
     const hasFileModificationErrors = toolResults.some(tr => {
       const isFileMod = ['create_file', 'replace_file', 'write_file', 'update_file'].includes(tr.name);
       const hasError = tr.result?.isError;
       const errorText = tr.result?.content?.[0]?.text?.toLowerCase() || '';
       
-      // Critical errors that might need clarification
-      // Per STATE_MACHINE.md: "not found", "permission denied", "invalid", "missing", "required", "cannot", "unable"
       const needsClarification = 
         errorText.includes('not found') ||
         errorText.includes('permission denied') ||
@@ -217,9 +219,8 @@ export class StageStateMachine {
    * Get stage-specific instructions for prompts
    */
   getInstructions(stage: WorkflowStage): string {
-    switch (stage) {
-      case 'chat':
-        return `## Current Stage: CHAT/CLARIFICATION
+    const instructions: Record<WorkflowStage, string> = {
+      'chat': `## Current Stage: CHAT/CLARIFICATION
 
 You are in the **Chat/Clarification** stage. Your goal is to:
 - **CRITICAL: ALWAYS restate the user's problem FIRST** - Your response MUST begin by restating their question/problem in your own words to show understanding
@@ -231,10 +232,9 @@ You are in the **Chat/Clarification** stage. Your goal is to:
 - You may use read-only tools (read_file, list_files, grep_files) to gather context if helpful
 
 **Stage Flow**: Chat → Analysis (code generation) → Implementation (file creation). Never skip stages.
-**IMPORTANT**: Your response must ALWAYS start by restating the user's problem/question in your own words, then provide your answer or clarification.`;
+**IMPORTANT**: Your response must ALWAYS start by restating the user's problem/question in your own words, then provide your answer or clarification.`,
 
-      case 'assumptions':
-        return `## Current Stage: ASSUMPTIONS/ANALYSIS
+      'assumptions': `## Current Stage: ASSUMPTIONS/ANALYSIS
 
 ⚠️ **CRITICAL RESTRICTION**: You are in the **Assumptions/Analysis** stage. You MUST provide code snippets ONLY. File modification tools (create_file, replace_file, write_file, update_file, delete_file, edit_file, modify_file) are NOT available and MUST NOT be used.
 
@@ -252,10 +252,9 @@ You are in the **Chat/Clarification** stage. Your goal is to:
 - ✅ DO format code blocks like: \`\`\`python calc.py\n[your code here]\n\`\`\`
 - When rules specify "provide code snippets", you MUST follow them exactly
 
-**For complex tasks**: Break down the task into steps and create a clear implementation plan before providing code snippets.`;
+**For complex tasks**: Break down the task into steps and create a clear implementation plan before providing code snippets.`,
 
-      case 'implementation':
-        return `## Current Stage: IMPLEMENTATION
+      'implementation': `## Current Stage: IMPLEMENTATION
 
 You are in the **Implementation** stage. Your goal is to:
 - **Call create_file or replace_file tool** to actually create/modify files
@@ -268,43 +267,54 @@ You are in the **Implementation** stage. Your goal is to:
 
 **IMPORTANT**:
 - Your response MUST include a tool call (create_file or replace_file) to create the file
+- **DO NOT try to read files that should be created** - If a file doesn't exist yet, just create it directly
 - If code exists in conversation history, extract and use it (be efficient)
 - If code doesn't exist, generate it as part of your tool call
 - Keep responses concise - focus on executing the file creation
 - Example: <tool_call name="create_file" args='{"file_path": "hello.py", "content": "print(\\\"Hello!\\\")"}' />
 
-**Note**: Prefer using code from Analysis stage if available. Generate code only if needed.`;
+**Note**: Prefer using code from Analysis stage if available. Generate code only if needed. Do not read files that need to be created - just create them.`
+    };
 
-      default:
-        return '';
-    }
+    return instructions[stage] || '';
   }
 
   /**
    * Filter tools based on current workflow stage
-   * Returns only the tools that are allowed in the given stage
+   * Uses a table-based approach instead of if-else
    */
   getAllowedTools<T extends { name: string }>(
     allTools: T[],
     stage: WorkflowStage
   ): T[] {
-    if (stage === 'chat') {
-      // Chat stage: Only allow read-only tools for context gathering
-      const readOnlyTools = ['read_file', 'list_files', 'grep_files', 'search_files', 'read_directory'];
-      return allTools.filter(tool => 
-        readOnlyTools.includes(tool.name) || 
-        !['create_file', 'replace_file', 'write_file', 'update_file', 'delete_file', 'edit_file', 'modify_file'].includes(tool.name)
-      );
+    const toolRules: Record<WorkflowStage, { allowed: string[]; blocked: string[] }> = {
+      'chat': {
+        allowed: ['read_file', 'list_files', 'grep_files', 'search_files', 'read_directory'],
+        blocked: ['create_file', 'replace_file', 'write_file', 'update_file', 'delete_file', 'edit_file', 'modify_file']
+      },
+      'assumptions': {
+        allowed: [], // All tools except blocked ones
+        blocked: ['create_file', 'replace_file', 'write_file', 'update_file', 'delete_file', 'edit_file', 'modify_file']
+      },
+      'implementation': {
+        allowed: [], // All tools allowed
+        blocked: []
+      }
+    };
+
+    const rule = toolRules[stage];
+    
+    if (rule.blocked.length === 0 && rule.allowed.length === 0) {
+      // All tools allowed (implementation stage)
+      return allTools;
     }
     
-    if (stage === 'assumptions') {
-      // Assumptions stage: Allow read/search tools, but NO file modification tools
-      const fileModificationTools = ['create_file', 'replace_file', 'write_file', 'update_file', 'delete_file', 'edit_file', 'modify_file'];
-      return allTools.filter(tool => !fileModificationTools.includes(tool.name));
+    if (rule.allowed.length > 0) {
+      // Only allow specific tools (chat stage)
+      return allTools.filter(tool => rule.allowed.includes(tool.name));
     }
     
-    // Implementation stage: All tools allowed
-    return allTools;
+    // Block specific tools (assumptions stage)
+    return allTools.filter(tool => !rule.blocked.includes(tool.name));
   }
 }
-

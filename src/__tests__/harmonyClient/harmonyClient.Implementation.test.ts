@@ -1011,5 +1011,404 @@ describe('HarmonyClient - Implementation Stage', () => {
       expect(mockNativeToolsManager.callTool).not.toHaveBeenCalledWith('create_file', expect.anything());
     });
   });
+
+  describe('ProgressPlan Step Updates', () => {
+    /**
+     * Helper function to create a progressPlan and set it in context
+     */
+    function setupProgressPlan(
+      steps: Array<{ goal: string; description?: string }>
+    ): string {
+      const progressPlanManager = client.getProgressPlanManager();
+      const taskId = `test-task-${Date.now()}`;
+      const plan = progressPlanManager.createPlan(
+        taskId,
+        'Test task',
+        'hard',
+        steps
+      );
+      
+      // Set plan in context
+      const contextManager = (client as any).contextManager;
+      contextManager.setProgressPlan(plan);
+      
+      return taskId;
+    }
+
+    it('should update step status to completed when create_file succeeds in implementation stage', async () => {
+      // Setup plan with 3 steps
+      const taskId = setupProgressPlan([
+        { goal: 'Create main.py' },
+        { goal: 'Create requirements.txt' },
+        { goal: 'Create README.md' },
+      ]);
+
+      // Transition to implementation stage
+      await transitionToImplementation(client, mockedAxios, mockHarmonyProcessor);
+
+      // Verify we're in implementation stage
+      expect(client.getCurrentStage()).toBe('implementation');
+
+      // Mock response with create_file tool call
+      const implementationResponse = {
+        status: 200,
+        data: {
+          choices: [{ 
+            text: '<|channel|>tool_use<|tool_name|>create_file<|tool_args|>{"file_path": "main.py", "content": "print(\\"Hello\\")"}<|tool_result|>Success<|end|>' 
+          }],
+        },
+      };
+
+      mockedAxios.post.mockResolvedValueOnce(implementationResponse);
+
+      const toolCall: MCPToolCall = {
+        name: 'create_file',
+        arguments: {
+          file_path: 'main.py',
+          content: 'print("Hello")',
+        },
+      };
+
+      mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
+        content: '',
+        rawToolCalls: [JSON.stringify(toolCall)],
+      });
+
+      mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([toolCall]);
+
+      // Mock create_file tool execution (success)
+      mockNativeToolsManager.getAvailableTools.mockReturnValue([
+        {
+          name: 'create_file',
+          description: 'Create a file',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              file_path: { type: 'string' },
+              content: { type: 'string' },
+            },
+            required: ['file_path', 'content'],
+          },
+        } as any,
+      ]);
+
+      mockNativeToolsManager.callTool.mockResolvedValueOnce({
+        content: [{ type: 'text', text: 'File created successfully' }],
+        isError: false,
+      });
+
+      await client.callServer('create main.py');
+
+      // Verify step 1 was marked as completed
+      const progressPlanManager = client.getProgressPlanManager();
+      const plan = progressPlanManager.getPlan(taskId);
+      
+      expect(plan).toBeDefined();
+      expect(plan?.steps[0].status).toBe('completed');
+      expect(plan?.steps[1].status).toBe('pending');
+      expect(plan?.steps[2].status).toBe('pending');
+    });
+
+    it('should not update step status when create_file fails', async () => {
+      // Setup plan with steps
+      const taskId = setupProgressPlan([
+        { goal: 'Create main.py' },
+        { goal: 'Create config.json' },
+      ]);
+
+      await transitionToImplementation(client, mockedAxios, mockHarmonyProcessor);
+
+      // Mock response with create_file tool call
+      const implementationResponse = {
+        status: 200,
+        data: {
+          choices: [{ 
+            text: '<|channel|>tool_use<|tool_name|>create_file<|tool_args|>{"file_path": "main.py", "content": "code"}<|tool_result|>Error<|end|>' 
+          }],
+        },
+      };
+
+      mockedAxios.post.mockResolvedValueOnce(implementationResponse);
+
+      const toolCall: MCPToolCall = {
+        name: 'create_file',
+        arguments: {
+          file_path: 'main.py',
+          content: 'code',
+        },
+      };
+
+      mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
+        content: '',
+        rawToolCalls: [JSON.stringify(toolCall)],
+      });
+
+      mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([toolCall]);
+
+      mockNativeToolsManager.getAvailableTools.mockReturnValue([
+        {
+          name: 'create_file',
+          description: 'Create a file',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              file_path: { type: 'string' },
+              content: { type: 'string' },
+            },
+            required: ['file_path', 'content'],
+          },
+        } as any,
+      ]);
+
+      // Mock create_file tool execution (failure)
+      mockNativeToolsManager.callTool.mockResolvedValueOnce({
+        content: [{ type: 'text', text: 'Error: Permission denied' }],
+        isError: true,
+      });
+
+      await client.callServer('create main.py');
+
+      // Verify no steps were updated (all should remain pending)
+      const progressPlanManager = client.getProgressPlanManager();
+      const plan = progressPlanManager.getPlan(taskId);
+      
+      expect(plan).toBeDefined();
+      expect(plan?.steps[0].status).toBe('pending');
+      expect(plan?.steps[1].status).toBe('pending');
+    });
+
+    it('should complete plan when all steps are completed', async () => {
+      // Setup plan with 2 steps
+      const taskId = setupProgressPlan([
+        { goal: 'Create file1.py' },
+        { goal: 'Create file2.py' },
+      ]);
+
+      await transitionToImplementation(client, mockedAxios, mockHarmonyProcessor);
+
+      const createFileTool = {
+        name: 'create_file',
+        description: 'Create a file',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            file_path: { type: 'string' },
+            content: { type: 'string' },
+          },
+          required: ['file_path', 'content'],
+        },
+      } as any;
+
+      mockNativeToolsManager.getAvailableTools.mockReturnValue([createFileTool]);
+
+      // First file creation - completes step 1
+      const response1 = {
+        status: 200,
+        data: {
+          choices: [{ 
+            text: '<|channel|>tool_use<|tool_name|>create_file<|tool_args|>{"file_path": "file1.py", "content": "code1"}<|end|>' 
+          }],
+        },
+      };
+
+      mockedAxios.post.mockResolvedValueOnce(response1);
+
+      const toolCall1: MCPToolCall = {
+        name: 'create_file',
+        arguments: { file_path: 'file1.py', content: 'code1' },
+      };
+
+      mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
+        content: '',
+        rawToolCalls: [JSON.stringify(toolCall1)],
+      });
+
+      mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([toolCall1]);
+      mockNativeToolsManager.callTool.mockResolvedValueOnce({
+        content: [{ type: 'text', text: 'Success' }],
+        isError: false,
+      });
+
+      await client.callServer('create file1.py');
+
+      // Second file creation - completes step 2
+      const response2 = {
+        status: 200,
+        data: {
+          choices: [{ 
+            text: '<|channel|>tool_use<|tool_name|>create_file<|tool_args|>{"file_path": "file2.py", "content": "code2"}<|end|>' 
+          }],
+        },
+      };
+
+      mockedAxios.post.mockResolvedValueOnce(response2);
+
+      const toolCall2: MCPToolCall = {
+        name: 'create_file',
+        arguments: { file_path: 'file2.py', content: 'code2' },
+      };
+
+      mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
+        content: '',
+        rawToolCalls: [JSON.stringify(toolCall2)],
+      });
+
+      mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([toolCall2]);
+      mockNativeToolsManager.callTool.mockResolvedValueOnce({
+        content: [{ type: 'text', text: 'Success' }],
+        isError: false,
+      });
+
+      await client.callServer('create file2.py');
+
+      // Verify plan is completed
+      const progressPlanManager = client.getProgressPlanManager();
+      const plan = progressPlanManager.getPlan(taskId);
+      
+      expect(plan).toBeDefined();
+      expect(plan?.steps[0].status).toBe('completed');
+      expect(plan?.steps[1].status).toBe('completed');
+      expect(plan?.completedAt).toBeDefined();
+      expect(plan?.completedAt).toBeGreaterThan(0);
+    });
+
+    it('should update steps sequentially (first pending step gets completed)', async () => {
+      // Setup plan with 3 steps
+      const taskId = setupProgressPlan([
+        { goal: 'Step 1: Create main.py' },
+        { goal: 'Step 2: Create utils.py' },
+        { goal: 'Step 3: Create tests.py' },
+      ]);
+
+      await transitionToImplementation(client, mockedAxios, mockHarmonyProcessor);
+
+      const createFileTool = {
+        name: 'create_file',
+        description: 'Create a file',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            file_path: { type: 'string' },
+            content: { type: 'string' },
+          },
+          required: ['file_path', 'content'],
+        },
+      } as any;
+
+      mockNativeToolsManager.getAvailableTools.mockReturnValue([createFileTool]);
+
+      // First execution - should complete step 1
+      const response1 = {
+        status: 200,
+        data: {
+          choices: [{ 
+            text: '<|channel|>tool_use<|tool_name|>create_file<|tool_args|>{"file_path": "main.py", "content": "code"}<|end|>' 
+          }],
+        },
+      };
+
+      mockedAxios.post.mockResolvedValueOnce(response1);
+
+      const toolCall1: MCPToolCall = {
+        name: 'create_file',
+        arguments: { file_path: 'main.py', content: 'code' },
+      };
+
+      mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
+        content: '',
+        rawToolCalls: [JSON.stringify(toolCall1)],
+      });
+
+      mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([toolCall1]);
+      mockNativeToolsManager.callTool.mockResolvedValueOnce({
+        content: [{ type: 'text', text: 'Success' }],
+        isError: false,
+      });
+
+      await client.callServer('create main.py');
+
+      // Verify step 1 is completed, others are pending
+      const progressPlanManager = client.getProgressPlanManager();
+      let plan = progressPlanManager.getPlan(taskId);
+      
+      expect(plan?.steps[0].status).toBe('completed');
+      expect(plan?.steps[1].status).toBe('pending');
+      expect(plan?.steps[2].status).toBe('pending');
+
+      // Second execution - should complete step 2
+      const response2 = {
+        status: 200,
+        data: {
+          choices: [{ 
+            text: '<|channel|>tool_use<|tool_name|>create_file<|tool_args|>{"file_path": "utils.py", "content": "code"}<|end|>' 
+          }],
+        },
+      };
+
+      mockedAxios.post.mockResolvedValueOnce(response2);
+
+      const toolCall2: MCPToolCall = {
+        name: 'create_file',
+        arguments: { file_path: 'utils.py', content: 'code' },
+      };
+
+      mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
+        content: '',
+        rawToolCalls: [JSON.stringify(toolCall2)],
+      });
+
+      mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([toolCall2]);
+      mockNativeToolsManager.callTool.mockResolvedValueOnce({
+        content: [{ type: 'text', text: 'Success' }],
+        isError: false,
+      });
+
+      await client.callServer('create utils.py');
+
+      // Verify step 2 is now completed
+      plan = progressPlanManager.getPlan(taskId);
+      expect(plan?.steps[0].status).toBe('completed');
+      expect(plan?.steps[1].status).toBe('completed');
+      expect(plan?.steps[2].status).toBe('pending');
+    });
+
+    it('should not update steps when not in implementation stage', async () => {
+      // Setup plan
+      const taskId = setupProgressPlan([
+        { goal: 'Create main.py' },
+      ]);
+
+      // Stay in chat stage (don't transition to implementation)
+      const chatResponse = {
+        status: 200,
+        data: {
+          choices: [{ 
+            text: '<|channel|>final<|message|>Hello<|end|>' 
+          }],
+        },
+      };
+
+      mockedAxios.post.mockResolvedValueOnce(chatResponse);
+
+      mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
+        content: 'Hello',
+        rawToolCalls: [],
+      });
+
+      mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
+
+      await client.callServer('hello');
+
+      // Verify we're in chat stage
+      expect(client.getCurrentStage()).toBe('chat');
+
+      // Verify no steps were updated
+      const progressPlanManager = client.getProgressPlanManager();
+      const plan = progressPlanManager.getPlan(taskId);
+      
+      expect(plan).toBeDefined();
+      expect(plan?.steps[0].status).toBe('pending');
+    });
+  });
 });
 
