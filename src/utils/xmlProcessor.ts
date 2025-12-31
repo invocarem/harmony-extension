@@ -289,9 +289,29 @@ export class XmlProcessor {
                                     let content = '';
                                     if (contentStartMatch) {
                                         const contentStartPos = contentStartMatch.index! + contentStartMatch[0].length;
-                                        // Extract everything from content start to end of jsonMatch
-                                        // This will include the incomplete string
-                                        const rawContent = jsonMatch.substring(contentStartPos);
+                                        // Extract from content start, but stop before any closing JSON structure
+                                        // Look for the end of the content string or the first } that would close the JSON
+                                        let contentEndPos = jsonMatch.length;
+                                        
+                                        // Find the first } or ,} that appears after content starts (this closes the JSON object)
+                                        // But we need to be careful - the } might be part of the content if it's escaped
+                                        // So we look for } that's not preceded by a backslash
+                                        for (let i = contentStartPos; i < jsonMatch.length; i++) {
+                                            // Check for closing brace that's not escaped
+                                            if (jsonMatch[i] === '}' && (i === 0 || jsonMatch[i - 1] !== '\\')) {
+                                                // Found closing brace - content ends before this
+                                                contentEndPos = i;
+                                                break;
+                                            }
+                                            // Also check for ,} pattern (comma before closing brace)
+                                            if (i > 0 && jsonMatch[i - 1] === ',' && jsonMatch[i] === '}' && 
+                                                (i === 1 || jsonMatch[i - 2] !== '\\')) {
+                                                contentEndPos = i - 1; // Stop before the comma
+                                                break;
+                                            }
+                                        }
+                                        
+                                        const rawContent = jsonMatch.substring(contentStartPos, contentEndPos);
                                         // Unescape any escaped characters we can see
                                         content = rawContent
                                             .replace(/\\n/g, '\n')
@@ -299,7 +319,10 @@ export class XmlProcessor {
                                             .replace(/\\r/g, '\r')
                                             .replace(/\\"/g, '"')
                                             .replace(/\\'/g, "'")
-                                            .replace(/\\\\/g, '\\');
+                                            .replace(/\\\\/g, '\\')
+                                            // Remove any trailing whitespace or JSON structure that might have leaked in
+                                            .replace(/\s*[,}]\s*$/, '')
+                                            .trim();
                                     }
                                     
                                     if (filePath || content) {

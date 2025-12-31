@@ -217,6 +217,114 @@ describe('XmlProcessor', () => {
       });
     });
 
+    describe('Incomplete tool calls', () => {
+      it('should extract content from incomplete tool call without including closing brace', () => {
+        // Simulate an incomplete tool call where the content string is truncated
+        // The partial JSON extraction will add a closing } to make it valid,
+        // but the content should NOT include that closing brace
+        // This matches the actual bug scenario from the logs
+        const incompleteToolCall = `<tool_call name="create_file" args='{
+  "file_path": "README.md",
+  "content": "# hello.py
+
+A tiny Python script that greets a user.
+
+## Overview
+
+\`hello.py\` defines a single function, **\`greet("`;
+        
+        const result = XmlProcessor.extractToolCalls(incompleteToolCall);
+        
+        expect(result).toHaveLength(1);
+        expect(result[0].name).toBe('create_file');
+        expect(result[0].args.file_path).toBe('README.md');
+        
+        // The critical test: if content is extracted, it should NOT end with }
+        if (result[0].args.content) {
+          const content = result[0].args.content;
+          expect(content).not.toMatch(/\}\s*$/);
+          expect(content.endsWith('}')).toBe(false);
+          
+          // Content should contain the actual text
+          expect(content).toContain('# hello.py');
+          expect(content).toContain('A tiny Python script that greets a user.');
+          expect(content).toContain('## Overview');
+          expect(content).toContain('`hello.py` defines a single function');
+        }
+      });
+
+      it('should handle incomplete tool call with multi-line content', () => {
+        const incompleteToolCall = `<tool_call name="create_file" args='{
+  "file_path": "test.py",
+  "content": "def hello():\\n    print(\\"world\\")\\n    return True`;
+        
+        const result = XmlProcessor.extractToolCalls(incompleteToolCall);
+        
+        expect(result).toHaveLength(1);
+        expect(result[0].name).toBe('create_file');
+        expect(result[0].args.file_path).toBe('test.py');
+        
+        // Content might not be extracted if JSON is too incomplete, but if it is, it shouldn't have }
+        if (result[0].args.content) {
+          const content = result[0].args.content;
+          // Should not include closing brace
+          expect(content.endsWith('}')).toBe(false);
+          expect(content).toContain('def hello():');
+          expect(content).toContain('print("world")');
+        }
+      });
+
+      it('should extract file_path even when content is incomplete', () => {
+        const incompleteToolCall = `<tool_call name="create_file" args='{
+  "file_path": "config.json",
+  "content": "{\\"key\\": "value`;
+        
+        const result = XmlProcessor.extractToolCalls(incompleteToolCall);
+        
+        expect(result).toHaveLength(1);
+        expect(result[0].name).toBe('create_file');
+        expect(result[0].args.file_path).toBe('config.json');
+        
+        // Content might be incomplete, but should not include closing brace
+        if (result[0].args.content) {
+          expect(result[0].args.content.endsWith('}')).toBe(false);
+        }
+      });
+
+      it('should handle incomplete tool call where JSON is closed with added brace', () => {
+        // This simulates the exact bug scenario: partial JSON extraction adds }
+        // but content extraction should stop before it
+        // The content string is incomplete (no closing quote), and a } is added to close JSON
+        const incompleteToolCall = `<tool_call name="create_file" args='{
+  "file_path": "README.md",
+  "content": "# hello.py
+
+A tiny Python script that greets a user.
+
+## Overview
+
+\`hello.py\` defines a single function}`;
+        
+        const result = XmlProcessor.extractToolCalls(incompleteToolCall);
+        
+        expect(result).toHaveLength(1);
+        expect(result[0].name).toBe('create_file');
+        expect(result[0].args.file_path).toBe('README.md');
+        
+        // The critical test: if content is extracted, it should NOT include the closing }
+        if (result[0].args.content) {
+          const content = result[0].args.content;
+          // Content should end with the actual text, not with }
+          expect(content).not.toMatch(/\}\s*$/);
+          expect(content.endsWith('}')).toBe(false);
+          // Should contain the actual content
+          expect(content).toContain('`hello.py` defines a single function');
+          // Should NOT end with just }
+          expect(content.trim()).not.toBe('}');
+        }
+      });
+    });
+
     describe('Variant patterns', () => {
       it('should extract from variant pattern with <| prefix', () => {
         const text = '<|analysis tool_call name="test" args=\'{"key": "value"}\' />';
