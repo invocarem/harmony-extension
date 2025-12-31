@@ -761,7 +761,9 @@ describe('HarmonyClient', () => {
     });
 
     describe('Tools context', () => {
-      it('should include MCP tools in context', async () => {
+      it('should exclude MCP tools in chat stage', async () => {
+        // Note: MCP tools are not allowed in chat stage, so this test verifies
+        // that MCP tools are correctly filtered out and not shown in the prompt
         const mcpTool = {
           name: 'mcp_tool',
           description: 'MCP tool description',
@@ -775,6 +777,20 @@ describe('HarmonyClient', () => {
         };
 
         mockMCPManager.getAllTools.mockReturnValue([mcpTool as any]);
+        
+        // Also add an allowed native tool to verify the tools section appears
+        const nativeTool: NativeTool = {
+          name: 'read_file',
+          description: 'Read the contents of a file',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              file_path: { type: 'string', description: 'Path to the file' },
+            },
+            required: ['file_path'],
+          },
+        } as any;
+        mockNativeToolsManager.getAvailableTools.mockReturnValue([nativeTool]);
 
         const mockResponse = {
           status: 200,
@@ -796,21 +812,28 @@ describe('HarmonyClient', () => {
         await client.callServer('Test');
 
         const callArgs = mockedAxios.post.mock.calls[0][1] as any;
+        // MCP tools should NOT appear in chat stage prompt
+        expect(callArgs.prompt).not.toContain('[MCP] mcp_tool');
+        expect(callArgs.prompt).not.toContain('MCP tool description');
+        // But allowed native tools SHOULD appear
         expect(callArgs.prompt).toContain('Available Tools');
-        expect(callArgs.prompt).toContain('[MCP] mcp_tool');
-        expect(callArgs.prompt).toContain('MCP tool description');
+        expect(callArgs.prompt).toContain('[Built-in] read_file');
       });
 
       it('should include native tools in context', async () => {
+        // Use a native tool that IS allowed in chat stage
         const nativeTool: NativeTool = {
-          name: 'native_tool',
-          description: 'Native tool description',
+          name: 'read_file',
+          description: 'Read the contents of a file. Returns the file content as text.',
           inputSchema: {
             type: 'object',
             properties: {
-              param: { type: 'string', description: 'Parameter' },
+              file_path: {
+                type: 'string',
+                description: 'Path to the file to read. Can be relative to workspace root or absolute.',
+              },
             },
-            required: [],
+            required: ['file_path'],
           },
         } as any;
 
@@ -837,8 +860,8 @@ describe('HarmonyClient', () => {
 
         const callArgs = mockedAxios.post.mock.calls[0][1] as any;
         expect(callArgs.prompt).toContain('Available Tools');
-        expect(callArgs.prompt).toContain('[Built-in] native_tool');
-        expect(callArgs.prompt).toContain('Native tool description');
+        expect(callArgs.prompt).toContain('[Built-in] read_file');
+        expect(callArgs.prompt).toContain('Read the contents of a file');
       });
     });
 

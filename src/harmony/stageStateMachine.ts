@@ -225,34 +225,44 @@ export class StageStateMachine {
 You are in the **Chat/Clarification** stage. Your goal is to:
 - **CRITICAL: ALWAYS restate the user's problem FIRST** - Your response MUST begin by restating their question/problem in your own words to show understanding
 - Understand and clarify the user's problem or question
+- **IMPORTANT: Tool Availability**: MCP tools (like analyze_latin, weather queries, data lookups, etc.) are NOT available in chat stage. They are only available in assumptions and implementation stages.
+- **If the user's question requires MCP tools or analysis tools**, you should:
+  1. Restate the problem in your own words
+  2. Identify what tools/data are needed to answer the question
+  3. Indicate that we'll move to the assumptions stage to use those tools
+  4. Do NOT try to answer directly without tools - instead, acknowledge the need and prepare for transition
 - Ask clarifying questions if needed
-- Provide helpful explanations and guidance
+- Provide helpful explanations and guidance for questions that don't require tools
 - Do NOT use file modification tools (create_file, replace_file, etc.)
 - Do NOT generate code or create files yet
-- You may use read-only tools (read_file, list_files, grep_files) to gather context if helpful
+- You may use read-only tools (read_file, list_files, grep_files) to gather code context if helpful
 
-**Stage Flow**: Chat → Analysis (code generation) → Implementation (file creation). Never skip stages.
-**IMPORTANT**: Your response must ALWAYS start by restating the user's problem/question in your own words, then provide your answer or clarification.`,
+**Stage Flow**: Chat → Analysis (code generation + tool usage) → Implementation (file creation). Never skip stages.
+**IMPORTANT**: Your response must ALWAYS start by restating the user's problem/question in your own words, then provide your answer or clarification. If tools are needed, acknowledge this and prepare for transition to assumptions stage.`,
 
       'assumptions': `## Current Stage: ASSUMPTIONS/ANALYSIS
 
-⚠️ **CRITICAL RESTRICTION**: You are in the **Assumptions/Analysis** stage. You MUST provide code snippets ONLY. File modification tools (create_file, replace_file, write_file, update_file, delete_file, edit_file, modify_file) are NOT available and MUST NOT be used.
+⚠️ **CRITICAL RESTRICTION**: You are in the **Assumptions/Analysis** stage. File modification tools (create_file, replace_file, write_file, update_file, delete_file, edit_file, modify_file) are NOT available and MUST NOT be used.
+
+**MCP Tools are AVAILABLE**: MCP tools (like analyze_latin, weather queries, data lookups, etc.) ARE available in this stage. Use them when needed by calling: \`<tool_call name="tool_name" args='{"param": "value"}' />\`
 
 **Your goal is to:**
+- **Use MCP tools when needed** - If the user's request requires data from MCP tools, call them immediately to get the information
 - **Analyze the problem** and break it down into steps (create a plan/todo list for complex tasks)
 - Explain your assumptions about the codebase
 - **For multi-step tasks**: Provide a clear plan with numbered steps (e.g., "1. Create hello.py", "2. Add greeting function", etc.)
-- **MUST provide code snippets/examples** in markdown code blocks with file paths (e.g., \`\`\`python calc.py)
-- Show code solutions in formatted code blocks - this is the ONLY way to provide code in this stage
+- **Provide code snippets/examples** in markdown code blocks with file paths (e.g., \`\`\`python calc.py) when code is needed
+- Show code solutions in formatted code blocks - this is how to provide code in this stage
 - You may use read/search tools (read_file, grep_files, list_files) to understand the codebase
 
 **ABSOLUTE REQUIREMENTS:**
 - ❌ DO NOT use create_file, replace_file, or any file modification tools
-- ✅ DO provide code snippets in markdown code blocks with file paths
+- ✅ DO use MCP tools when the user's request requires them (call them immediately, don't just describe what you would do)
+- ✅ DO provide code snippets in markdown code blocks with file paths when code is needed
 - ✅ DO format code blocks like: \`\`\`python calc.py\n[your code here]\n\`\`\`
 - When rules specify "provide code snippets", you MUST follow them exactly
 
-**For complex tasks**: Break down the task into steps and create a clear implementation plan before providing code snippets.`,
+**For complex tasks**: Break down the task into steps and create a clear implementation plan. Use MCP tools first if data is needed, then provide code snippets if applicable.`,
 
       'implementation': `## Current Stage: IMPLEMENTATION
 

@@ -27,7 +27,8 @@ export interface ConversationContext {
   };
   progressPlan?: ProgressPlan;
   // Code contexts ready for file creation from assumptions stage
-  codeContexts?: CodeContext[];
+  // Map from filename to array of versions
+  codeContexts?: Map<string, CodeContext[]>;
 }
 
 /**
@@ -142,34 +143,165 @@ export class ConversationContextManager {
   }
 
   /**
-   * Add code context that's ready for file creation
+   * Extract description from user prompt or AI response
+   * For initial generation: uses the user's original request
+   * For updates: extracts the change description from user prompt
    */
-  addCodeContext(codeContext: CodeContext): void {
+  private extractDescription(userPrompt?: string, aiResponse?: string): string | undefined {
+    if (userPrompt) {
+      // Use user prompt as description (keep concise, max 200 chars)
+      const trimmed = userPrompt.trim();
+      if (trimmed.length > 200) {
+        return trimmed.substring(0, 197) + '...';
+      }
+      return trimmed;
+    }
+    if (aiResponse) {
+      // Fallback: extract summary from AI response (first sentence or first 200 chars)
+      const firstSentence = aiResponse.split(/[.!?]\s+/)[0];
+      if (firstSentence.length <= 200) {
+        return firstSentence;
+      }
+      return aiResponse.substring(0, 197) + '...';
+    }
+    return undefined;
+  }
+
+  /**
+   * Increment version number (e.g., v1 -> v2, v2 -> v3)
+   */
+  private incrementVersion(version: string): string {
+    const match = version.match(/^v(\d+)(?:\.\d+)?$/i);
+    if (match) {
+      const num = parseInt(match[1], 10);
+      return `v${num + 1}`;
+    }
+    // If version format is unexpected, default to v2
+    return 'v2';
+  }
+
+  /**
+   * Add code context that's ready for file creation
+   * Preserves version history and auto-increments versions on updates
+   * @param codeContext The code context to add
+   * @param userPrompt Optional user prompt for description extraction
+   * @param aiResponse Optional AI response for description extraction
+   */
+  addCodeContext(codeContext: CodeContext, userPrompt?: string, aiResponse?: string): void {
     if (!this.context) return;
     
     if (!this.context.codeContexts) {
-      this.context.codeContexts = [];
+      this.context.codeContexts = new Map<string, CodeContext[]>();
     }
     
-    // Avoid duplicates by file name
-    const existingIndex = this.context.codeContexts.findIndex(
-      cc => cc.name === codeContext.name
-    );
+    const fileName = codeContext.name;
+    const existingVersions = this.context.codeContexts.get(fileName) || [];
     
-    if (existingIndex >= 0) {
-      // Update existing
-      this.context.codeContexts[existingIndex] = codeContext;
+    if (existingVersions.length > 0) {
+      // Update existing - preserve history
+      // Find the active version (or latest if none is active)
+      const activeVersion = existingVersions.find(v => v.isActive) || 
+                           existingVersions.sort((a, b) => {
+                             // Sort by version number
+                             const aNum = parseInt(a.version.match(/^v(\d+)/i)?.[1] || '0', 10);
+                             const bNum = parseInt(b.version.match(/^v(\d+)/i)?.[1] || '0', 10);
+                             return bNum - aNum;
+                           })[0];
+      
+      // Mark existing active version as inactive
+      activeVersion.isActive = false;
+      
+      // Create new version
+      const newVersion = this.incrementVersion(activeVersion.version);
+      codeContext.version = newVersion;
+      codeContext.previousVersion = activeVersion.version;
+      codeContext.timestamp = Date.now();
+      codeContext.isActive = true;
+      
+      // Extract description if not already set
+      if (!codeContext.description) {
+        codeContext.description = this.extractDescription(userPrompt, aiResponse);
+      }
+      
+      // Add new version (keep old ones)
+      existingVersions.push(codeContext);
+      this.context.codeContexts.set(fileName, existingVersions);
     } else {
-      // Add new
-      this.context.codeContexts.push(codeContext);
+      // First version
+      if (codeContext.version === 'v1' && !codeContext.description) {
+        // Set description if not already set
+        codeContext.description = this.extractDescription(userPrompt, aiResponse);
+      }
+      codeContext.timestamp = Date.now();
+      codeContext.isActive = true;
+      this.context.codeContexts.set(fileName, [codeContext]);
     }
   }
 
   /**
-   * Get all code contexts waiting for creation
+   * Get all code contexts waiting for creation (active versions only)
    */
   getCodeContexts(): CodeContext[] {
-    return this.context?.codeContexts?.filter(cc => cc.waitForCreate) || [];
+    if (!this.context?.codeContexts) return [];
+    
+    const activeContexts: CodeContext[] = [];
+    for (const versions of this.context.codeContexts.values()) {
+      const active = versions.find(cc => cc.waitForCreate && cc.isActive);
+      if (active) {
+        activeContexts.push(active);
+      }
+    }
+    return activeContexts;
+  }
+
+  /**
+   * Get all versions of a specific file
+   */
+  getCodeContextVersions(fileName: string): CodeContext[] {
+    if (!this.context?.codeContexts) return [];
+    
+    const versions = this.context.codeContexts.get(fileName) || [];
+    return versions.sort((a, b) => {
+      // Sort by version number (descending - newest first)
+      const aNum = parseInt(a.version.match(/^v(\d+)/i)?.[1] || '0', 10);
+      const bNum = parseInt(b.version.match(/^v(\d+)/i)?.[1] || '0', 10);
+      return bNum - aNum;
+    });
+  }
+
+  /**
+   * Get the active version of a specific file
+   */
+  getActiveCodeContext(fileName: string): CodeContext | null {
+    if (!this.context?.codeContexts) return null;
+    
+    const versions = this.context.codeContexts.get(fileName);
+    if (!versions) return null;
+    
+    return versions.find(cc => cc.isActive) || null;
+  }
+
+  /**
+   * Revert to a specific version of a file
+   * @param fileName The file name
+   * @param version The version to revert to (e.g., "v1", "v2")
+   * @returns true if reversion was successful, false otherwise
+   */
+  revertToVersion(fileName: string, version: string): boolean {
+    if (!this.context?.codeContexts) return false;
+    
+    const versions = this.getCodeContextVersions(fileName);
+    const targetVersion = versions.find(v => v.version === version);
+    
+    if (!targetVersion) return false;
+    
+    // Mark all versions as inactive
+    versions.forEach(v => v.isActive = false);
+    
+    // Activate target version
+    targetVersion.isActive = true;
+    
+    return true;
   }
 
   /**
@@ -182,11 +314,13 @@ export class ConversationContextManager {
 
   /**
    * Mark code context as created (no longer waiting)
+   * Marks the active version of the file as created
    */
   markCodeContextCreated(fileName: string): void {
     if (!this.context?.codeContexts) return;
     
-    const codeContext = this.context.codeContexts.find(cc => cc.name === fileName);
+    // Find the active version of the file
+    const codeContext = this.getActiveCodeContext(fileName);
     if (codeContext) {
       codeContext.waitForCreate = false;
     }

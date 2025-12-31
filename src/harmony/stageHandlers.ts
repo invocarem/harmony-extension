@@ -57,7 +57,7 @@ class ImplementationStageHandler implements StageHandler {
 
     // Follow ProgressPlan/PlanStep to determine action, not hardcode it
     const plan = context.progressPlan;
-    const codeContexts = context.codeContexts?.filter(cc => cc.waitForCreate) || [];
+    const codeContexts = contextManager?.getCodeContexts() || [];
     let shouldUseCodeContext = false;
     let shouldCallLLM = false;
 
@@ -243,9 +243,14 @@ class AssumptionsStageHandler implements StageHandler {
           const codeContext = CodeContext.fromCodeBlock(codeBlock);
           
           if (codeContext) {
-            contextManager.addCodeContext(codeContext);
+            // Get the current user prompt from context for description extraction
+            // Use the most recent prompt from stage history, or fall back to originalPrompt
+            const recentPrompt = context.stageHistory.length > 0 
+              ? context.stageHistory[context.stageHistory.length - 1].prompt 
+              : context.originalPrompt;
+            contextManager.addCodeContext(codeContext, recentPrompt, content);
             codeBlockCount++;
-            console.log(`[StageHandler:Assumptions] Extracted code context for file: ${codeContext.name}`);
+            console.log(`[StageHandler:Assumptions] Extracted code context for file: ${codeContext.name} (version: ${codeContext.version})`);
           }
         } catch (error) {
           console.warn(`[StageHandler:Assumptions] Failed to extract code context:`, error);

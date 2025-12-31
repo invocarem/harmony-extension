@@ -652,4 +652,36 @@ tr:nth-child(even) {
     color: var(--vscode-editor-foreground);
     font-weight: 600;
 }
+.stage-arrow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    color: var(--vscode-descriptionForeground);
+    cursor: pointer;
+    padding: 0 8px;
+    transition: all 0.2s ease;
+    user-select: none;
+    min-width: 24px;
+    height: 20px;
+    border-radius: 3px;
+}
+.stage-arrow:hover {
+    color: var(--vscode-textLink-foreground);
+    background: var(--vscode-list-hoverBackground);
+    transform: scale(1.2);
+}
+.stage-arrow:active {
+    transform: scale(1.1);
+    opacity: 0.8;
+}
+.stage-arrow.disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+.stage-arrow.disabled:hover {
+    transform: none;
+    background: transparent;
+    color: var(--vscode-descriptionForeground);
+}
 

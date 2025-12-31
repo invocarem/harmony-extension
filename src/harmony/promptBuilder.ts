@@ -5,6 +5,7 @@ import { NativeToolsManager } from "../nativeToolManager";
 import { ChatMessage } from "../conversationManager";
 import { StageStateMachine, WorkflowStage } from "./stageStateMachine";
 import { ConversationContext } from "./conversationContext";
+import { CodeContext } from "./codeContext";
 
 /**
  * Builds prompts with tools, rules, stage instructions, and continuation context
@@ -77,7 +78,15 @@ export class PromptBuilder {
       }
       
       // Add code contexts instruction if available
-      const codeContexts = conversationContext.codeContexts?.filter(cc => cc.waitForCreate) || [];
+      const codeContexts: CodeContext[] = [];
+      if (conversationContext.codeContexts) {
+        for (const versions of conversationContext.codeContexts.values()) {
+          const active = versions.find(cc => cc.waitForCreate && cc.isActive);
+          if (active) {
+            codeContexts.push(active);
+          }
+        }
+      }
       if (codeContexts.length > 0) {
         const fileList = codeContexts.map(cc => cc.name).join(', ');
         stageInstructions += `\n\n**CODE SNIPPETS READY**: The following file(s) have code ready for creation: ${fileList}. Extract the code from conversation history and create these files immediately using create_file. Do NOT restate the problem or ask questions - just create the files.`;

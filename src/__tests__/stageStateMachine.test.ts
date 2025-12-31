@@ -31,9 +31,11 @@ describe('StageStateMachine', () => {
       // Check for key phrases separately to be more robust against wording changes
       expect(instructions).toMatch(/DO NOT.*file modification tools/i);
       expect(instructions).toContain('file modification tools');
-      // Use case-insensitive match for flexibility
-      expect(instructions).toMatch(/provide code snippets (only|ONLY)/i);
+      // MCP tools are now available in assumptions stage
+      expect(instructions).toContain('MCP Tools are AVAILABLE');
+      expect(instructions).toMatch(/provide code snippets/i);
       expect(instructions).toContain('break it down into steps');
+      expect(instructions).toContain('Use MCP tools when needed');
     });
 
     it('should return implementation stage instructions', () => {
@@ -73,7 +75,8 @@ describe('StageStateMachine', () => {
       expect(allowedNames).toContain('read_file');
       expect(allowedNames).toContain('list_files');
       expect(allowedNames).toContain('grep_files');
-      expect(allowedNames).toContain('custom_tool');
+      // MCP tools are NOT available in chat stage, only read-only native tools
+      expect(allowedNames).not.toContain('custom_tool');
       expect(allowedNames).not.toContain('create_file');
       expect(allowedNames).not.toContain('replace_file');
       expect(allowedNames).not.toContain('delete_file');

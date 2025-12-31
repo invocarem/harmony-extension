@@ -10,6 +10,8 @@ export interface WebviewToExtensionMessage {
     files?: Array<{ label: string; path: string }>;
     contextSummary?: ContextSummary;
     searchTerm?: string;
+    from?: 'chat' | 'assumptions' | 'implementation';
+    to?: 'chat' | 'assumptions' | 'implementation';
 }
 
 export interface ExtensionToWebviewMessage {

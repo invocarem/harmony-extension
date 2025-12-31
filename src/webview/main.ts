@@ -108,6 +108,46 @@ fileButton.addEventListener('click', () => {
     });
 });
 
+// Stage transition arrows
+const arrowChatToAssumptions = document.getElementById('arrow-chat-to-assumptions');
+const arrowAssumptionsToImplementation = document.getElementById('arrow-assumptions-to-implementation');
+
+if (arrowChatToAssumptions) {
+    arrowChatToAssumptions.addEventListener('click', () => {
+        // Don't allow transition if arrow is disabled
+        if (arrowChatToAssumptions.classList.contains('disabled')) {
+            return;
+        }
+        // Send message as if user typed "move to assumptions"
+        const message = 'move to assumptions';
+        addMessage(message, true, undefined, undefined);
+        addTypingIndicator();
+        vscode.postMessage({
+            command: 'sendMessage',
+            text: message
+        });
+        messageInput.focus();
+    });
+}
+
+if (arrowAssumptionsToImplementation) {
+    arrowAssumptionsToImplementation.addEventListener('click', () => {
+        // Don't allow transition if arrow is disabled
+        if (arrowAssumptionsToImplementation.classList.contains('disabled')) {
+            return;
+        }
+        // Send message as if user typed "move to implementation"
+        const message = 'move to implementation';
+        addMessage(message, true, undefined, undefined);
+        addTypingIndicator();
+        vscode.postMessage({
+            command: 'sendMessage',
+            text: message
+        });
+        messageInput.focus();
+    });
+}
+
 // Listen for messages from extension
 window.addEventListener('message', (event) => {
     handleExtensionMessage(event.data);
@@ -115,6 +155,14 @@ window.addEventListener('message', (event) => {
 
 // Focus input on load and add hint
 messageInput.focus();
+
+// Initialize stage arrows as disabled (will be enabled when stage is known)
+if (arrowChatToAssumptions) {
+    arrowChatToAssumptions.classList.add('disabled');
+}
+if (arrowAssumptionsToImplementation) {
+    arrowAssumptionsToImplementation.classList.add('disabled');
+}
 
 // Show/hide shortcut hint
 messageInput.addEventListener('focus', () => {

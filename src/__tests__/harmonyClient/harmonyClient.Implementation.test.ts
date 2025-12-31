@@ -849,9 +849,9 @@ describe('HarmonyClient - Implementation Stage', () => {
     });
   });
 
-  describe('CodeContext File Creation in Assumptions Stage', () => {
-    it('should create files from CodeContext before LLM call in assumptions stage', async () => {
-      // First transition to assumptions stage
+  describe('CodeContext from Assumptions Stage to Implementation Stage', () => {
+    it('should create files from CodeContext extracted in assumptions stage when transitioning to implementation stage', async () => {
+      // First, transition to assumptions stage and extract CodeContext
       const assumptionsResponse = {
         status: 200,
         data: {
@@ -869,51 +869,37 @@ describe('HarmonyClient - Implementation Stage', () => {
       mockHarmonyProcessor.parseResponse.mockReturnValueOnce(assumptionsParseResult);
       mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
 
-      // First call to assumptions stage - this should extract CodeContext
+      // First call to assumptions stage - this should extract CodeContext (but NOT create files)
       await client.callServer('create app.py with hello world');
 
-      // Now make another call in assumptions stage - this should create the file
-      const secondResponse = {
+      // Verify we're in assumptions stage
+      expect(client.getCurrentStage()).toBe('assumptions');
+
+      // Verify NO files were created in assumptions stage (file modification tools are forbidden)
+      expect(mockNativeToolsManager.callTool).not.toHaveBeenCalledWith('create_file', expect.anything());
+      expect(mockNativeToolsManager.callTool).not.toHaveBeenCalledWith('replace_file', expect.anything());
+
+      // Now transition to implementation stage - this should create files from CodeContext
+      const implementationResponse = {
         status: 200,
         data: {
-          choices: [{ text: '<|channel|>final<|message|>Code is ready<|end|>' }],
+          choices: [{ text: '<|channel|>final<|message|>Ready to implement<|end|>' }],
         },
       };
 
-      mockedAxios.post.mockResolvedValueOnce(secondResponse);
-
-      const secondParseResult: HarmonyParseResult = {
-        content: 'Code is ready',
+      mockedAxios.post.mockResolvedValueOnce(implementationResponse);
+      mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
+        content: 'Ready to implement',
         rawToolCalls: [],
-      };
-
-      mockHarmonyProcessor.parseResponse.mockReturnValueOnce(secondParseResult);
+      });
       mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
+      await client.callServer('move to implementation');
 
-      // Mock read_file to return error (file doesn't exist)
-      mockNativeToolsManager.callTool.mockResolvedValueOnce({
-        content: [{ type: 'text', text: 'Error reading file app.py: ENOENT: no such file or directory' }],
-        isError: true,
-      });
+      // Verify we're now in implementation stage
+      expect(client.getCurrentStage()).toBe('implementation');
 
-      // Mock create_file to succeed
-      mockNativeToolsManager.callTool.mockResolvedValueOnce({
-        content: [{ type: 'text', text: 'Successfully created file: app.py' }],
-        isError: false,
-      });
-
-      const readFileTool: NativeTool = {
-        name: 'read_file',
-        description: 'Read a file',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            file_path: { type: 'string', description: 'Path to the file' },
-          },
-          required: ['file_path'],
-        },
-      } as any;
-
+      // Now make a call in implementation stage - CodeContext should be used to create files
+      // The ImplementationStageHandler.handlePreProcessing should detect CodeContext and create files
       const createFileTool: NativeTool = {
         name: 'create_file',
         description: 'Create a new file',
@@ -927,88 +913,85 @@ describe('HarmonyClient - Implementation Stage', () => {
         },
       } as any;
 
-      mockNativeToolsManager.getAvailableTools.mockReturnValue([readFileTool, createFileTool]);
+      mockNativeToolsManager.getAvailableTools.mockReturnValue([createFileTool]);
 
-      await client.callServer('continue in assumptions');
+      // Mock create_file to succeed
+      mockNativeToolsManager.callTool.mockResolvedValueOnce({
+        content: [{ type: 'text', text: 'Successfully created file: app.py' }],
+        isError: false,
+      });
 
-      // Verify that read_file was called to check if file exists (may be called with extracted filename or default)
-      expect(mockNativeToolsManager.callTool).toHaveBeenCalledWith('read_file', expect.objectContaining({
-        file_path: expect.any(String)
-      }));
-      // Verify that create_file was called to create the file
+      // Call server in implementation stage - should create file from CodeContext without LLM call
+      const result = await client.callServer('implement');
+
+      // Verify create_file was called with content from CodeContext
+      // Note: CodeContext extraction may use "file" as default filename if extraction fails
+      // The important thing is that create_file was called with the correct content
       expect(mockNativeToolsManager.callTool).toHaveBeenCalledWith('create_file', expect.objectContaining({
-        file_path: expect.any(String),
+        file_path: expect.any(String), // May be "app.py" or "file" depending on extraction
         content: expect.stringContaining('print("Hello")')
       }));
+
+      // Verify the result shows the file was created
+      expect(result.toolCalls).toBeDefined();
+      expect(result.toolCalls?.length).toBeGreaterThan(0);
+      const createFileCall = result.toolCalls?.find(tc => tc.name === 'create_file');
+      expect(createFileCall).toBeDefined();
+      expect(createFileCall?.arguments.content).toContain('print("Hello")');
     });
 
-    it('should not create file if it already exists in assumptions stage', async () => {
-      // Transition to assumptions and extract code
+    it('should NOT create files in assumptions stage even if CodeContext exists', async () => {
+      // Transition to assumptions stage and extract CodeContext
       const assumptionsResponse = {
         status: 200,
         data: {
-          choices: [{ text: '<|channel|>final<|message|>Code:\n```python existing.py\nprint("Hello")\n```<|end|>' }],
+          choices: [{ text: '<|channel|>final<|message|>Code:\n```python test.py\ndef hello():\n    print("Hello")\n```<|end|>' }],
         },
       };
 
       mockedAxios.post.mockResolvedValueOnce(assumptionsResponse);
 
       const assumptionsParseResult: HarmonyParseResult = {
-        content: 'Code:\n```python existing.py\nprint("Hello")\n```',
+        content: 'Code:\n```python test.py\ndef hello():\n    print("Hello")\n```',
         rawToolCalls: [],
       };
 
       mockHarmonyProcessor.parseResponse.mockReturnValueOnce(assumptionsParseResult);
       mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
 
-      await client.callServer('provide code for existing.py');
+      await client.callServer('provide code for test.py');
 
-      // Second call - file already exists
+      // Verify we're in assumptions stage
+      expect(client.getCurrentStage()).toBe('assumptions');
+
+      // Verify NO file modification tools were called (they are forbidden in assumptions stage)
+      expect(mockNativeToolsManager.callTool).not.toHaveBeenCalledWith('create_file', expect.anything());
+      expect(mockNativeToolsManager.callTool).not.toHaveBeenCalledWith('replace_file', expect.anything());
+      expect(mockNativeToolsManager.callTool).not.toHaveBeenCalledWith('read_file', expect.anything());
+
+      // Make another call in assumptions stage - still should NOT create files
       const secondResponse = {
         status: 200,
         data: {
-          choices: [{ text: '<|channel|>final<|message|>Ready<|end|>' }],
+          choices: [{ text: '<|channel|>final<|message|>Code is ready<|end|>' }],
         },
       };
 
       mockedAxios.post.mockResolvedValueOnce(secondResponse);
-
-      const secondParseResult: HarmonyParseResult = {
-        content: 'Ready',
+      mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
+        content: 'Code is ready',
         rawToolCalls: [],
-      };
-
-      mockHarmonyProcessor.parseResponse.mockReturnValueOnce(secondParseResult);
+      });
       mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
 
-      // Mock read_file to succeed (file exists)
-      mockNativeToolsManager.callTool.mockResolvedValueOnce({
-        content: [{ type: 'text', text: 'print("Hello")' }],
-        isError: false,
-      });
+      await client.callServer('continue in assumptions');
 
-      const readFileTool: NativeTool = {
-        name: 'read_file',
-        description: 'Read a file',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            file_path: { type: 'string', description: 'Path to the file' },
-          },
-          required: ['file_path'],
-        },
-      } as any;
+      // Verify we're still in assumptions stage
+      expect(client.getCurrentStage()).toBe('assumptions');
 
-      mockNativeToolsManager.getAvailableTools.mockReturnValue([readFileTool]);
-
-      await client.callServer('continue');
-
-      // Verify read_file was called to check existence (may be called with extracted filename or default)
-      expect(mockNativeToolsManager.callTool).toHaveBeenCalledWith('read_file', expect.objectContaining({
-        file_path: expect.any(String)
-      }));
-      // Verify create_file was NOT called
+      // Verify NO file modification tools were called (file creation is forbidden in assumptions stage)
       expect(mockNativeToolsManager.callTool).not.toHaveBeenCalledWith('create_file', expect.anything());
+      expect(mockNativeToolsManager.callTool).not.toHaveBeenCalledWith('replace_file', expect.anything());
     });
   });
 

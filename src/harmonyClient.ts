@@ -684,9 +684,11 @@ export class HarmonyClient {
               const codeContext = CodeContext.fromCodeBlock(codeBlock);
               
               if (codeContext) {
-                this.contextManager.addCodeContext(codeContext);
+                // Get the current user prompt from context for description extraction
+                const currentPrompt = context.originalPrompt || prompt;
+                this.contextManager.addCodeContext(codeContext, currentPrompt, content);
                 codeBlockCount++;
-                console.log(`[Harmony] Assumptions stage: Extracted code context for file: ${codeContext.name} (${codeContext.content.length} lines)`);
+                console.log(`[Harmony] Assumptions stage: Extracted code context for file: ${codeContext.name} (${codeContext.content.length} lines, version: ${codeContext.version})`);
               }
             } catch (error) {
               // Silently skip if code context extraction fails for a single block
@@ -1484,6 +1486,25 @@ export class HarmonyClient {
   getCurrentStage(): WorkflowStage {
     const context = this.contextManager.getContext();
     return context?.currentStage || 'chat';
+  }
+
+  /**
+   * Manually transition to a different stage
+   * Validates the transition using the stage state machine
+   */
+  transitionStage(to: WorkflowStage, prompt?: string): boolean {
+    const currentStage = this.getCurrentStage();
+    
+    // Check if transition is valid
+    if (!this.stageStateMachine.canTransition(currentStage, to)) {
+      console.log(`[Harmony] Invalid stage transition: ${currentStage} -> ${to}`);
+      return false;
+    }
+    
+    // Perform the transition
+    this.contextManager.updateStage(to, prompt || `Manual transition from ${currentStage} to ${to}`);
+    console.log(`[Harmony] Stage transitioned: ${currentStage} -> ${to}`);
+    return true;
   }
 
   /**

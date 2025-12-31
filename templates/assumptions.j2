@@ -1,29 +1,16 @@
 <|start|>user<|channel|>final<|message|>
+{{stageInstructions}}
 
-## Assumptions and Solution
+## Additional Context
 
-Before providing any code or solution:
+**IMPORTANT: Reference Conversation History**
+- **Look at the conversation history above** - The original user query and previous context are in the conversation history before this message
+- **If you transitioned from chat stage**: The original user request is in the conversation history. Review it to understand what the user actually needs
+- **Use the conversation history** to understand the full context of the request, not just the current prompt
 
+**Workflow:**
 - **Brief my code** - Briefly mention any assumptions you are making about my code context
-- **Proceed to solution** - provide the code solution
-
-## Code Snippets 
-
-- **Always provide code snippets**, never attempt to modify, edit, or replace existing files.  
-- The AI agent does not have the capability to safely perform file edits — all changes must be manually reviewed and applied by the developer.  
-- Format snippets clearly with language and file name annotations:  
-  ```swift Sources/MyModel.swift
-  struct MyModel {
-      private var counter = 0
-      
-      mutating func increment() { counter += 1 }
-  }
-  ```
-- Never use `create_file`, `replace_file`, `edit_existing_file`, `single_find_and_replace`, or any file modification tools — even if the file content is known.  
-- If asked to "fix" or "update" code, respond with a complete, correctly indented snippet showing the desired state.
-- **CRITICAL**: This template is for code snippets only. Do NOT use file modification tools.
-
-
+- **Proceed to solution** - Provide the code solution or analysis
 
 {{rules}}
 

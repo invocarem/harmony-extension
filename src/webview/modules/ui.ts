@@ -265,6 +265,7 @@ export function removeTypingIndicator(): void {
 
 /**
  * Update stage indicator lights based on current stage
+ * Also enables/disables arrows based on valid transitions
  */
 export function updateStageIndicator(stage?: 'chat' | 'assumptions' | 'implementation'): void {
     // Remove active class from all lights
@@ -276,6 +277,35 @@ export function updateStageIndicator(stage?: 'chat' | 'assumptions' | 'implement
         const stageLight = document.getElementById(`stage-light-${stage}`);
         if (stageLight) {
             stageLight.classList.add('active');
+        }
+    }
+    
+    // Update arrow states based on valid transitions
+    // Valid transitions:
+    // - chat -> assumptions
+    // - assumptions -> implementation
+    // - assumptions -> chat (backward)
+    // - implementation -> chat (backward)
+    // - implementation -> assumptions (backward)
+    
+    const arrowChatToAssumptions = document.getElementById('arrow-chat-to-assumptions');
+    const arrowAssumptionsToImplementation = document.getElementById('arrow-assumptions-to-implementation');
+    
+    if (arrowChatToAssumptions) {
+        // Enable if we're in chat stage
+        if (stage === 'chat') {
+            arrowChatToAssumptions.classList.remove('disabled');
+        } else {
+            arrowChatToAssumptions.classList.add('disabled');
+        }
+    }
+    
+    if (arrowAssumptionsToImplementation) {
+        // Enable if we're in assumptions stage
+        if (stage === 'assumptions') {
+            arrowAssumptionsToImplementation.classList.remove('disabled');
+        } else {
+            arrowAssumptionsToImplementation.classList.add('disabled');
         }
     }
 }
