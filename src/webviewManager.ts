@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import * as path from "path";
 import * as fs from "fs";
 import { HarmonyResponse } from "./harmonyClient";
+import { VerboseInfoFormatter, withDisplayString } from "./utils/verboseInfo";
 
 export interface WebviewMessage {
     command: string;
@@ -12,22 +13,8 @@ export interface WebviewMessage {
     final?: string;
     files?: Array<{ label: string; path: string }>;
     contextSummary?: { rulesCount?: number; mcpToolsCount?: number; files?: string[] };
-    verboseInfo?: {
-        stage?: 'chat' | 'assumptions' | 'implementation';
-        stageTransition?: {
-            from: 'chat' | 'assumptions' | 'implementation';
-            to: 'chat' | 'assumptions' | 'implementation';
-        };
-        step?: number;
-        maxSteps?: number;
-        isComplete?: boolean;
-        toolCalls?: Array<{
-            name: string;
-            stage: 'chat' | 'assumptions' | 'implementation';
-            success: boolean;
-            error?: string;
-        }>;
-    };
+    verboseInfo?: any; // VerboseInfo type - using any for webview compatibility
+    verboseInfoDisplay?: string; // Formatted string for simple display
 }
 
 export class WebviewManager {
@@ -157,8 +144,20 @@ export class WebviewManager {
         const content = response.content || "No response received from the model.";
         const reasoning = response.reasoning;
         const commentary = response.commentary;
-        const verboseInfo = response.verboseInfo;
         const final = response.final;
+
+        // Format verbose info for display if present
+        let verboseInfoDisplay: string | undefined;
+        if (response.verboseInfo) {
+            try {
+                // Use formatter to convert verboseInfo to display string
+                verboseInfoDisplay = VerboseInfoFormatter.format(response.verboseInfo);
+            } catch (error: any) {
+                console.warn(`[WebviewManager] Error formatting verbose info:`, error);
+                // Fallback: use JSON stringify
+                verboseInfoDisplay = JSON.stringify(response.verboseInfo, null, 2);
+            }
+        }
 
         console.log(`[DEBUG] Posting message to webview`);
         this.view.webview.postMessage({
@@ -166,7 +165,8 @@ export class WebviewManager {
             text: content,
             reasoning: reasoning,
             commentary: commentary,
-            verboseInfo: verboseInfo,
+            verboseInfo: response.verboseInfo, // Send raw verboseInfo for webview to use
+            verboseInfoDisplay: verboseInfoDisplay, // Send formatted string for simple display
             final: final,
         });
         console.log(`[DEBUG] Message posted successfully`);

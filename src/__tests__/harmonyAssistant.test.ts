@@ -85,6 +85,23 @@ jest.mock('../utils/responseCleaner', () => ({
   cleanVerboseResponse: jest.fn((content: string) => content),
 }));
 
+// Mock FileManager
+jest.mock('../utils/fileManager', () => ({
+  FileManager: jest.fn().mockImplementation(() => ({
+    detectAndCollectFiles: jest.fn().mockResolvedValue({
+      detectedFiles: [],
+      ambiguousMatches: [],
+      diagnostics: {
+        queryTokens: [],
+        searchPatterns: [],
+        searchResults: [],
+        processingTime: 0,
+      },
+    }),
+    formatForChatPrompt: jest.fn().mockReturnValue(''),
+  })),
+}));
+
 describe('HarmonyAssistant', () => {
   let assistant: HarmonyAssistant;
   let mockContext: vscode.ExtensionContext;
@@ -249,7 +266,8 @@ describe('HarmonyAssistant', () => {
         'implementation', // Should use implementation template
         expect.any(Function),
         false,
-        []
+        [],
+        undefined // fileExtractionResult - undefined when no file references
       );
     });
 
@@ -317,7 +335,15 @@ describe('HarmonyAssistant', () => {
         expect.any(String),
         expect.any(Function),
         false,
-        []
+        [],
+        expect.objectContaining({
+          explicitFiles: expect.arrayContaining([
+            expect.objectContaining({
+              path: '/workspace/test.ts',
+              type: 'file',
+            }),
+          ]),
+        })
       );
     });
 

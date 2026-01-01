@@ -69,14 +69,15 @@ describe('FileContextExtractor', () => {
       // Should have attempted to stat the wrong path (workspace root + filename)
       expect(fs.promises.stat).toHaveBeenCalledWith(wrongPath);
       
-      // Should have logged a warning
+      // Should have logged a warning - update the expected string to match the actual format
       expect(consoleWarnSpy).toHaveBeenCalledWith(
-        expect.stringContaining(`Failed to get file context for ${filenameOnly}`),
+        expect.stringContaining(`Failed to get file context for "${filenameOnly}"`),
         expect.any(String)
       );
 
       consoleWarnSpy.mockRestore();
     });
+
 
     it('should successfully resolve file when relative path is provided', async () => {
       const workspaceRoot = '/home/chenchen/code/ordo';

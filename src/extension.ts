@@ -10,8 +10,10 @@ import { RulesManager } from "./rulesManager";
 import { NativeToolsManager, NativeToolResult } from "./nativeToolManager";
 import { ConversationManager, ChatMessage } from "./conversationManager";
 import { FileContextExtractor } from "./utils/fileContextExtractor";
+import { FileManager } from "./utils/fileManager";
 import { cleanVerboseResponse } from "./utils/responseCleaner";
 import { StageStateMachine } from "./harmony/stageStateMachine";
+import { FileExtractionResult } from "./utils/verboseInfo";
 
 export class HarmonyAssistant {
   private webviewManager: WebviewManager;
@@ -24,6 +26,7 @@ export class HarmonyAssistant {
   private nativeToolsManager: NativeToolsManager;
   private conversationManager: ConversationManager;
   private stageStateMachine: StageStateMachine;
+  private fileManager: FileManager;
   private lastActiveTextEditor: vscode.TextEditor | undefined;
   private editorChangeDisposable: vscode.Disposable | undefined;
 
@@ -35,7 +38,17 @@ export class HarmonyAssistant {
     this.nativeToolsManager = new NativeToolsManager();
     this.conversationManager = new ConversationManager();
     this.stageStateMachine = new StageStateMachine();
+    this.fileManager = new FileManager();
     this.harmonyClient = new HarmonyClient(this.config, this.mcpManager, this.rulesManager, this.nativeToolsManager);
+    
+    // Set up callback to send verboseInfo to webview before stage transitions
+    this.harmonyClient.setVerboseInfoCallback(async (verboseInfo) => {
+      await this.webviewManager.sendMessage({
+        content: '', // Empty content for pre-transition verbose info
+        verboseInfo: verboseInfo
+      });
+    });
+    
     this.templateRenderer = new TemplateRenderer(context, this.config.harmonyMode);
     this.codeActions = new CodeActions(
       this.harmonyClient,
@@ -95,6 +108,12 @@ export class HarmonyAssistant {
         this.config = loadConfig();
         await this.initializeRules();
         this.harmonyClient = new HarmonyClient(this.config, this.mcpManager, this.rulesManager, this.nativeToolsManager);
+        this.harmonyClient.setVerboseInfoCallback(async (verboseInfo) => {
+          await this.webviewManager.sendMessage({
+            content: '',
+            verboseInfo: verboseInfo
+          });
+        });
         this.codeActions = new CodeActions(
           this.harmonyClient,
           this.templateRenderer
@@ -105,6 +124,12 @@ export class HarmonyAssistant {
         this.config = loadConfig();
         this.templateRenderer = new TemplateRenderer(context, this.config.harmonyMode);
         this.harmonyClient = new HarmonyClient(this.config, this.mcpManager, this.rulesManager, this.nativeToolsManager);
+        this.harmonyClient.setVerboseInfoCallback(async (verboseInfo) => {
+          await this.webviewManager.sendMessage({
+            content: '',
+            verboseInfo: verboseInfo
+          });
+        });
         this.codeActions = new CodeActions(
           this.harmonyClient,
           this.templateRenderer
@@ -113,6 +138,12 @@ export class HarmonyAssistant {
         // Reload other config
         this.config = loadConfig();
         this.harmonyClient = new HarmonyClient(this.config, this.mcpManager, this.rulesManager, this.nativeToolsManager);
+        this.harmonyClient.setVerboseInfoCallback(async (verboseInfo) => {
+          await this.webviewManager.sendMessage({
+            content: '',
+            verboseInfo: verboseInfo
+          });
+        });
         this.codeActions = new CodeActions(
           this.harmonyClient,
           this.templateRenderer
@@ -228,17 +259,99 @@ export class HarmonyAssistant {
     );
 
     try {
-      // Extract file references and clean the message
+      // Extract file references and clean the message (explicit @file syntax)
       const { cleanMessage, fileContexts } = await FileContextExtractor.extractFileReferences(text);
       
       let finalMessage = cleanMessage;
       let fileContextText = '';
       
+      // Add explicit file contexts from @file syntax
       if (fileContexts.length > 0) {
         fileContextText = FileContextExtractor.formatFileContexts(fileContexts);
-        console.log(`[Harmony] Added ${fileContexts.length} file context(s) to message`);
-        
-        // Add file context to the message
+        console.log(`[Harmony] Added ${fileContexts.length} explicit file context(s) to message`);
+      }
+
+      // At chat stage, use FileManager to detect files from natural language queries
+      // This supports problem restatement (first priority) by providing file context
+      const currentStageForFileDetection = this.harmonyClient.getCurrentStage();
+      let fileExtractionResult: FileExtractionResult | undefined;
+      
+      if (currentStageForFileDetection === 'chat' || !currentStageForFileDetection) {
+        try {
+          // Detect files from the cleaned message (after @file extraction)
+          const fileDetection = await this.fileManager.detectAndCollectFiles(cleanMessage, {
+            includeContent: true,
+            maxFiles: 5,
+            confidenceThreshold: 'medium',
+            includeWorkspaceContext: false // Don't include workspace context by default to keep prompt focused
+          });
+
+          if (fileDetection.detectedFiles.length > 0 || fileDetection.ambiguousMatches.length > 0) {
+            const detectedFileContext = this.fileManager.formatForChatPrompt(fileDetection, false);
+            
+            // Combine with explicit file contexts
+            if (fileContextText) {
+              fileContextText = fileContextText + '\n\n' + detectedFileContext;
+            } else {
+              fileContextText = detectedFileContext;
+            }
+            
+            console.log(`[Harmony] FileManager detected ${fileDetection.detectedFiles.length} file(s) and ${fileDetection.ambiguousMatches.length} ambiguous match(es)`);
+          }
+          
+          // Build file extraction result for verbose info
+          fileExtractionResult = {
+            explicitFiles: fileContexts
+              .filter(fc => fc.type === 'file' || fc.type === 'directory' || fc.type === 'selection')
+              .map(fc => ({
+                path: fc.path,
+                type: (fc.type === 'selection' ? 'file' : fc.type) as 'file' | 'directory',
+                extractedAt: Date.now()
+              })),
+            detectedFiles: fileDetection.detectedFiles
+              .filter(f => f.type === 'file' || f.type === 'directory')
+              .map(f => ({
+                path: f.path,
+                type: f.type as 'file' | 'directory',
+                confidence: f.confidence,
+                extractedAt: Date.now()
+              })),
+            ambiguousMatches: fileDetection.ambiguousMatches.map(m => ({
+              path: m.path,
+              reason: `Confidence: ${m.confidence}`
+            }))
+          };
+        } catch (error: any) {
+          // Log but don't fail if FileManager encounters an error
+          console.warn(`[Harmony] FileManager error: ${error.message}`);
+          // Still include explicit files if available
+          if (fileContexts.length > 0) {
+            fileExtractionResult = {
+              explicitFiles: fileContexts
+                .filter(fc => fc.type === 'file' || fc.type === 'directory' || fc.type === 'selection')
+                .map(fc => ({
+                  path: fc.path,
+                  type: (fc.type === 'selection' ? 'file' : fc.type) as 'file' | 'directory',
+                  extractedAt: Date.now()
+                }))
+            };
+          }
+        }
+      } else if (fileContexts.length > 0) {
+        // For non-chat stages, still track explicit files
+        fileExtractionResult = {
+          explicitFiles: fileContexts
+            .filter(fc => fc.type === 'file' || fc.type === 'directory' || fc.type === 'selection')
+            .map(fc => ({
+              path: fc.path,
+              type: (fc.type === 'selection' ? 'file' : fc.type) as 'file' | 'directory',
+              extractedAt: Date.now()
+            }))
+        };
+      }
+      
+      // Add file context to the message if any was found
+      if (fileContextText) {
         finalMessage = fileContextText + '\n\n' + 'USER REQUEST:\n' + finalMessage;
       }
 
@@ -300,7 +413,8 @@ export class HarmonyAssistant {
         templateName,
         (name, ctx) => this.templateRenderer.applyTemplate(name, ctx, this.conversationManager.getHistoryForTemplate()),
         false,
-        this.conversationManager.getHistoryForTemplate()
+        this.conversationManager.getHistoryForTemplate(),
+        fileExtractionResult // Pass file extraction results for verbose info
       );
       
       console.log(

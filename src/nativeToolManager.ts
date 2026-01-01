@@ -267,6 +267,7 @@ export class NativeToolsManager {
   private async readFile(filePath: string): Promise<NativeToolResult> {
     try {
       const resolvedPath = this.resolvePath(filePath);
+      console.log(`[NativeTools] Reading file: "${filePath}" -> resolved to: "${resolvedPath}" (workspaceRoot: ${this.workspaceRoot || 'undefined'})`);
       const content = await readFile(resolvedPath, "utf-8");
       return {
         content: [
@@ -277,11 +278,13 @@ export class NativeToolsManager {
         ],
       };
     } catch (error: any) {
+      const resolvedPath = this.resolvePath(filePath);
+      console.error(`[NativeTools] Error reading file "${filePath}" (resolved to "${resolvedPath}"):`, error.message);
       return {
         content: [
           {
             type: "text",
-            text: `Error reading file ${filePath}: ${error.message}`,
+            text: `Error reading file ${filePath}: ${error.message} (resolved path: ${resolvedPath})`,
           },
         ],
         isError: true,

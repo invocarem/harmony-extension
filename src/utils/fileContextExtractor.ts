@@ -44,7 +44,8 @@ export class FileContextExtractor {
                 // Remove the @file reference from the message
                 cleanMessage = cleanMessage.replace(fullMatch, '').trim();
             } catch (error: any) {
-                console.warn(`Failed to get file context for ${filePath}:`, error.message);
+                const resolvedPath = this.resolvePath(filePath);
+                console.warn(`[FileContextExtractor] Failed to get file context for "${filePath}" (resolved to "${resolvedPath}"):`, error.message);
                 // Keep the reference in the message if we can't process it
             }
         }
@@ -74,12 +75,55 @@ export class FileContextExtractor {
      */
     private static async getFileContext(filePath: string): Promise<FileReference> {
         // Resolve path
-        const resolvedPath = this.resolvePath(filePath);
+        const workspaceFolders = vscode.workspace.workspaceFolders;
         
-        // Check if file exists
+        // Try each workspace folder if multiple exist
+        if (workspaceFolders && workspaceFolders.length > 0) {
+            const attemptedPaths: string[] = [];
+            
+            for (const folder of workspaceFolders) {
+                const workspaceRoot = folder.uri.fsPath;
+                const resolvedPath = path.isAbsolute(filePath) 
+                    ? filePath 
+                    : path.resolve(workspaceRoot, filePath);
+                attemptedPaths.push(resolvedPath);
+                
+                console.log(`[FileContextExtractor] Trying file: "${filePath}" -> "${resolvedPath}" (workspace: ${workspaceRoot})`);
+                
+                // Check if file exists
+                const stats = await fs.promises.stat(resolvedPath).catch(() => null);
+                if (stats) {
+                    // File found in this workspace folder
+                    if (stats.isDirectory()) {
+                        const content = await this.readDirectoryContents(resolvedPath);
+                        return {
+                            type: 'directory',
+                            path: resolvedPath,
+                            content
+                        };
+                    } else {
+                        const content = await fs.promises.readFile(resolvedPath, 'utf-8');
+                        return {
+                            type: 'file',
+                            path: resolvedPath,
+                            content
+                        };
+                    }
+                }
+            }
+            
+            // File not found in any workspace folder
+            const workspaceRoots = workspaceFolders.map(f => f.uri.fsPath).join(', ');
+            throw new Error(`File not found: ${filePath} (searched in workspace folders: ${workspaceRoots}. Attempted paths: ${attemptedPaths.join(', ')})`);
+        }
+        
+        // No workspace folders - use current working directory
+        const resolvedPath = path.isAbsolute(filePath) ? filePath : path.resolve(filePath);
+        console.log(`[FileContextExtractor] Reading file: "${filePath}" -> resolved to: "${resolvedPath}" (no workspace, using cwd)`);
+        
         const stats = await fs.promises.stat(resolvedPath).catch(() => null);
         if (!stats) {
-            throw new Error(`File not found: ${filePath} (resolved to: ${resolvedPath})`);
+            throw new Error(`File not found: ${filePath} (resolved to: ${resolvedPath}, no workspace folders available)`);
         }
         
         if (stats.isDirectory()) {
