@@ -41,6 +41,10 @@ export class ConversationContextManager {
    * Initialize a new conversation context
    */
   initialize(originalPrompt: string, initialStage: WorkflowStage = 'init'): ConversationContext {
+    // Preserve existing progressPlan if context is being re-initialized
+    const existingPlan = this.context?.progressPlan;
+    const existingCodeContexts = this.context?.codeContexts;
+    
     this.context = {
       originalPrompt,
       currentStage: initialStage,
@@ -48,6 +52,10 @@ export class ConversationContextManager {
       steps: [],
       maxSteps: 5,
       currentStep: 1,
+      // Preserve progressPlan if it exists (important for implementation stage)
+      ...(existingPlan && { progressPlan: existingPlan }),
+      // Preserve codeContexts if they exist
+      ...(existingCodeContexts && { codeContexts: existingCodeContexts }),
     };
     return this.context;
   }
@@ -135,9 +143,21 @@ export class ConversationContextManager {
 
   /**
    * Set the progress plan
+   * If context doesn't exist, creates a minimal context to store the plan
    */
   setProgressPlan(plan: ProgressPlan): void {
-    if (this.context) {
+    if (!this.context) {
+      // Create a minimal context if it doesn't exist to preserve the plan
+      this.context = {
+        originalPrompt: plan.originalPrompt || '',
+        currentStage: 'chat',
+        stageHistory: [{ stage: 'chat', enteredAt: Date.now() }],
+        steps: [],
+        maxSteps: 5,
+        currentStep: 1,
+        progressPlan: plan,
+      };
+    } else {
       this.context.progressPlan = plan;
     }
   }

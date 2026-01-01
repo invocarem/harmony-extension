@@ -927,7 +927,7 @@ export class HarmonyClient {
 
         // Update progressPlan if it exists and we're in implementation stage
         const contextForPlan = this.contextManager.getContext();
-        if (contextForPlan?.progressPlan && currentStage === 'implementation' && executedToolCalls.length > 0) {
+        if (contextForPlan?.progressPlan && currentStage === 'implementation' && executedToolCalls?.length > 0) {
           const plan = contextForPlan.progressPlan;
           const fileModificationTools = ['create_file', 'replace_file', 'write_file', 'update_file'];
           

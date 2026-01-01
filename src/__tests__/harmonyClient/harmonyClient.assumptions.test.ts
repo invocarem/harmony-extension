@@ -89,8 +89,8 @@ describe('HarmonyClient - Assumptions Stage', () => {
       const autoTransitionManager = (client as any).autoTransitionManager;
       const contextManager = (client as any).contextManager;
       
-      // Create a context in assumptions stage
-      contextManager.updateStage('assumptions', 'test prompt');
+      // Initialize context first, then update to assumptions stage
+      contextManager.initialize('test prompt', 'assumptions');
       const context = contextManager.getContext();
       
       // Simulate a hard task response with multiple steps
@@ -131,7 +131,8 @@ describe('HarmonyClient - Assumptions Stage', () => {
       const autoTransitionManager = (client as any).autoTransitionManager;
       const contextManager = (client as any).contextManager;
       
-      contextManager.updateStage('assumptions', 'test prompt');
+      // Initialize context first, then update to assumptions stage
+      contextManager.initialize('test prompt', 'assumptions');
       const context = contextManager.getContext();
       
       const content = 'Step 1: Create main.py\nStep 2: Add requirements.txt\nStep 3: Write README.md';
@@ -161,7 +162,8 @@ describe('HarmonyClient - Assumptions Stage', () => {
       const autoTransitionManager = (client as any).autoTransitionManager;
       const contextManager = (client as any).contextManager;
       
-      contextManager.updateStage('assumptions', 'test prompt');
+      // Initialize context first, then update to assumptions stage
+      contextManager.initialize('test prompt', 'assumptions');
       const context = contextManager.getContext();
       
       const content = 'Here is the code for app.py';
@@ -185,7 +187,8 @@ describe('HarmonyClient - Assumptions Stage', () => {
       const autoTransitionManager = (client as any).autoTransitionManager;
       const contextManager = (client as any).contextManager;
       
-      contextManager.updateStage('assumptions', 'test prompt');
+      // Initialize context first, then update to assumptions stage
+      contextManager.initialize('test prompt', 'assumptions');
       const context = contextManager.getContext();
       
       // Content with complexity indicators that should trigger hard task detection
@@ -214,7 +217,8 @@ describe('HarmonyClient - Assumptions Stage', () => {
       const autoTransitionManager = (client as any).autoTransitionManager;
       const contextManager = (client as any).contextManager;
       
-      contextManager.updateStage('assumptions', 'test prompt');
+      // Initialize context first, then update to assumptions stage
+      contextManager.initialize('test prompt', 'assumptions');
       const context = contextManager.getContext();
       
       // Use content with multiple step indicators that will definitely be detected as hard
