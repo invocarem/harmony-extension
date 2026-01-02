@@ -34,8 +34,9 @@ import {
   logToolCalls,
   logRules,
   logStepInfo,
+  logVerboseInfo,
 } from "./utils/logger";
-import { VerboseInfo, VerboseInfoBuilder, FileOperationResult } from "./utils/verboseInfo";
+import { VerboseInfo, VerboseInfoBuilder, FileOperationResult, withToString, VerboseInfoFormatter } from "./utils/verboseInfo";
 
 export interface HarmonyResponse {
   content: string;
@@ -146,9 +147,10 @@ export class HarmonyClient {
               );
               if (detectedStage !== 'chat' && detectedStage !== 'init') {
                 console.log(`[Harmony] Stage transition detected at start: chat -> ${detectedStage}`);
-                // Send verboseInfo before transition
-                await this.sendVerboseInfoBeforeTransition(updatedContext.currentStage, detectedStage, updatedContext, fileExtractionResult);
+                // Perform the transition first
                 this.contextManager.updateStage(detectedStage, prompt);
+                // Send verboseInfo after transition
+                await this.sendVerboseInfo(fileExtractionResult);
               }
             }
           }
@@ -173,9 +175,10 @@ export class HarmonyClient {
             
             if (detectedStage !== previousStage) {
               console.log(`[Harmony] ✅ STAGE TRANSITION APPROVED: ${previousStage} -> ${detectedStage}`);
-              // Send verboseInfo before transition
-              await this.sendVerboseInfoBeforeTransition(previousStage, detectedStage, context, fileExtractionResult);
+              // Perform the transition first
               this.contextManager.updateStage(detectedStage, prompt);
+              // Send verboseInfo after transition
+              await this.sendVerboseInfo(fileExtractionResult);
               
               // Immediately refresh context to verify the update
               const updatedContext = this.contextManager.getContext();
@@ -210,9 +213,10 @@ export class HarmonyClient {
           const previousStage = context.currentStage;
           if (detectedStage !== previousStage) {
             console.log(`[Harmony] Stage transition: ${previousStage} -> ${detectedStage}`);
-            // Send verboseInfo before transition
-            await this.sendVerboseInfoBeforeTransition(previousStage, detectedStage, context, fileExtractionResult);
+            // Perform the transition first
             this.contextManager.updateStage(detectedStage, prompt);
+            // Send verboseInfo after transition
+            await this.sendVerboseInfo(fileExtractionResult);
           }
         }
       }
@@ -237,6 +241,14 @@ export class HarmonyClient {
         verboseInfo.isComplete = true;
         delete verboseInfo.step;
         delete verboseInfo.maxSteps;
+        
+        // Log using toString() (doesn't affect returned object)
+        try {
+          withToString(verboseInfo).toString();
+        } catch (e) {
+          // Ignore logging errors
+        }
+        
         return {
           content: `I've gathered information through multiple steps, but haven't completed the task. Here's what I found so far.`,
           reasoning: "Reached maximum allowed steps for this task.",
@@ -484,6 +496,13 @@ export class HarmonyClient {
             verboseInfo.isComplete = true;
             delete verboseInfo.step;
             delete verboseInfo.maxSteps;
+            
+            // Log using toString() (doesn't affect returned object)
+            try {
+              withToString(verboseInfo).toString();
+            } catch (e) {
+              // Ignore logging errors
+            }
             
             return {
               content: `Successfully created ${createdFiles.length} file(s) from code snippets: ${createdFiles.join(', ')}`,
@@ -1167,6 +1186,13 @@ export class HarmonyClient {
           );
         }
         
+        // Log using toString() (doesn't affect returned object)
+        try {
+          withToString(verboseInfo).toString();
+        } catch (e) {
+          // Ignore logging errors
+        }
+        
         if (shouldContinue && finalContext) {
           // Check if we can continue
           if (finalContext.currentStep + 1 > finalContext.maxSteps) {
@@ -1367,6 +1393,13 @@ export class HarmonyClient {
       delete verboseInfo.step;
       delete verboseInfo.maxSteps;
 
+      // Log using toString() (doesn't affect returned object)
+      try {
+        withToString(verboseInfo).toString();
+      } catch (e) {
+        // Ignore logging errors
+      }
+
       // Clear lastStageTransition after using it
       if (finalContextForVerbose?.lastStageTransition) {
         // Note: We can't directly mutate, but the context manager will handle this in next update
@@ -1445,7 +1478,16 @@ export class HarmonyClient {
                     };
                   }),
                   isContinuation: isContinuation,
-                  verboseInfo: VerboseInfoBuilder.forImplementationStage(context, this.progressPlanManager, undefined, []),
+                  verboseInfo: (() => {
+                    const vi = VerboseInfoBuilder.forImplementationStage(context, this.progressPlanManager, undefined, []);
+                    // Log using toString() (doesn't affect returned object)
+                    try {
+                      withToString(vi).toString();
+                    } catch (e) {
+                      // Ignore logging errors
+                    }
+                    return vi;
+                  })(),
                 };
               }
             }
@@ -1691,11 +1733,90 @@ export class HarmonyClient {
       
       if (verboseInfo && this.verboseInfoCallback) {
         try {
-          await this.verboseInfoCallback(verboseInfo);
+          // Log verboseInfo directly using logVerboseInfo
+          // This ensures logging happens even if toString() has issues
+          try {
+            const formatted = VerboseInfoFormatter.format(verboseInfo);
+            logVerboseInfo(verboseInfo, formatted);
+          } catch (logError: any) {
+            console.warn(`[Harmony] Error logging verboseInfo:`, logError);
+            // Fallback: try using toString() wrapper
+            try {
+              const verboseInfoWithToString = withToString(verboseInfo);
+              verboseInfoWithToString.toString(); // This also logs via logVerboseInfo() inside toString()
+            } catch (toStringError: any) {
+              console.warn(`[Harmony] Error calling toString() on verboseInfo:`, toStringError);
+            }
+          }
+          
+          // Send a plain, serializable copy of verboseInfo to callback
+          // This ensures we don't pass any object with getter-only properties that can't be serialized
+          // Use structuredClone if available (Node 17+), otherwise fall back to JSON serialization
+          let plainVerboseInfo: VerboseInfo;
+          if (typeof structuredClone !== 'undefined') {
+            plainVerboseInfo = structuredClone(verboseInfo);
+          } else {
+            // Fallback for older Node versions
+            plainVerboseInfo = JSON.parse(JSON.stringify(verboseInfo));
+          }
+          await this.verboseInfoCallback(plainVerboseInfo);
         } catch (error: any) {
           console.warn(`[Harmony] Error in verboseInfo callback:`, error);
         }
       }
+    }
+  }
+
+  /**
+   * Send verboseInfo to webview after a stage transition
+   * This displays the verboseInfo for the current stage (after transition)
+   */
+  private async sendVerboseInfo(
+    fileExtractionResult?: import("./utils/verboseInfo").FileExtractionResult
+  ): Promise<void> {
+    const context = this.contextManager.getContext();
+    if (!context || !this.verboseInfoCallback) {
+      return;
+    }
+
+    try {
+      // Build verboseInfo for the current stage (after transition)
+      const verboseInfo: VerboseInfo = context.currentStage === 'chat'
+        ? VerboseInfoBuilder.forChatStage(context, fileExtractionResult)
+        : context.currentStage === 'assumptions'
+        ? VerboseInfoBuilder.forAssumptionStage(context)
+        : VerboseInfoBuilder.forImplementationStage(context, this.progressPlanManager);
+
+      console.log(`[Harmony] 📋 Sending ${context.currentStage} verbose info to webview (after transition)`);
+
+      // Log verboseInfo directly using logVerboseInfo
+      try {
+        const formatted = VerboseInfoFormatter.format(verboseInfo);
+        logVerboseInfo(verboseInfo, formatted);
+      } catch (logError: any) {
+        console.warn(`[Harmony] Error logging verboseInfo:`, logError);
+        // Fallback: try using toString() wrapper
+        try {
+          const verboseInfoWithToString = withToString(verboseInfo);
+          verboseInfoWithToString.toString(); // This also logs via logVerboseInfo() inside toString()
+        } catch (toStringError: any) {
+          console.warn(`[Harmony] Error calling toString() on verboseInfo:`, toStringError);
+        }
+      }
+
+      // Send a plain, serializable copy of verboseInfo to callback
+      // This ensures we don't pass any object with getter-only properties that can't be serialized
+      // Use structuredClone if available (Node 17+), otherwise fall back to JSON serialization
+      let plainVerboseInfo: VerboseInfo;
+      if (typeof structuredClone !== 'undefined') {
+        plainVerboseInfo = structuredClone(verboseInfo);
+      } else {
+        // Fallback for older Node versions
+        plainVerboseInfo = JSON.parse(JSON.stringify(verboseInfo));
+      }
+      await this.verboseInfoCallback(plainVerboseInfo);
+    } catch (error: any) {
+      console.warn(`[Harmony] Error in verboseInfo callback:`, error);
     }
   }
 
@@ -1712,13 +1833,13 @@ export class HarmonyClient {
       return false;
     }
     
-    // Send verboseInfo before transition
-    const context = this.contextManager.getContext();
-    await this.sendVerboseInfoBeforeTransition(currentStage, to, context);
-    
-    // Perform the transition
+    // Perform the transition first
     this.contextManager.updateStage(to, prompt || `Manual transition from ${currentStage} to ${to}`);
     console.log(`[Harmony] Stage transitioned: ${currentStage} -> ${to}`);
+    
+    // Send verboseInfo after transition
+    await this.sendVerboseInfo();
+    
     return true;
   }
 

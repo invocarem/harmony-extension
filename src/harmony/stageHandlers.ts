@@ -180,21 +180,23 @@ class ImplementationStageHandler implements StageHandler {
           }
         }
 
+        const verboseInfo = {
+          stage: 'implementation' as const,
+          isComplete: true,
+          toolCalls: toolCalls.map(tc => ({
+            name: tc.name,
+            stage: 'implementation' as WorkflowStage,
+            success: !tc.result?.isError,
+            error: tc.result?.isError ? (tc.result?.content?.[0]?.text || 'Unknown error') : undefined
+          }))
+        };
+        
         return {
           shouldSkipLLM: true,
           response: {
             content: `Successfully created ${createdFiles.length} file(s) from code snippets: ${createdFiles.join(', ')}`,
             toolCalls: toolCalls,
-            verboseInfo: {
-              stage: 'implementation',
-              isComplete: true,
-              toolCalls: toolCalls.map(tc => ({
-                name: tc.name,
-                stage: 'implementation' as WorkflowStage,
-                success: !tc.result?.isError,
-                error: tc.result?.isError ? (tc.result?.content?.[0]?.text || 'Unknown error') : undefined
-              }))
-            }
+            verboseInfo: verboseInfo
           }
         };
       }

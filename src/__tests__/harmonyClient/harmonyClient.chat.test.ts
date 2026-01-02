@@ -6,6 +6,7 @@ import { NativeToolsManager, NativeTool } from '../../nativeToolManager';
 import { HarmonyProcessor, HarmonyParseResult } from '../../harmonyProcessor';
 import { MCPToolCall, MCPToolResult } from '../../mcpClient';
 import axios from 'axios';
+import { transitionToAssumptions } from '../testHelpers';
 
 // Mock dependencies
 jest.mock('axios');
@@ -303,7 +304,7 @@ describe('HarmonyClient - Chat Stage', () => {
   });
 
   describe('Stage Transitions', () => {
-    it('should transition from chat to assumptions when code keywords are detected', async () => {
+    it('should NOT auto-transition from chat to assumptions when code keywords are detected (auto-transition disabled)', async () => {
       const mockResponse = {
         status: 200,
         data: {
@@ -322,11 +323,18 @@ describe('HarmonyClient - Chat Stage', () => {
 
       await client.callServer('how to create a Python function');
 
+      // Should stay in chat stage (auto-transition disabled)
+      expect(client.getCurrentStage()).toBe('chat');
+    });
+
+    it('should transition from chat to assumptions when explicit command is used', async () => {
+      await transitionToAssumptions(client, mockHarmonyProcessor);
+
       // Should transition to assumptions stage
       expect(client.getCurrentStage()).toBe('assumptions');
     });
 
-    it('should transition from chat to assumptions when file operations are detected', async () => {
+    it('should NOT auto-transition from chat to assumptions when file operations are detected (auto-transition disabled)', async () => {
       const mockResponse = {
         status: 200,
         data: {
@@ -345,8 +353,8 @@ describe('HarmonyClient - Chat Stage', () => {
 
       await client.callServer('create app.py');
 
-      // Should transition to assumptions stage
-      expect(client.getCurrentStage()).toBe('assumptions');
+      // Should stay in chat stage (auto-transition disabled)
+      expect(client.getCurrentStage()).toBe('chat');
     });
 
     it('should stay in chat stage for general questions', async () => {

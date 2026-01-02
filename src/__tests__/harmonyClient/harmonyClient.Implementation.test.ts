@@ -6,6 +6,7 @@ import { NativeToolsManager, NativeTool } from '../../nativeToolManager';
 import { HarmonyProcessor, HarmonyParseResult } from '../../harmonyProcessor';
 import { MCPToolCall, MCPToolResult } from '../../mcpClient';
 import axios from 'axios';
+import { transitionToAssumptions, transitionToImplementation, transitionToImplementationViaAssumptions } from '../testHelpers';
 
 // Mock dependencies
 jest.mock('axios');
@@ -15,27 +16,15 @@ const mockedAxios = axios as jest.Mocked<typeof axios>;
 /**
  * Helper function to transition to implementation stage
  * Note: This should be called at the start of each test that needs implementation stage
+ * Uses the shared testHelpers for consistency
  */
-async function transitionToImplementation(
+async function setupImplementationStage(
   client: HarmonyClient,
-  mockedAxios: jest.Mocked<typeof axios>,
   mockHarmonyProcessor: jest.Mocked<HarmonyProcessor>
 ): Promise<void> {
-  // First transition to assumptions stage (required per state machine)
-  const assumptionsResponse = {
-    status: 200,
-    data: {
-      choices: [{ text: '<|channel|>final<|message|>Here is the code...<|end|>' }],
-    },
-  };
-  mockedAxios.post.mockResolvedValueOnce(assumptionsResponse);
-  mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
-    content: 'Here is the code...',
-    rawToolCalls: [],
-  });
-  mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
-  await client.callServer('how to implement a function');
-
+  // Use shared helpers to transition through assumptions to implementation
+  await transitionToAssumptions(client, mockHarmonyProcessor);
+  
   // Now transition to implementation stage
   const implementationResponse = {
     status: 200,
@@ -126,7 +115,7 @@ describe('HarmonyClient - Implementation Stage', () => {
   describe('File Creation and Modification', () => {
     it('should automatically fallback from create_file to replace_file when file exists', async () => {
       // First, transition to implementation stage using explicit command
-      await transitionToImplementation(client, mockedAxios, mockHarmonyProcessor);
+      await setupImplementationStage(client, mockHarmonyProcessor);
 
       // Now test the fallback in implementation stage
       const mockResponse = {
@@ -219,7 +208,7 @@ describe('HarmonyClient - Implementation Stage', () => {
 
     it('should not fallback to replace_file when create_file succeeds', async () => {
       // First, transition to implementation stage using explicit command
-      await transitionToImplementation(client, mockedAxios, mockHarmonyProcessor);
+      await setupImplementationStage(client, mockHarmonyProcessor);
 
       // Now test the successful create_file in implementation stage
       const mockResponse = {
@@ -285,35 +274,8 @@ describe('HarmonyClient - Implementation Stage', () => {
 
   describe('Continuation Logic in Implementation Stage', () => {
     it('should continue from read_file to replace_file', async () => {
-      // First, transition to assumptions stage (required per state machine)
-      const assumptionsResponse = {
-        status: 200,
-        data: {
-          choices: [{ text: '<|channel|>final<|message|>Here is the code...<|end|>' }],
-        },
-      };
-      mockedAxios.post.mockResolvedValueOnce(assumptionsResponse);
-      mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
-        content: 'Here is the code...',
-        rawToolCalls: [],
-      });
-      mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
-      await client.callServer('how to implement a function');
-
-      // Now transition to implementation stage
-      const implementationResponse = {
-        status: 200,
-        data: {
-          choices: [{ text: '<|channel|>final<|message|>Ready to implement<|end|>' }],
-        },
-      };
-      mockedAxios.post.mockResolvedValueOnce(implementationResponse);
-      mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
-        content: 'Ready to implement',
-        rawToolCalls: [],
-      });
-      mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
-      await client.callServer('move to implementation');
+      // Use helper to transition to implementation stage
+      await setupImplementationStage(client, mockHarmonyProcessor);
 
       // First response: read_file - needs continuation hint to trigger continuation
       const readFileResponse = {
@@ -371,10 +333,10 @@ describe('HarmonyClient - Implementation Stage', () => {
       ];
 
       mockHarmonyProcessor.extractToolCalls
-        .mockReturnValueOnce([]) // Assumptions transition call
-        .mockReturnValueOnce([]) // Implementation transition call
-        .mockReturnValueOnce(readFileToolCalls)
-        .mockReturnValueOnce(replaceFileToolCalls)
+        .mockReturnValueOnce([]) // Helper assumptions transition call
+        .mockReturnValueOnce([]) // Helper implementation transition call
+        .mockReturnValueOnce(readFileToolCalls) // Initial test call
+        .mockReturnValueOnce(replaceFileToolCalls) // Continuation call
         .mockReturnValue([]); // Fallback for any extra calls
 
       const readFileResult: MCPToolResult = {
@@ -424,8 +386,9 @@ describe('HarmonyClient - Implementation Stage', () => {
 
       const result = await client.callServer('update test.txt to have new content');
 
-      // Should have made four API calls (assumptions transition + implementation transition + initial + continuation)
-      // The continuation is triggered but the second continuation (to replace_file) is blocked by continuation logic
+      // Should have made API calls: helper assumptions(1) + helper implementation(1) + initial(1) + continuation(1) = 4
+      // But setupImplementationStage makes 2 calls, then the test call makes 1, then continuation makes 1 = 4 total
+      // Actually: setupImplementationStage = assumptions(1) + implementation(1) = 2, then test call = 1, continuation = 1, total = 4
       expect(mockedAxios.post).toHaveBeenCalledTimes(4);
       
       // Should have executed only the read_file tool call
@@ -439,7 +402,7 @@ describe('HarmonyClient - Implementation Stage', () => {
     });
 
     it('should not continue when task is complete with file modification', async () => {
-      await transitionToImplementation(client, mockedAxios, mockHarmonyProcessor);
+      await setupImplementationStage(client, mockHarmonyProcessor);
 
       const mockResponse = {
         status: 200,
@@ -495,7 +458,7 @@ describe('HarmonyClient - Implementation Stage', () => {
     });
 
     it('should handle tool execution errors gracefully', async () => {
-      await transitionToImplementation(client, mockedAxios, mockHarmonyProcessor);
+      await setupImplementationStage(client, mockHarmonyProcessor);
 
       const mockResponse = {
         status: 200,
@@ -548,7 +511,7 @@ describe('HarmonyClient - Implementation Stage', () => {
     });
 
     it('should handle multiple tool calls in one response', async () => {
-      await transitionToImplementation(client, mockedAxios, mockHarmonyProcessor);
+      await setupImplementationStage(client, mockHarmonyProcessor);
 
       const mockResponse = {
         status: 200,
@@ -612,7 +575,7 @@ describe('HarmonyClient - Implementation Stage', () => {
     });
 
     it('should handle mixed success and error tool calls', async () => {
-      await transitionToImplementation(client, mockedAxios, mockHarmonyProcessor);
+      await setupImplementationStage(client, mockHarmonyProcessor);
 
       const mockResponse = {
         status: 200,
@@ -675,7 +638,7 @@ describe('HarmonyClient - Implementation Stage', () => {
 
   describe('Error Handling and Edge Cases', () => {
     it('should handle empty file content', async () => {
-      await transitionToImplementation(client, mockedAxios, mockHarmonyProcessor);
+      await setupImplementationStage(client, mockHarmonyProcessor);
 
       const mockResponse = {
         status: 200,
@@ -726,7 +689,7 @@ describe('HarmonyClient - Implementation Stage', () => {
     });
 
     it('should handle responses with no tool calls and no content', async () => {
-      await transitionToImplementation(client, mockedAxios, mockHarmonyProcessor);
+      await setupImplementationStage(client, mockHarmonyProcessor);
 
       const mockResponse = {
         status: 200,
@@ -756,7 +719,7 @@ describe('HarmonyClient - Implementation Stage', () => {
     });
 
     it('should handle tool call extraction failures', async () => {
-      await transitionToImplementation(client, mockedAxios, mockHarmonyProcessor);
+      await setupImplementationStage(client, mockHarmonyProcessor);
 
       const mockResponse = {
         status: 200,
@@ -790,7 +753,7 @@ describe('HarmonyClient - Implementation Stage', () => {
     });
 
     it('should stop continuation when max steps reached', async () => {
-      await transitionToImplementation(client, mockedAxios, mockHarmonyProcessor);
+      await setupImplementationStage(client, mockHarmonyProcessor);
 
       // Set max steps to 2 and current step to 2 (already at max)
       const context = (client as any).contextManager.getContext();
@@ -869,7 +832,10 @@ describe('HarmonyClient - Implementation Stage', () => {
       mockHarmonyProcessor.parseResponse.mockReturnValueOnce(assumptionsParseResult);
       mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
 
-      // First call to assumptions stage - this should extract CodeContext (but NOT create files)
+      // First transition to assumptions stage using helper
+      await transitionToAssumptions(client, mockHarmonyProcessor);
+      
+      // Now call with code context extraction
       await client.callServer('create app.py with hello world');
 
       // Verify we're in assumptions stage
@@ -956,9 +922,12 @@ describe('HarmonyClient - Implementation Stage', () => {
         rawToolCalls: [],
       };
 
+      // First transition to assumptions stage using helper
+      await transitionToAssumptions(client, mockHarmonyProcessor);
+      
+      // Now call with code context extraction
       mockHarmonyProcessor.parseResponse.mockReturnValueOnce(assumptionsParseResult);
       mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
-
       await client.callServer('provide code for test.py');
 
       // Verify we're in assumptions stage
@@ -1027,7 +996,7 @@ describe('HarmonyClient - Implementation Stage', () => {
       ]);
 
       // Transition to implementation stage
-      await transitionToImplementation(client, mockedAxios, mockHarmonyProcessor);
+      await setupImplementationStage(client, mockHarmonyProcessor);
 
       // Verify we're in implementation stage
       expect(client.getCurrentStage()).toBe('implementation');
@@ -1099,7 +1068,7 @@ describe('HarmonyClient - Implementation Stage', () => {
         { goal: 'Create config.json' },
       ]);
 
-      await transitionToImplementation(client, mockedAxios, mockHarmonyProcessor);
+      await setupImplementationStage(client, mockHarmonyProcessor);
 
       // Mock response with create_file tool call
       const implementationResponse = {
@@ -1167,7 +1136,7 @@ describe('HarmonyClient - Implementation Stage', () => {
         { goal: 'Create file2.py' },
       ]);
 
-      await transitionToImplementation(client, mockedAxios, mockHarmonyProcessor);
+      await setupImplementationStage(client, mockHarmonyProcessor);
 
       const createFileTool = {
         name: 'create_file',
@@ -1263,7 +1232,7 @@ describe('HarmonyClient - Implementation Stage', () => {
         { goal: 'Step 3: Create tests.py' },
       ]);
 
-      await transitionToImplementation(client, mockedAxios, mockHarmonyProcessor);
+      await setupImplementationStage(client, mockHarmonyProcessor);
 
       const createFileTool = {
         name: 'create_file',

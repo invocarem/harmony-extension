@@ -184,13 +184,22 @@ describe('StageStateMachine', () => {
       expect(nextStage).toBe(null); // Invalid transition
     });
 
-    it('should detect code-related questions and transition to assumptions from chat', () => {
+    it('should NOT auto-transition from chat to assumptions for code-related questions (auto-transition disabled)', () => {
+      // Auto-transition is disabled - code keywords no longer trigger auto-transition
+      // Users must explicitly say "move to assumptions" to transition
       const nextStage = stateMachine.determineNextStage('chat', 'how to implement a function');
-      expect(nextStage).toBe('assumptions');
+      expect(nextStage).toBeNull(); // Should stay in chat stage
     });
 
-    it('should detect file operations with extensions and transition to assumptions from chat', () => {
+    it('should NOT auto-transition from chat to assumptions for file operations (auto-transition disabled)', () => {
+      // Auto-transition is disabled - file operations no longer trigger auto-transition
+      // Users must explicitly say "move to assumptions" to transition
       const nextStage = stateMachine.determineNextStage('chat', 'create hello.py file');
+      expect(nextStage).toBeNull(); // Should stay in chat stage
+    });
+
+    it('should detect explicit "move to assumptions" command from chat stage', () => {
+      const nextStage = stateMachine.determineNextStage('chat', 'move to assumptions');
       expect(nextStage).toBe('assumptions');
     });
 

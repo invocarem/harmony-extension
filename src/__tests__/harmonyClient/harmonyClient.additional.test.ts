@@ -6,6 +6,7 @@ import { NativeToolsManager, NativeTool } from '../../nativeToolManager';
 import { HarmonyProcessor, HarmonyParseResult } from '../../harmonyProcessor';
 import { MCPToolCall, MCPToolResult } from '../../mcpClient';
 import axios from 'axios';
+import { transitionToAssumptions, transitionToImplementation } from '../testHelpers';
 
 // Mock dependencies
 jest.mock('axios');
@@ -369,8 +370,10 @@ describe('HarmonyClient - Additional Test Cases', () => {
       mockMCPManager.callTool.mockResolvedValue(toolResult);
 
       // This test is about special character handling in tool arguments, not stage restrictions
-      // First call to transition to assumptions stage, then second call to move to implementation
-      await client.callServer('create a file'); // This goes to assumptions stage
+      // First transition to assumptions stage using helper, then move to implementation
+      await transitionToAssumptions(client, mockHarmonyProcessor);
+      
+      // Now transition to implementation stage with the tool call
       const result = await client.callServer('move to implementation and write_file test.txt with special characters');
 
       expect(result.toolCalls?.length).toBe(1);

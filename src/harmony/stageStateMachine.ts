@@ -56,10 +56,10 @@ const TRANSITION_TABLE: TransitionRule[] = [
   // Clarification requests
   { from: 'implementation', trigger: 'clarification_request', to: 'chat', priority: 60 },
   
-  // Chat -> Assumptions transitions
-  { from: 'chat', trigger: 'code_keywords', to: 'assumptions', priority: 50 },
-  { from: 'chat', trigger: 'file_operations_without_ext', to: 'assumptions', priority: 50 },
-  { from: 'chat', trigger: 'file_operations_with_ext', to: 'assumptions', priority: 50 },
+  // Chat -> Assumptions transitions (DISABLED: Auto-transition removed, requires explicit "move to assumptions")
+  // { from: 'chat', trigger: 'code_keywords', to: 'assumptions', priority: 50 },
+  // { from: 'chat', trigger: 'file_operations_without_ext', to: 'assumptions', priority: 50 },
+  // { from: 'chat', trigger: 'file_operations_with_ext', to: 'assumptions', priority: 50 },
 ];
 
 /**

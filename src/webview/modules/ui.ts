@@ -4,6 +4,7 @@
 
 import { formatMarkdown, escapeHtml } from './markdown';
 import { ContextSummary } from '../types';
+import { verboseInfoToString, addToString, VerboseInfo } from './verboseInfoFormatter';
 
 const messagesDiv = document.getElementById('messages') as HTMLDivElement;
 let lastUserMessageElement: HTMLElement | null = null;
@@ -13,22 +14,7 @@ export function addMessage(
     isUser: boolean,
     reasoning?: string,
     contextSummary?: ContextSummary,
-    verboseInfo?: {
-        stage?: 'init' | 'chat' | 'assumptions' | 'implementation';
-        stageTransition?: {
-            from: 'init' | 'chat' | 'assumptions' | 'implementation';
-            to: 'init' | 'chat' | 'assumptions' | 'implementation';
-        };
-        step?: number;
-        maxSteps?: number;
-        isComplete?: boolean;
-        toolCalls?: Array<{
-            name: string;
-            stage: 'init' | 'chat' | 'assumptions' | 'implementation';
-            success: boolean;
-            error?: string;
-        }>;
-    },
+    verboseInfo?: VerboseInfo,
     final?: string,
     commentary?: string
 ): void {
@@ -69,87 +55,32 @@ export function addMessage(
     }
     
     // Add verbose info section if present (for assistant messages)
+    // Use C#-like toString() to format any verboseInfo type
     if (verboseInfo && !isUser) {
         const verboseDiv = document.createElement('div');
         verboseDiv.className = 'verbose-info-section';
         
-        const infoItems: string[] = [];
+        // Use toString() to format the verboseInfo (C#-like behavior)
+        // This works for chatVerboseInfo, assumptionsVerboseInfo, or implementationVerboseInfo
+        const verboseInfoWithToString = addToString(verboseInfo);
+        const formattedText = verboseInfoWithToString.toString();
         
-        // Stage information
-        if (verboseInfo.stage) {
-            const stageEmoji = {
-                'init': '🔄',
-                'chat': '💬',
-                'assumptions': '🔍',
-                'implementation': '⚙️'
-            }[verboseInfo.stage] || '📋';
-            const stageLabel = verboseInfo.stage.charAt(0).toUpperCase() + verboseInfo.stage.slice(1);
-            infoItems.push(`<div class="verbose-info-item"><span class="verbose-info-label">${stageEmoji} Stage:</span> <span class="verbose-info-value">${stageLabel}</span></div>`);
-        }
-        
-        // Stage transition
-        if (verboseInfo.stageTransition) {
-            const fromEmoji = {
-                'init': '🔄',
-                'chat': '💬',
-                'assumptions': '🔍',
-                'implementation': '⚙️'
-            }[verboseInfo.stageTransition.from] || '📋';
-            const toEmoji = {
-                'init': '🔄',
-                'chat': '💬',
-                'assumptions': '🔍',
-                'implementation': '⚙️'
-            }[verboseInfo.stageTransition.to] || '📋';
-            const fromLabel = verboseInfo.stageTransition.from.charAt(0).toUpperCase() + verboseInfo.stageTransition.from.slice(1);
-            const toLabel = verboseInfo.stageTransition.to.charAt(0).toUpperCase() + verboseInfo.stageTransition.to.slice(1);
-            infoItems.push(`<div class="verbose-info-item verbose-info-transition"><span class="verbose-info-label">🔄 Transition:</span> <span class="verbose-info-value">${fromEmoji} ${fromLabel} → ${toEmoji} ${toLabel}</span></div>`);
-        }
-        
-        // Step information - show step count if continuing, or "Complete" if finished
-        if (verboseInfo.isComplete) {
-            infoItems.push(`<div class="verbose-info-item"><span class="verbose-info-label">📊 Status:</span> <span class="verbose-info-value">Complete</span></div>`);
-        } else if (verboseInfo.step !== undefined && verboseInfo.maxSteps !== undefined) {
-            infoItems.push(`<div class="verbose-info-item"><span class="verbose-info-label">📊 Step:</span> <span class="verbose-info-value">${verboseInfo.step} / ${verboseInfo.maxSteps}</span></div>`);
-        }
-        
-        // Tool call information
-        if (verboseInfo.toolCalls && verboseInfo.toolCalls.length > 0) {
-            const toolCallsDiv = document.createElement('div');
-            toolCallsDiv.className = 'verbose-info-toolcalls';
-            toolCallsDiv.innerHTML = '<div class="verbose-info-label">🔧 Tool Calls:</div>';
+        if (formattedText) {
+            // Create a pre-formatted text display (monospace for better readability)
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'verbose-info-content';
+            contentDiv.style.fontFamily = 'monospace';
+            contentDiv.style.whiteSpace = 'pre-wrap';
+            contentDiv.style.fontSize = '0.9em';
+            contentDiv.style.lineHeight = '1.4';
+            contentDiv.style.padding = '8px';
+            contentDiv.style.backgroundColor = 'rgba(0, 0, 0, 0.05)';
+            contentDiv.style.borderRadius = '4px';
+            contentDiv.style.overflowX = 'auto';
+            contentDiv.textContent = formattedText;
             
-            verboseInfo.toolCalls.forEach((toolCall, index) => {
-                const toolCallItem = document.createElement('div');
-                toolCallItem.className = 'verbose-info-toolcall-item';
-                
-                const stageEmoji = {
-                    'init': '🔄',
-                    'chat': '💬',
-                    'assumptions': '🔍',
-                    'implementation': '⚙️'
-                }[toolCall.stage] || '📋';
-                
-                const statusEmoji = toolCall.success ? '✅' : '❌';
-                const statusText = toolCall.success ? 'OK' : 'Error';
-                
-                let toolCallHtml = `<span class="verbose-info-toolcall-name">${statusEmoji} ${escapeHtml(toolCall.name)}</span>`;
-                toolCallHtml += ` <span class="verbose-info-toolcall-status ${toolCall.success ? 'success' : 'error'}">${statusText}</span>`;
-                toolCallHtml += ` <span class="verbose-info-toolcall-stage">${stageEmoji} ${toolCall.stage}</span>`;
-                
-                if (toolCall.error) {
-                    toolCallHtml += `<div class="verbose-info-toolcall-error">${escapeHtml(toolCall.error)}</div>`;
-                }
-                
-                toolCallItem.innerHTML = toolCallHtml;
-                toolCallsDiv.appendChild(toolCallItem);
-            });
-            
-            infoItems.push(toolCallsDiv.outerHTML);
-        }
-        
-        if (infoItems.length > 0) {
-            verboseDiv.innerHTML = '<div class="verbose-info-header">ℹ️ Info</div><div class="verbose-info-content">' + infoItems.join('') + '</div>';
+            verboseDiv.innerHTML = '<div class="verbose-info-header">ℹ️ Verbose Info</div>';
+            verboseDiv.appendChild(contentDiv);
             messageDiv.appendChild(verboseDiv);
         }
     }

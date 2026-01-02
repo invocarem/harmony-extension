@@ -2,6 +2,7 @@ import { WorkflowStage } from "../harmony/stageStateMachine";
 import { ConversationContext } from "../harmony/conversationContext";
 import { ProgressPlanManager, ProgressPlan } from "../progressPlanManager";
 import { CodeContext } from "../harmony/codeContext";
+import { logVerboseInfo } from "./logger";
 
 /**
  * File extraction result for chat stage
@@ -830,8 +831,21 @@ export class ChatVerboseInfoDisplay implements ChatVerboseInfo {
     Object.assign(this, info);
   }
   
+  /**
+   * C#-like toString() method - can be called on any ChatVerboseInfo
+   */
+  toString(): string {
+    const formatted = VerboseInfoFormatter.format(this.info);
+    // Log when toString() is called
+    logVerboseInfo(this.info, formatted);
+    return formatted;
+  }
+  
+  /**
+   * Alias for toString() for consistency
+   */
   toDisplayString(): string {
-    return VerboseInfoFormatter.format(this.info);
+    return this.toString();
   }
   
   get stage() { return this.info.stage; }
@@ -849,8 +863,21 @@ export class AssumptionVerboseInfoDisplay implements AssumptionVerboseInfo {
     Object.assign(this, info);
   }
   
+  /**
+   * C#-like toString() method - can be called on any AssumptionVerboseInfo
+   */
+  toString(): string {
+    const formatted = VerboseInfoFormatter.format(this.info);
+    // Log when toString() is called
+    logVerboseInfo(this.info, formatted);
+    return formatted;
+  }
+  
+  /**
+   * Alias for toString() for consistency
+   */
   toDisplayString(): string {
-    return VerboseInfoFormatter.format(this.info);
+    return this.toString();
   }
   
   get stage() { return this.info.stage; }
@@ -868,8 +895,21 @@ export class ImplementationVerboseInfoDisplay implements ImplementationVerboseIn
     Object.assign(this, info);
   }
   
+  /**
+   * C#-like toString() method - can be called on any ImplementationVerboseInfo
+   */
+  toString(): string {
+    const formatted = VerboseInfoFormatter.format(this.info);
+    // Log when toString() is called
+    logVerboseInfo(this.info, formatted);
+    return formatted;
+  }
+  
+  /**
+   * Alias for toString() for consistency
+   */
   toDisplayString(): string {
-    return VerboseInfoFormatter.format(this.info);
+    return this.toString();
   }
   
   get stage() { return this.info.stage; }
@@ -883,9 +923,10 @@ export class ImplementationVerboseInfoDisplay implements ImplementationVerboseIn
 }
 
 /**
- * Factory function to wrap verbose info with display capability
+ * Factory function to wrap verbose info with toString() capability (C#-like)
+ * This allows calling toString() on any verboseInfo type
  */
-export function withDisplayString(verboseInfo: VerboseInfo): VerboseInfo & { toDisplayString(): string } {
+export function withToString(verboseInfo: VerboseInfo): VerboseInfo & { toString(): string; toDisplayString(): string } {
   switch (verboseInfo.stage) {
     case 'chat':
       return new ChatVerboseInfoDisplay(verboseInfo) as any;
@@ -896,5 +937,26 @@ export function withDisplayString(verboseInfo: VerboseInfo): VerboseInfo & { toD
     default:
       return verboseInfo as any;
   }
+}
+
+/**
+ * Log verboseInfo using toString() (C#-like approach)
+ * This wraps verboseInfo with toString() and calls it, which triggers logging
+ * Returns the formatted string (useful if you want to use it)
+ */
+export function logVerboseInfoWithToString(verboseInfo: VerboseInfo | null | undefined): string {
+  if (!verboseInfo) {
+    return '';
+  }
+  const verboseInfoWithToString = withToString(verboseInfo);
+  return verboseInfoWithToString.toString(); // This will log via logVerboseInfo() inside toString()
+}
+
+/**
+ * Factory function to wrap verbose info with display capability
+ * @deprecated Use withToString() instead for C#-like toString() behavior
+ */
+export function withDisplayString(verboseInfo: VerboseInfo): VerboseInfo & { toDisplayString(): string; toString(): string } {
+  return withToString(verboseInfo);
 }
 
