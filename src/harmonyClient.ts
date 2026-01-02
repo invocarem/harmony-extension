@@ -149,8 +149,7 @@ export class HarmonyClient {
                 console.log(`[Harmony] Stage transition detected at start: chat -> ${detectedStage}`);
                 // Perform the transition first
                 this.contextManager.updateStage(detectedStage, prompt);
-                // Send verboseInfo after transition
-                await this.sendVerboseInfo(fileExtractionResult);
+                // VerboseInfo will be included in the final response, no need to send it separately
               }
             }
           }
@@ -177,8 +176,7 @@ export class HarmonyClient {
               console.log(`[Harmony] ✅ STAGE TRANSITION APPROVED: ${previousStage} -> ${detectedStage}`);
               // Perform the transition first
               this.contextManager.updateStage(detectedStage, prompt);
-              // Send verboseInfo after transition
-              await this.sendVerboseInfo(fileExtractionResult);
+              // VerboseInfo will be included in the final response, no need to send it separately
               
               // Immediately refresh context to verify the update
               const updatedContext = this.contextManager.getContext();
@@ -215,8 +213,7 @@ export class HarmonyClient {
             console.log(`[Harmony] Stage transition: ${previousStage} -> ${detectedStage}`);
             // Perform the transition first
             this.contextManager.updateStage(detectedStage, prompt);
-            // Send verboseInfo after transition
-            await this.sendVerboseInfo(fileExtractionResult);
+            // VerboseInfo will be included in the final response, no need to send it separately
           }
         }
       }
