@@ -4,6 +4,15 @@
   "description": "AI code assistant powered by GPT-OSS-120B with Harmony protocol",
   "version": "1.0.0",
   "publisher": "dashtotherock",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dashtotherock/harmony-extension.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dashtotherock/harmony-extension/issues"
+  },
+  "homepage": "https://github.com/dashtotherock/harmony-extension#readme",
+  "license": "MIT",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -174,8 +183,9 @@
     "vscode:prepublish": "npm run package",
     "compile": "npm run compile:extension && npm run compile:webview",
     "compile:extension": "webpack",
-    "compile:webview": "webpack --config webpack.webview.config.js && npm run copy:webview:css",
+    "compile:webview": "webpack --config webpack.webview.config.js && npm run copy:webview:css && npm run copy:webview:html",
     "copy:webview:css": "node -e \"const fs=require('fs');const path=require('path');const src=path.join(__dirname,'src','webview','styles.css');const dest=path.join(__dirname,'dist','webview','styles.css');fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(src,dest);\"",
+    "copy:webview:html": "node -e \"const fs=require('fs');const path=require('path');const src=path.join(__dirname,'src','webview','index.html');const dest=path.join(__dirname,'dist','webview','index.html');fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(src,dest);\"",
     "watch": "npm run watch:extension & npm run watch:webview",
     "watch:extension": "webpack --watch",
     "watch:webview": "webpack --config webpack.webview.config.js --watch",

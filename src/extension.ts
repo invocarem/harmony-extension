@@ -12,8 +12,9 @@ import { ConversationManager, ChatMessage } from "./conversationManager";
 import { FileContextExtractor } from "./utils/fileContextExtractor";
 import { FileManager } from "./utils/fileManager";
 import { cleanVerboseResponse } from "./utils/responseCleaner";
-import { StageStateMachine } from "./harmony/stageStateMachine";
+import { StageStateMachine, WorkflowStage } from "./harmony/stageStateMachine";
 import { FileExtractionResult } from "./utils/verboseInfo";
+import { CommandExtractor } from "./utils/commandExtractor";
 
 export class HarmonyAssistant {
   private webviewManager: WebviewManager;
@@ -259,6 +260,47 @@ export class HarmonyAssistant {
     );
 
     try {
+      // STEP 1: Extract @cmd: commands FIRST (before file extraction)
+      const { command, cleanMessage: messageAfterCommand } = CommandExtractor.extractCommand(text);
+      
+      let commandHandled = false;
+      let newStage: WorkflowStage | undefined;
+      
+      if (command) {
+        console.log(`[CommandExtractor] Detected command: ${command.command}`);
+        const commandResult = await this.handleCommand(command.command, messageAfterCommand);
+        
+        if (commandResult.handled) {
+          commandHandled = true;
+          newStage = commandResult.newStage;
+          
+          if (commandResult.shouldReturn) {
+            // Command was handled and we should return early (e.g., error message)
+            if (commandResult.message) {
+              await this.webviewManager.sendMessage({
+                content: commandResult.message,
+              });
+            }
+            return;
+          }
+          
+          // Use cleaned message for remaining processing
+          // For next_step command, remaining text should be ignored (command is self-contained)
+          if (command.command === 'next_step') {
+            text = '';  // Empty message - ImplementationStageHandler will detect this as next_step request
+            console.log(`[CommandExtractor] next_step command - ignoring remaining text, using empty prompt`);
+          } else {
+            text = messageAfterCommand;
+          }
+          
+          // If stage was changed, log it
+          if (newStage) {
+            console.log(`[CommandExtractor] Command changed stage to: ${newStage}`);
+          }
+        }
+      }
+      
+      // STEP 2: Continue with existing flow (FileContextExtractor, etc.)
       // Extract file references and clean the message (explicit @file syntax)
       const { cleanMessage, fileContexts } = await FileContextExtractor.extractFileReferences(text);
       
@@ -368,28 +410,52 @@ export class HarmonyAssistant {
       // First try to get stage from existing context, otherwise detect from prompt
       let currentStage = this.harmonyClient.getCurrentStage();
       
-      // Check if prompt indicates a stage transition (e.g., "move to implementation")
-      // This must be done BEFORE template selection to use the correct template
-      const history = this.conversationManager.getHistoryForTemplate();
-      if (currentStage !== 'chat') {
-        // If we have a context, check for stage transitions from the current stage
-        const detectedStage = this.stageStateMachine.determineNextStage(
-          currentStage,
-          finalMessage,
-          history
-        );
-        if (detectedStage && detectedStage !== currentStage) {
-          console.log(`[Harmony] Stage transition detected in extension: ${currentStage} -> ${detectedStage}`);
-          currentStage = detectedStage;
+      // If command changed the stage, use that and prepend natural language equivalent for stageDetector
+      if (commandHandled && newStage) {
+        currentStage = newStage;
+        console.log(`[Harmony] Using stage from @cmd: command: ${currentStage}`);
+        
+        // Prepend natural language equivalent so harmonyClient's stageDetector can detect it
+        // This ensures the stage is properly updated in the context manager
+        const stageCommandMap: Record<string, string> = {
+          'assumptions': 'move to assumptions',
+          'implementation': 'move to implementation',
+          'chat': 'move to chat'
+        };
+        const naturalLanguageCommand = stageCommandMap[newStage];
+        if (naturalLanguageCommand && finalMessage.trim()) {
+          // If there's remaining message, prepend the command
+          finalMessage = `${naturalLanguageCommand} ${finalMessage}`;
+        } else if (naturalLanguageCommand) {
+          // If no remaining message, just use the command
+          finalMessage = naturalLanguageCommand;
         }
+        console.log(`[Harmony] Prepended natural language command "${naturalLanguageCommand}" for stageDetector`);
       } else {
-        // If no context exists or we're in chat, detect stage from prompt
-        const detectedStage = this.stageStateMachine.determineNextStage(
-          'chat',
-          finalMessage,
-          history
-        );
-        currentStage = detectedStage || 'chat';
+        // Check if prompt indicates a stage transition (e.g., "move to implementation")
+        // This must be done BEFORE template selection to use the correct template
+        // (fallback to regex detection for backward compatibility)
+        const history = this.conversationManager.getHistoryForTemplate();
+        if (currentStage !== 'chat') {
+          // If we have a context, check for stage transitions from the current stage
+          const detectedStage = this.stageStateMachine.determineNextStage(
+            currentStage,
+            finalMessage,
+            history
+          );
+          if (detectedStage && detectedStage !== currentStage) {
+            console.log(`[Harmony] Stage transition detected in extension (regex fallback): ${currentStage} -> ${detectedStage}`);
+            currentStage = detectedStage;
+          }
+        } else {
+          // If no context exists or we're in chat, detect stage from prompt
+          const detectedStage = this.stageStateMachine.determineNextStage(
+            'chat',
+            finalMessage,
+            history
+          );
+          currentStage = detectedStage || 'chat';
+        }
       }
       
       let templateName: string;
@@ -441,6 +507,100 @@ export class HarmonyAssistant {
       await this.webviewManager.sendMessage({
         content: `❌ Error: ${error.message}`,
       });
+    }
+  }
+
+  /**
+   * Handle @cmd: commands
+   * Returns whether command was handled and if processing should continue
+   */
+  private async handleCommand(
+    command: string,
+    remainingMessage: string
+  ): Promise<{
+    handled: boolean;
+    shouldReturn: boolean;
+    message?: string;
+    newStage?: WorkflowStage;
+  }> {
+    const commandLower = command.toLowerCase().trim();
+
+    switch (commandLower) {
+      case 'move_to_implementation': {
+        const currentStage = this.harmonyClient.getCurrentStage();
+        // Validate transition
+        if (!this.stageStateMachine.canTransition(currentStage, 'implementation')) {
+          return {
+            handled: true,
+            shouldReturn: true,
+            message: `Cannot transition to implementation stage from ${currentStage}. Valid transitions: ${currentStage === 'chat' ? 'chat -> assumptions' : currentStage === 'assumptions' ? 'assumptions -> implementation' : 'N/A'}`,
+          };
+        }
+        return {
+          handled: true,
+          shouldReturn: false,
+          newStage: 'implementation',
+        };
+      }
+
+      case 'move_to_assumptions': {
+        const currentStage = this.harmonyClient.getCurrentStage();
+        // Validate transition
+        if (!this.stageStateMachine.canTransition(currentStage, 'assumptions')) {
+          return {
+            handled: true,
+            shouldReturn: true,
+            message: `Cannot transition to assumptions stage from ${currentStage}. Valid transitions: ${currentStage === 'chat' ? 'chat -> assumptions' : currentStage === 'implementation' ? 'implementation -> assumptions' : 'N/A'}`,
+          };
+        }
+        return {
+          handled: true,
+          shouldReturn: false,
+          newStage: 'assumptions',
+        };
+      }
+
+      case 'move_to_chat': {
+        const currentStage = this.harmonyClient.getCurrentStage();
+        // Validate transition
+        if (!this.stageStateMachine.canTransition(currentStage, 'chat')) {
+          return {
+            handled: true,
+            shouldReturn: true,
+            message: `Cannot transition to chat stage from ${currentStage}. Valid transitions: ${currentStage === 'assumptions' ? 'assumptions -> chat' : currentStage === 'implementation' ? 'implementation -> chat' : 'N/A'}`,
+          };
+        }
+        return {
+          handled: true,
+          shouldReturn: false,
+          newStage: 'chat',
+        };
+      }
+
+      case 'next_step': {
+        // next_step command - handled in ImplementationStageHandler
+        const currentStage = this.harmonyClient.getCurrentStage();
+        if (currentStage !== 'implementation') {
+          return {
+            handled: true,
+            shouldReturn: true,
+            message: 'next_step command is only available in implementation stage',
+          };
+        }
+        // For next_step, remaining text should be ignored (command is self-contained)
+        // Return handled=true with special marker to replace message with empty string
+        // The ImplementationStageHandler will detect empty prompt as next_step request
+        return {
+          handled: true,
+          shouldReturn: false,
+          // Don't change stage for next_step
+        };
+      }
+
+      default:
+        // Unknown command - log warning but continue processing
+        console.warn(`[CommandExtractor] Unknown command: ${command}`);
+        return { handled: false, shouldReturn: false };
     }
   }
 

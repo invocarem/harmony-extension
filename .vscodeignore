@@ -1,0 +1,38 @@
+# 开发文件和配置
+.vscode/**
+.gitignore
+.git/
+.editorconfig
+
+# 测试相关
+coverage/**
+__tests__/**
+*.test.*
+jest.config.js
+
+# 构建相关
+webpack.*.config.js
+tsconfig*.json
+out/**
+
+# 源代码（已编译到 dist）
+src/**
+
+# 文档（可选保留）
+# 如果要保留文档文件，删除下面几行
+COMMAND_SYSTEM_SUGGESTIONS.md
+DIAGNOSTIC_REVIEW.md
+FILEMANAGER_DIAGNOSTICS.md
+STATE_MACHINE.md
+STEP_ADVANCEMENT_SUGGESTIONS.md
+
+# 开发脚本和工具
+test-webpack.js
+
+# Node.js 依赖（可选，如果不需要离线安装）
+# node_modules/**
+
+# 其他
+*.map
+*.ts
+*.log

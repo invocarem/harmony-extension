@@ -55,11 +55,64 @@ class ImplementationStageHandler implements StageHandler {
       return { shouldSkipLLM: false };
     }
 
+    // Check for @cmd:next_step command (processed earlier, but prompt might be empty or contain other text)
+    // For Phase 1, we detect if prompt is empty or just whitespace after command extraction
+    // This indicates next_step command was used
+    const promptTrimmed = prompt.trim();
+    const isNextStepRequest = promptTrimmed.length === 0 || 
+                              /^\s*(next\s+step|continue|proceed|advance)\s*$/i.test(promptTrimmed);
+    
     // Follow ProgressPlan/PlanStep to determine action, not hardcode it
     const plan = context.progressPlan;
     const codeContexts = contextManager?.getCodeContexts() || [];
     let shouldUseCodeContext = false;
     let shouldCallLLM = false;
+
+    // Handle next_step command if detected
+    if (isNextStepRequest && plan && progressPlanManager) {
+      // Find current step (in_progress or pending)
+      const currentStep = plan.steps.find(step => 
+        step.status === 'pending' || step.status === 'in_progress'
+      );
+
+      if (currentStep) {
+        // Mark current step as completed
+        progressPlanManager.updateStepStatus(
+          plan.taskId,
+          currentStep.stepNumber,
+          'completed'
+        );
+        console.log(`[StageHandler:Implementation] @cmd:next_step - Marked step ${currentStep.stepNumber} (${currentStep.goal}) as completed`);
+      }
+
+      // Find next pending step
+      const nextStep = plan.steps.find(step => step.status === 'pending');
+      
+      if (nextStep) {
+        // Mark next step as in_progress
+        progressPlanManager.updateStepStatus(
+          plan.taskId,
+          nextStep.stepNumber,
+          'in_progress'
+        );
+        console.log(`[StageHandler:Implementation] @cmd:next_step - Advanced to step ${nextStep.stepNumber}: ${nextStep.goal}`);
+        
+        // Continue with step processing logic below
+        // The next step will be processed using existing logic
+      } else {
+        // No more steps - all completed
+        const updatedPlan = progressPlanManager.getPlan(plan.taskId);
+        if (updatedPlan?.completedAt) {
+          return {
+            shouldSkipLLM: true,
+            response: {
+              content: '✅ All steps in the plan have been completed!',
+              verboseInfo: { stage: 'implementation' as const, isComplete: true }
+            }
+          };
+        }
+      }
+    }
 
     if (plan && progressPlanManager) {
       // Get current step (pending or in_progress)

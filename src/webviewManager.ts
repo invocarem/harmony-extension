@@ -237,7 +237,7 @@ export class WebviewManager {
         );
 
         // Read HTML template
-        const htmlTemplatePath = path.join(this.context.extensionPath, 'src', 'webview', 'index.html');
+        const htmlTemplatePath = path.join(this.context.extensionPath, 'dist', 'webview', 'index.html');
         let html = '';
         try {
             html = fs.readFileSync(htmlTemplatePath, 'utf8');
