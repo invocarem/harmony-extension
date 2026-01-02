@@ -108,7 +108,9 @@ export function addMessage(
     const displayText = finalSameAsText ? '' : text;
     const formattedText = formatMarkdown(displayText);
     const contentDiv = document.createElement('div');
-    contentDiv.innerHTML = formattedText || (isUser ? '' : (hasFinal ? '' : 'No response received.'));
+    // Don't show "No response received" if verboseInfo is present (e.g., for @cmd:verbose-info)
+    const shouldShowNoResponse = !isUser && !hasFinal && !formattedText && !verboseInfo;
+    contentDiv.innerHTML = formattedText || (isUser ? '' : (hasFinal ? '' : (shouldShowNoResponse ? 'No response received.' : '')));
     messageDiv.appendChild(contentDiv);
     
     // Add final section if present (after main content)

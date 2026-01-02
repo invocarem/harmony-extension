@@ -24,8 +24,8 @@ export class CommandExtractor {
   } {
     // Pattern: @cmd:command_name
     // Supports: @cmd:command, @cmd: command (with space), @CMD:COMMAND (case-insensitive)
-    // Uses \w+ to match word characters (letters, digits, underscores)
-    const commandPattern = /@cmd:\s*(\w+)/gi;
+    // Uses [\w-]+ to match word characters (letters, digits, underscores) and hyphens
+    const commandPattern = /@cmd:\s*([\w-]+)/gi;
     const matches = Array.from(message.matchAll(commandPattern));
     
     if (matches.length === 0) {

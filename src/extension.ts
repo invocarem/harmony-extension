@@ -13,7 +13,7 @@ import { FileContextExtractor } from "./utils/fileContextExtractor";
 import { FileManager } from "./utils/fileManager";
 import { cleanVerboseResponse } from "./utils/responseCleaner";
 import { StageStateMachine, WorkflowStage } from "./harmony/stageStateMachine";
-import { FileExtractionResult } from "./utils/verboseInfo";
+import { FileExtractionResult, VerboseInfoBuilder } from "./utils/verboseInfo";
 import { CommandExtractor } from "./utils/commandExtractor";
 
 export class HarmonyAssistant {
@@ -594,6 +594,24 @@ export class HarmonyAssistant {
           handled: true,
           shouldReturn: false,
           // Don't change stage for next_step
+        };
+      }
+
+      case 'verbose_info':
+      case 'verbose-info': {
+        // Get current verboseInfo and display it in webview
+        // This will return minimal chat stage verboseInfo if no context exists
+        const verboseInfo = this.harmonyClient.getCurrentVerboseInfo();
+        
+        // Send verboseInfo to webview
+        await this.webviewManager.sendMessage({
+          content: '',
+          verboseInfo: verboseInfo,
+        });
+        
+        return {
+          handled: true,
+          shouldReturn: true,
         };
       }
 

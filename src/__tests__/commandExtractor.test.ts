@@ -126,7 +126,7 @@ describe('CommandExtractor', () => {
       // Pattern uses \w+ which only matches word characters (letters, digits, underscores)
       // So it would match "move" but not the full command
       expect(result.command).not.toBeNull();
-      expect(result.command?.command).toBe('move');
+      expect(result.command?.command).toBe('move-to-implementation');
     });
 
     it('should trim cleaned message', () => {

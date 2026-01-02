@@ -1646,6 +1646,28 @@ export class HarmonyClient {
   }
 
   /**
+   * Get current verboseInfo for display
+   * Returns minimal verboseInfo for chat stage if no context exists
+   */
+  getCurrentVerboseInfo(): VerboseInfo {
+    const context = this.contextManager.getContext();
+    
+    // If no context exists, return minimal chat stage verboseInfo
+    if (!context) {
+      return VerboseInfoBuilder.forChatStage(null);
+    }
+
+    const currentStage = context.currentStage;
+    if (currentStage === 'chat') {
+      return VerboseInfoBuilder.forChatStage(context);
+    } else if (currentStage === 'assumptions') {
+      return VerboseInfoBuilder.forAssumptionStage(context);
+    } else {
+      return VerboseInfoBuilder.forImplementationStage(context, this.progressPlanManager);
+    }
+  }
+
+  /**
    * Check if a prompt is a stage transition command
    */
   private isStageTransitionCommand(prompt: string): boolean {

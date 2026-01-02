@@ -141,7 +141,8 @@ export class WebviewManager {
             return;
         }
 
-        const content = response.content || "No response received from the model.";
+        // Don't show default message if verboseInfo is present (e.g., for @cmd:verbose-info)
+        const content = response.content || (response.verboseInfo ? "" : "No response received from the model.");
         const reasoning = response.reasoning;
         const commentary = response.commentary;
         const final = response.final;
