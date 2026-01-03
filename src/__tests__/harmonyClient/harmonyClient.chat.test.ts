@@ -5,6 +5,7 @@ import { RulesManager, Rule } from '../../rulesManager';
 import { NativeToolsManager, NativeTool } from '../../nativeToolManager';
 import { HarmonyProcessor, HarmonyParseResult } from '../../harmonyProcessor';
 import { MCPToolCall, MCPToolResult } from '../../mcpClient';
+import { CodeContext } from '../../harmony/codeContext';
 import axios from 'axios';
 import { transitionToAssumptions } from '../testHelpers';
 
@@ -865,6 +866,100 @@ describe('HarmonyClient - Chat Stage', () => {
       expect(chatManager).toBeDefined();
       expect(typeof chatManager.addQuery).toBe('function');
       expect(typeof chatManager.getAggregatedPrompt).toBe('function');
+    });
+
+    it('should include all queries including first query in aggregated_prompt when transitioning to assumptions', async () => {
+      // Simulate REAL scenario: First query was missed in ChatManager
+      // This happens when first query is processed before stage is 'chat'
+      const chatManager = client.getChatManager();
+      chatManager.initialize();
+      // First query "create hello.py..." was NOT added to ChatManager (simulating the bug)
+      // Only queries 2, 3, and the transition command were added to ChatManager
+      chatManager.addQuery('write unit test for greet');
+      chatManager.addQuery('create README');
+      // Note: "move to assumptions" might also be added as a query in ChatManager
+      // This creates a scenario where ChatManager has 2-3 queries but is missing the first one
+
+      // Verify ChatManager is missing the first query
+      expect(chatManager.getAllQueries()).toHaveLength(2);
+      expect(chatManager.getAllQueries()).not.toContain('create hello.py with greet and main');
+      expect(chatManager.getAllQueries()).toContain('write unit test for greet');
+      expect(chatManager.getAllQueries()).toContain('create README');
+
+      // Setup conversation history with ALL queries (this is what really happened)
+      // The first query IS in conversation history even though it wasn't in ChatManager
+      // Include "move to assumptions" to simulate the real scenario
+      const conversationHistory = [
+        { role: 'user' as const, content: 'create hello.py with greet and main function' },
+        { role: 'assistant' as const, content: 'I will help you create hello.py with greet and main function.' },
+        { role: 'user' as const, content: 'write unit test for greet' },
+        { role: 'assistant' as const, content: 'I will write unit tests for the greet function.' },
+        { role: 'user' as const, content: 'create README' },
+        { role: 'assistant' as const, content: 'I will create a README.' },
+        { role: 'user' as const, content: 'move to assumptions' }, // Transition command
+      ];
+
+      // Initialize context in chat stage
+      const contextManager = (client as any).contextManager;
+      contextManager.initialize('hi', 'chat');
+
+      // Mock response for transition
+      const mockResponse = {
+        status: 200,
+        data: {
+          choices: [{ text: '<|channel|>final<|message|>Moving to assumptions stage<|end|>' }],
+        },
+      };
+
+      mockedAxios.post.mockResolvedValueOnce(mockResponse);
+
+      mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
+        content: 'Moving to assumptions stage',
+        rawToolCalls: [],
+      });
+
+      mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
+
+      // Transition to assumptions with conversation history
+      await client.callServer(
+        'move to assumptions',
+        'assumptions',
+        undefined,
+        false,
+        conversationHistory
+      );
+
+      // Verify aggregated_prompt CodeContext was created
+      const context = contextManager.getContext();
+      expect(context).toBeDefined();
+      expect(context?.codeContexts).toBeDefined();
+
+      const aggregatedPromptContext = context?.codeContexts?.get('aggregated_prompt.md');
+      expect(aggregatedPromptContext).toBeDefined();
+      expect(aggregatedPromptContext?.length).toBeGreaterThan(0);
+
+      const activePromptContext = aggregatedPromptContext?.find((cc: CodeContext) => cc.isActive);
+      expect(activePromptContext).toBeDefined();
+
+      if (activePromptContext) {
+        const promptContent = activePromptContext.getContentAsString();
+        
+        // Verify all 3 queries are included (including the first one that was missed in ChatManager)
+        // The transition command "move to assumptions" should NOT be included
+        expect(promptContent).toContain('create hello.py with greet and main function');
+        expect(promptContent).toContain('write unit test for greet');
+        expect(promptContent).toContain('create README');
+        expect(promptContent).not.toContain('move to assumptions'); // Transition command should be excluded
+        
+        // Verify it's in the expected format
+        expect(promptContent).toMatch(/Please address the following requests:/);
+        
+        // This test should FAIL if the first query is missing
+        // The fallback logic should use conversation history to capture all queries
+      }
+
+      // ChatManager should have been cleared after transition
+      expect(chatManager.hasContent()).toBe(false);
     });
   });
 });

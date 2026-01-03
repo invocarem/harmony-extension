@@ -410,9 +410,15 @@ export class HarmonyAssistant {
       // First try to get stage from existing context, otherwise detect from prompt
       let currentStage = this.harmonyClient.getCurrentStage();
       
-      // Track queries in ChatManager when in chat stage
+      // Track queries in ChatManager when in chat stage or init stage (init will transition to chat)
+      // This ensures the first query is always tracked even if stage hasn't been updated yet
       const chatManager = this.harmonyClient.getChatManager();
-      if (currentStage === 'chat') {
+      if (currentStage === 'chat' || currentStage === 'init' || !currentStage) {
+        // Initialize ChatManager if not already initialized (for init stage)
+        if (currentStage === 'init' || !currentStage) {
+          chatManager.initialize();
+        }
+        
         // Collect all file paths from fileContexts and fileExtractionResult
         const allFiles: string[] = [];
         
@@ -433,7 +439,7 @@ export class HarmonyAssistant {
         
         // Add query to ChatManager
         chatManager.addQuery(cleanMessage, allFiles);
-        console.log(`[ChatManager] Tracked query in chat stage: "${cleanMessage.substring(0, 50)}..."`);
+        console.log(`[ChatManager] Tracked query in ${currentStage || 'init'} stage: "${cleanMessage.substring(0, 50)}..."`);
       }
       
       // If command changed the stage, use that and prepend natural language equivalent for stageDetector
@@ -500,12 +506,17 @@ export class HarmonyAssistant {
       
       console.log(`[Harmony] Using template: ${templateName}.j2 for stage: ${currentStage}`);
       
+      // For stage transitions, pass full history (including current message) so fallback logic can capture all queries
+      // Otherwise use getHistoryForTemplate() to exclude current message for template rendering
+      const fullHistory = this.conversationManager.getHistory();
+      const historyForTemplate = this.conversationManager.getHistoryForTemplate();
+      
       const response = await this.harmonyClient.callServer(
         finalMessage, // Use message with file context
         templateName,
-        (name, ctx) => this.templateRenderer.applyTemplate(name, ctx, this.conversationManager.getHistoryForTemplate()),
+        (name, ctx) => this.templateRenderer.applyTemplate(name, ctx, historyForTemplate),
         false,
-        this.conversationManager.getHistoryForTemplate(),
+        fullHistory, // Pass full history so fallback logic can capture all queries including current one
         fileExtractionResult // Pass file extraction results for verbose info
       );
       

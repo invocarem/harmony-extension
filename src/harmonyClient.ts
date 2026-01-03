@@ -184,12 +184,102 @@ export class HarmonyClient {
               console.log(`[Harmony] ✅ STAGE TRANSITION APPROVED: ${previousStage} -> ${detectedStage}`);
               
               // When transitioning from chat to assumptions, use aggregated prompt
-              if (previousStage === 'chat' && detectedStage === 'assumptions' && this.chatManager.hasContent()) {
-                const chatExport = this.chatManager.exportForTransition();
-                if (chatExport.aggregatedPrompt) {
-                  console.log(`[Harmony] Using aggregated prompt from ChatManager (${chatExport.queries.length} queries)`);
-                  prompt = chatExport.aggregatedPrompt;
+              if (previousStage === 'chat' && detectedStage === 'assumptions') {
+                // Get aggregated prompt from ChatManager if available
+                let aggregatedPrompt: string | undefined;
+                let queries: string[] = [];
+                
+                if (this.chatManager.hasContent()) {
+                  const chatExport = this.chatManager.exportForTransition();
+                  aggregatedPrompt = chatExport.aggregatedPrompt;
+                  queries = chatExport.queries;
+                  console.log(`[Harmony] Using aggregated prompt from ChatManager (${queries.length} queries)`);
                 }
+                
+                // Also check conversation history to ensure we capture ALL user queries from chat stage
+                // This is a fallback to catch queries that might have been missed in ChatManager
+                if (conversationHistory && conversationHistory.length > 0) {
+                  const chatStageUserQueries: string[] = [];
+                  let inChatStage = true; // Track if we're still in chat stage messages
+                  
+                  for (const message of conversationHistory) {
+                    if (message.role === 'user') {
+                      const content = message.content.trim();
+                      // Skip empty messages and command-only messages
+                      if (content && !content.match(/^@cmd:/i)) {
+                        // Check if this message contains a stage transition command
+                        const hasStageTransition = /\b(move\s+to|go\s+to|goto)\s+(assumptions|implementation|chat)\b/i.test(content);
+                        if (hasStageTransition && content.toLowerCase().includes('assumptions')) {
+                          // This is the transition message, stop collecting
+                          break;
+                        }
+                        // Only collect queries that appear to be from chat stage (before any transitions)
+                        if (inChatStage) {
+                          chatStageUserQueries.push(content);
+                        }
+                      }
+                    } else if (message.role === 'assistant') {
+                      // Check if assistant response indicates stage transition
+                      const content = message.content.toLowerCase();
+                      if (content.includes('moving to assumptions') || 
+                          content.includes('transitioning to assumptions') ||
+                          content.includes('now in assumptions stage')) {
+                        inChatStage = false;
+                      }
+                    }
+                  }
+                  
+                  // Always use conversation history if it has queries, as it's the source of truth
+                  // ChatManager might miss queries if they were processed before stage was 'chat'
+                  if (chatStageUserQueries.length > 0) {
+                    // Check if history has different/more queries than ChatManager
+                    const historyHasMore = chatStageUserQueries.length > queries.length;
+                    const historyHasDifferent = chatStageUserQueries.some(q => !queries.includes(q));
+                    
+                    // CRITICAL FIX: Check for DIFFERENT queries, not just MORE queries
+                    // This fixes the bug where:
+                    // - ChatManager has ["write unit test", "create README"] (2 queries, missing first)
+                    // - History has ["create hello.py", "write unit test", "create README"] (3 queries)
+                    // - Old code: 3 > 2 = true, works
+                    // - But if ChatManager had 3 queries (including "move to assumptions"),
+                    //   then 3 > 3 = false, bug! First query is lost!
+                    // - New code: Checks historyHasDifferent, catches the missing first query
+                    if (historyHasMore || historyHasDifferent || (!aggregatedPrompt && chatStageUserQueries.length > 0)) {
+                      if (historyHasMore || historyHasDifferent) {
+                        console.log(`[Harmony] Found ${chatStageUserQueries.length} queries in conversation history vs ${queries.length} in ChatManager. History has ${historyHasMore ? 'more' : 'different'} queries. Using history to ensure all queries are captured.`);
+                      } else {
+                        console.log(`[Harmony] ChatManager had no content, but found ${chatStageUserQueries.length} queries in conversation history. Using history.`);
+                      }
+                      
+                      queries = chatStageUserQueries;
+                      
+                      // Rebuild aggregated prompt from all queries
+                      if (queries.length === 1) {
+                        aggregatedPrompt = queries[0];
+                      } else if (queries.length > 1) {
+                        aggregatedPrompt = `Please address the following requests:\n\n${queries.join('\n\n')}`;
+                      }
+                    }
+                  }
+                }
+                
+                if (aggregatedPrompt) {
+                  prompt = aggregatedPrompt;
+                  
+                  // Save aggregatedPrompt to CodeContext (won't be created as file yet)
+                  const promptLines = aggregatedPrompt.split('\n');
+                  const promptContext = new CodeContext(
+                    'aggregated_prompt.md',
+                    promptLines,
+                    false, // waitForCreate: false - just store, don't create file yet
+                    'v1',
+                    Date.now(),
+                    'Aggregated user queries from chat stage'
+                  );
+                  this.contextManager.addCodeContext(promptContext);
+                  console.log(`[Harmony] Saved aggregatedPrompt to CodeContext (${queries.length} queries)`);
+                }
+                
                 // Clear chat manager after transition
                 this.chatManager.clear();
               }
@@ -203,6 +293,54 @@ export class HarmonyClient {
               if (updatedContext) {
                 if (updatedContext.currentStage === detectedStage) {
                   console.log(`[Harmony] ✅ Stage successfully updated in context: ${updatedContext.currentStage}`);
+                  
+                  // If transitioning to implementation, auto-generate diagnostic files
+                  if (detectedStage === 'implementation' && this.nativeToolsManager && updatedContext.codeContexts) {
+                    console.log(`[Harmony] Implementation stage: Checking for diagnostic CodeContexts to auto-generate...`);
+                    
+                    // Find CodeContexts with waitForCreate: false and special diagnostic names
+                    const diagnosticFiles = ['aggregated_prompt.md', 'assumption_data.json'];
+                    
+                    for (const fileName of diagnosticFiles) {
+                      const versions = updatedContext.codeContexts.get(fileName);
+                      if (versions) {
+                        const activeVersion = versions.find(v => v.isActive);
+                        if (activeVersion && !activeVersion.waitForCreate) {
+                          try {
+                            const content = activeVersion.getContentAsString();
+                            if (content && content.trim().length > 0) {
+                              console.log(`[Harmony] Auto-generating diagnostic file: ${fileName}`);
+                              const createResult = await this.nativeToolsManager.callTool('create_file', {
+                                file_path: fileName,
+                                content: content
+                              });
+                              
+                              if (!createResult.isError) {
+                                console.log(`[Harmony] ✅ Successfully created diagnostic file: ${fileName}`);
+                              } else if (createResult.content?.[0]?.text?.includes('already exists')) {
+                                // File exists, use replace_file
+                                const replaceResult = await this.nativeToolsManager.callTool('replace_file', {
+                                  file_path: fileName,
+                                  content: content
+                                });
+                                if (!replaceResult.isError) {
+                                  console.log(`[Harmony] ✅ Successfully updated diagnostic file: ${fileName}`);
+                                } else {
+                                  const errorMsg = replaceResult.content?.[0]?.text || 'Unknown error';
+                                  console.warn(`[Harmony] ⚠️ Failed to update diagnostic file ${fileName}: ${errorMsg}`);
+                                }
+                              } else {
+                                const errorMsg = createResult.content?.[0]?.text || 'Unknown error';
+                                console.warn(`[Harmony] ⚠️ Failed to create diagnostic file ${fileName}: ${errorMsg}`);
+                              }
+                            }
+                          } catch (error: any) {
+                            console.warn(`[Harmony] ⚠️ Error creating diagnostic file ${fileName}:`, error);
+                          }
+                        }
+                      }
+                    }
+                  }
                   
                   // If transitioning to implementation via "move to implementation" command
                   // The stage handler will determine the action based on ProgressPlan/PlanStep
