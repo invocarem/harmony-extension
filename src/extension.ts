@@ -13,7 +13,7 @@ import { FileContextExtractor } from "./utils/fileContextExtractor";
 import { FileManager } from "./utils/fileManager";
 import { cleanVerboseResponse } from "./utils/responseCleaner";
 import { StageStateMachine, WorkflowStage } from "./harmony/stageStateMachine";
-import { FileExtractionResult, VerboseInfoBuilder } from "./utils/verboseInfo";
+import { FileExtractionResult, VerboseInfoBuilder, VerboseInfoFormatter } from "./utils/verboseInfo";
 import { CommandExtractor } from "./utils/commandExtractor";
 
 export class HarmonyAssistant {
@@ -410,6 +410,32 @@ export class HarmonyAssistant {
       // First try to get stage from existing context, otherwise detect from prompt
       let currentStage = this.harmonyClient.getCurrentStage();
       
+      // Track queries in ChatManager when in chat stage
+      const chatManager = this.harmonyClient.getChatManager();
+      if (currentStage === 'chat') {
+        // Collect all file paths from fileContexts and fileExtractionResult
+        const allFiles: string[] = [];
+        
+        // Add explicit file contexts
+        fileContexts.forEach(fc => {
+          allFiles.push(fc.path);
+        });
+        
+        // Add detected files
+        if (fileExtractionResult) {
+          if (fileExtractionResult.explicitFiles) {
+            fileExtractionResult.explicitFiles.forEach(f => allFiles.push(f.path));
+          }
+          if (fileExtractionResult.detectedFiles) {
+            fileExtractionResult.detectedFiles.forEach(f => allFiles.push(f.path));
+          }
+        }
+        
+        // Add query to ChatManager
+        chatManager.addQuery(cleanMessage, allFiles);
+        console.log(`[ChatManager] Tracked query in chat stage: "${cleanMessage.substring(0, 50)}..."`);
+      }
+      
       // If command changed the stage, use that and prepend natural language equivalent for stageDetector
       if (commandHandled && newStage) {
         currentStage = newStage;
@@ -500,6 +526,26 @@ export class HarmonyAssistant {
         content: cleanedContent,
         reasoning: response.reasoning,
       });
+
+      // Update problem summary in ChatManager if in chat stage and response looks like a restatement
+      if (currentStage === 'chat' && cleanedContent) {
+        // Extract first paragraph (potential problem summary/restatement)
+        const summaryMatch = cleanedContent.match(/^(.*?)(?:\n\n|$)/);
+        if (summaryMatch) {
+          const potentialSummary = summaryMatch[1].trim();
+          // Heuristic: if it looks like a restatement (contains user's words or "you want", etc.)
+          if (potentialSummary.length > 20 && 
+              (potentialSummary.toLowerCase().includes('you want') || 
+               potentialSummary.toLowerCase().includes('you\'re asking') ||
+               potentialSummary.toLowerCase().includes('you need') ||
+               cleanMessage.toLowerCase().split(' ').some(word => 
+                 word.length > 3 && potentialSummary.toLowerCase().includes(word)
+               ))) {
+            chatManager.updateProblemSummary(potentialSummary);
+            console.log(`[ChatManager] Updated problem summary from response`);
+          }
+        }
+      }
 
       await this.webviewManager.sendMessage(cleanedResponse);
     } catch (error: any) {
@@ -601,11 +647,17 @@ export class HarmonyAssistant {
       case 'verbose-info': {
         // Get current verboseInfo and display it in webview
         // This will return minimal chat stage verboseInfo if no context exists
-        const verboseInfo = this.harmonyClient.getCurrentVerboseInfo();
+        // Pass conversation history so problem summary includes all user queries
+        const conversationHistory = this.conversationManager.getHistory();
+        const verboseInfo = this.harmonyClient.getCurrentVerboseInfo(conversationHistory);
         
-        // Send verboseInfo to webview
+        // Format verboseInfo as content text so it appears in the main message area
+        // (in addition to the verbose info section)
+        const formattedVerboseInfo = VerboseInfoFormatter.format(verboseInfo);
+        
+        // Send verboseInfo to webview with formatted content
         await this.webviewManager.sendMessage({
-          content: '',
+          content: formattedVerboseInfo,
           verboseInfo: verboseInfo,
         });
         

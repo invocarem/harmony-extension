@@ -462,5 +462,190 @@ describe('HarmonyClient - VerboseInfo Tests', () => {
       }
     });
   });
+
+  describe('problemSummary with multiple user queries', () => {
+    it('should include all user queries in problem summary when getCurrentVerboseInfo is called with conversation history', () => {
+      // Test that getCurrentVerboseInfo includes all user queries from conversation history
+      // This directly tests the fix for the issue where only the first query was shown
+      
+      // Simulate a conversation with multiple user queries
+      const conversationHistory = [
+        { role: 'user' as const, content: 'hi' },
+        { role: 'assistant' as const, content: 'Hello! How can I help you?' },
+        { role: 'user' as const, content: 'analyze latin invenietur' },
+        { role: 'assistant' as const, content: 'I will analyze the Latin phrase.' },
+      ];
+
+      // Get verbose info with conversation history
+      const verboseInfo = client.getCurrentVerboseInfo(conversationHistory);
+
+      expect(verboseInfo).toBeDefined();
+      expect(verboseInfo.stage).toBe('chat');
+      
+      // Check that problem summary includes both queries
+      if (verboseInfo.stage === 'chat') {
+        const chatVerboseInfo = verboseInfo as any;
+        expect(chatVerboseInfo.problemSummary).toBeDefined();
+        expect(chatVerboseInfo.problemSummary.originalQuery).toBeDefined();
+        
+        // The originalQuery should include both queries (separated by newlines)
+        const originalQuery = chatVerboseInfo.problemSummary.originalQuery;
+        expect(originalQuery).toContain('hi');
+        expect(originalQuery).toContain('analyze latin invenietur');
+        // Should not include assistant messages
+        expect(originalQuery).not.toContain('Hello!');
+        expect(originalQuery).not.toContain('I will analyze');
+      }
+    });
+
+    it('should include all user queries in problem summary when conversation history includes both queries', async () => {
+      // Test scenario: user sends multiple queries in chat stage
+      // 1. First query: "hi"
+      // 2. Second query: "analyze latin invenietur"
+      // When verboseInfo is requested, conversation history should include both queries
+      // Expected: problem summary should include both queries
+
+      const mockResponse1 = {
+        status: 200,
+        data: {
+          choices: [{ text: '<|channel|>final<|message|>Hello! How can I help you?<|end|>' }],
+        },
+      };
+
+      const mockResponse2 = {
+        status: 200,
+        data: {
+          choices: [{ text: '<|channel|>final<|message|>I will analyze the Latin phrase "invenietur".<|end|>' }],
+        },
+      };
+
+      mockedAxios.post
+        .mockResolvedValueOnce(mockResponse1)
+        .mockResolvedValueOnce(mockResponse2);
+
+      const parseResult1: HarmonyParseResult = {
+        content: 'Hello! How can I help you?',
+        rawToolCalls: [],
+      };
+
+      const parseResult2: HarmonyParseResult = {
+        content: 'I will analyze the Latin phrase "invenietur".',
+        rawToolCalls: [],
+      };
+
+      mockHarmonyProcessor.parseResponse
+        .mockReturnValueOnce(parseResult1)
+        .mockReturnValueOnce(parseResult2);
+
+      mockHarmonyProcessor.extractToolCalls.mockReturnValue([]);
+
+      // First message: "hi"
+      await client.callServer('hi', 'chat', undefined, false, []);
+
+      // Second message: "analyze latin invenietur"
+      // Pass conversation history with first query + response
+      const conversationHistoryBeforeSecond = [
+        { role: 'user' as const, content: 'hi' },
+        { role: 'assistant' as const, content: 'Hello! How can I help you?' },
+      ];
+      
+      await client.callServer(
+        'analyze latin invenietur',
+        'chat',
+        undefined,
+        false,
+        conversationHistoryBeforeSecond
+      );
+
+      // Now test getCurrentVerboseInfo with complete conversation history
+      // This simulates what happens when @cmd:verbose-info is called after both queries
+      const completeConversationHistory = [
+        { role: 'user' as const, content: 'hi' },
+        { role: 'assistant' as const, content: 'Hello! How can I help you?' },
+        { role: 'user' as const, content: 'analyze latin invenietur' },
+        { role: 'assistant' as const, content: 'I will analyze the Latin phrase "invenietur".' },
+      ];
+
+      const verboseInfo = client.getCurrentVerboseInfo(completeConversationHistory);
+      
+      expect(verboseInfo).toBeDefined();
+      expect(verboseInfo.stage).toBe('chat');
+      
+      // Check that problem summary includes both queries
+      if (verboseInfo.stage === 'chat') {
+        const chatVerboseInfo = verboseInfo as any;
+        expect(chatVerboseInfo.problemSummary).toBeDefined();
+        expect(chatVerboseInfo.problemSummary.originalQuery).toBeDefined();
+        
+        // The originalQuery should include both queries (separated by newlines)
+        const originalQuery = chatVerboseInfo.problemSummary.originalQuery;
+        expect(originalQuery).toContain('hi');
+        expect(originalQuery).toContain('analyze latin invenietur');
+        // Should not include assistant messages
+        expect(originalQuery).not.toContain('Hello!');
+        expect(originalQuery).not.toContain('I will analyze');
+      }
+    });
+
+    it('should filter out command messages from problem summary', async () => {
+      // Test that @cmd: commands are filtered out from problem summary
+      const mockResponse = {
+        status: 200,
+        data: {
+          choices: [{ text: '<|channel|>final<|message|>Response<|end|>' }],
+        },
+      };
+
+      mockedAxios.post.mockResolvedValue(mockResponse);
+
+      const parseResult: HarmonyParseResult = {
+        content: 'Response',
+        rawToolCalls: [],
+      };
+
+      mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
+      mockHarmonyProcessor.extractToolCalls.mockReturnValue([]);
+
+      // Conversation history with a command
+      const conversationHistory = [
+        { role: 'user' as const, content: 'hi' },
+        { role: 'assistant' as const, content: 'Hello!' },
+        { role: 'user' as const, content: 'analyze latin invenietur' },
+        { role: 'assistant' as const, content: 'I will analyze it.' },
+        { role: 'user' as const, content: '@cmd:verbose-info' },
+      ];
+
+      // Test getCurrentVerboseInfo directly with conversation history
+      const verboseInfo = client.getCurrentVerboseInfo(conversationHistory);
+
+      expect(verboseInfo).toBeDefined();
+      if (verboseInfo.stage === 'chat') {
+        const chatVerboseInfo = verboseInfo as any;
+        if (chatVerboseInfo.problemSummary) {
+          const originalQuery = chatVerboseInfo.problemSummary.originalQuery;
+          // Should include user queries but not the command
+          expect(originalQuery).toContain('hi');
+          expect(originalQuery).toContain('analyze latin invenietur');
+          expect(originalQuery).not.toContain('@cmd:verbose-info');
+        }
+      }
+    });
+
+    it('should handle empty conversation history gracefully', () => {
+      // Test getCurrentVerboseInfo with empty conversation history
+      const verboseInfo = client.getCurrentVerboseInfo([]);
+
+      expect(verboseInfo).toBeDefined();
+      expect(verboseInfo.stage).toBe('chat');
+      
+      // Should still work without errors
+      if (verboseInfo.stage === 'chat') {
+        const chatVerboseInfo = verboseInfo as any;
+        // If there's a problem summary, it should use originalPrompt from context
+        // or be empty if no context exists
+        expect(chatVerboseInfo).toBeDefined();
+      }
+    });
+  });
 });
 

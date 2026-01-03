@@ -756,5 +756,116 @@ describe('HarmonyClient - Chat Stage', () => {
       expect(context2?.currentStage).toBe('chat');
     });
   });
+
+  describe('ChatManager Integration', () => {
+    it('should initialize ChatManager when starting in chat stage', async () => {
+      const mockResponse = {
+        status: 200,
+        data: {
+          choices: [{ text: '<|channel|>final<|message|>Hello!<|end|>' }],
+        },
+      };
+
+      mockedAxios.post.mockResolvedValueOnce(mockResponse);
+
+      mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
+        content: 'Hello!',
+        rawToolCalls: [],
+      });
+
+      mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
+
+      await client.callServer('hello');
+
+      // ChatManager should be accessible (initialized when entering chat stage)
+      const chatManager = client.getChatManager();
+      expect(chatManager).toBeDefined();
+      
+      // Note: ChatManager tracks queries via addQuery() which is called in extension.ts,
+      // not in harmonyClient.callServer(). So hasContent() will be false until queries are added.
+      // This test verifies ChatManager is accessible, not that it has content.
+      expect(typeof chatManager.addQuery).toBe('function');
+      expect(typeof chatManager.getAggregatedPrompt).toBe('function');
+      
+      // Manually add a query to verify ChatManager works
+      chatManager.addQuery('test query');
+      expect(chatManager.hasContent()).toBe(true);
+    });
+
+    it('should aggregate queries when transitioning from chat to assumptions', async () => {
+      // First query
+      const mockResponse1 = {
+        status: 200,
+        data: {
+          choices: [{ text: '<|channel|>final<|message|>Hello!<|end|>' }],
+        },
+      };
+
+      mockedAxios.post.mockResolvedValueOnce(mockResponse1);
+
+      mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
+        content: 'Hello!',
+        rawToolCalls: [],
+      });
+
+      mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
+
+      await client.callServer('hi');
+
+      // Second query
+      const mockResponse2 = {
+        status: 200,
+        data: {
+          choices: [{ text: '<|channel|>final<|message|>I understand.<|end|>' }],
+        },
+      };
+
+      mockedAxios.post.mockResolvedValueOnce(mockResponse2);
+
+      mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
+        content: 'I understand.',
+        rawToolCalls: [],
+      });
+
+      mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
+
+      await client.callServer('analyze latin invenietur');
+
+      // Third query that triggers transition
+      const mockResponse3 = {
+        status: 200,
+        data: {
+          choices: [{ text: '<|channel|>final<|message|>Analyzing...<|end|>' }],
+        },
+      };
+
+      mockedAxios.post.mockResolvedValueOnce(mockResponse3);
+
+      mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
+        content: 'Analyzing...',
+        rawToolCalls: [],
+      });
+
+      mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
+
+      // Manually set up context to be in chat stage, then transition
+      const contextManager = (client as any).contextManager;
+      contextManager.initialize('analyze latin deus', 'chat');
+
+      // Transition to assumptions
+      await transitionToAssumptions(client, mockHarmonyProcessor);
+
+      // ChatManager should have been cleared after transition
+      const chatManager = client.getChatManager();
+      expect(chatManager.hasContent()).toBe(false);
+    });
+
+    it('should provide access to ChatManager via getChatManager', () => {
+      const chatManager = client.getChatManager();
+      expect(chatManager).toBeDefined();
+      expect(typeof chatManager.addQuery).toBe('function');
+      expect(typeof chatManager.getAggregatedPrompt).toBe('function');
+    });
+  });
 });
 

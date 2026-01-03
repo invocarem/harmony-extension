@@ -3,6 +3,7 @@ import { ConversationContext } from "../harmony/conversationContext";
 import { ProgressPlanManager, ProgressPlan } from "../progressPlanManager";
 import { CodeContext } from "../harmony/codeContext";
 import { logVerboseInfo } from "./logger";
+import { ChatMessage } from "../conversationManager";
 
 /**
  * File extraction result for chat stage
@@ -107,6 +108,13 @@ export interface AssumptionVerboseInfo {
   step?: number;
   maxSteps?: number;
   isComplete?: boolean;
+  
+  problemSummary?: {
+    originalQuery: string;
+    restatedProblem?: string;
+    extractedFrom?: 'content' | 'reasoning';
+    extractedAt: number;
+  };
   
   codeSnippets?: {
     extractedCount: number;
@@ -325,6 +333,40 @@ export class VerboseInfoBuilder {
   }
 
   /**
+   * Extract all user queries from conversation history
+   * Filters out commands like @cmd:verbose-info and combines meaningful queries
+   */
+  private static extractAllUserQueries(
+    conversationHistory?: readonly ChatMessage[]
+  ): string {
+    if (!conversationHistory || conversationHistory.length === 0) {
+      return '';
+    }
+
+    // Extract all user messages, filtering out commands
+    const userQueries: string[] = [];
+    for (const message of conversationHistory) {
+      if (message.role === 'user') {
+        const content = message.content.trim();
+        // Skip empty messages and command-only messages
+        if (content && !content.match(/^@cmd:/i)) {
+          userQueries.push(content);
+        }
+      }
+    }
+
+    // Combine queries with separator
+    if (userQueries.length === 0) {
+      return '';
+    } else if (userQueries.length === 1) {
+      return userQueries[0];
+    } else {
+      // Combine multiple queries with a clear separator
+      return userQueries.join('\n\n');
+    }
+  }
+
+  /**
    * Build verbose info for chat stage
    */
   static forChatStage(
@@ -332,12 +374,23 @@ export class VerboseInfoBuilder {
     extractedFiles?: FileExtractionResult,
     responseContent?: string,
     responseReasoning?: string,
-    toolCalls?: Array<{ name: string; stage: WorkflowStage; success: boolean; error?: string }>
+    toolCalls?: Array<{ name: string; stage: WorkflowStage; success: boolean; error?: string }>,
+    conversationHistory?: readonly ChatMessage[]
   ): ChatVerboseInfo {
+    // Extract all user queries from conversation history
+    const allUserQueries = this.extractAllUserQueries(conversationHistory);
+    
+    // Prefer conversation history queries if available, otherwise fall back to originalPrompt
+    // If conversationHistory was provided and we extracted queries, use them
+    // Only fall back to originalPrompt if no queries were extracted from history
+    const originalQuery = (conversationHistory !== undefined && allUserQueries)
+      ? allUserQueries
+      : context?.originalPrompt || '';
+
     const problemRestatement = this.extractProblemRestatement(
       responseContent,
       responseReasoning,
-      context?.originalPrompt
+      originalQuery
     );
 
     const verboseInfo: ChatVerboseInfo = {
@@ -349,9 +402,9 @@ export class VerboseInfoBuilder {
     };
 
     // Add problem summary if we have original query or restatement
-    if (context?.originalPrompt || problemRestatement.restatedProblem) {
+    if (originalQuery || problemRestatement.restatedProblem) {
       verboseInfo.problemSummary = {
-        originalQuery: context?.originalPrompt || '',
+        originalQuery: originalQuery,
         ...problemRestatement,
         extractedAt: Date.now()
       };
@@ -379,8 +432,16 @@ export class VerboseInfoBuilder {
    */
   static forAssumptionStage(
     context: ConversationContext | null,
-    toolCalls?: Array<{ name: string; stage: WorkflowStage; success: boolean; error?: string }>
+    toolCalls?: Array<{ name: string; stage: WorkflowStage; success: boolean; error?: string }>,
+    conversationHistory?: readonly ChatMessage[]
   ): AssumptionVerboseInfo {
+    // Extract all user queries from conversation history
+    const allUserQueries = this.extractAllUserQueries(conversationHistory);
+    
+    // Prefer conversation history queries if available, otherwise fall back to originalPrompt
+    const originalQuery = (conversationHistory !== undefined && allUserQueries)
+      ? allUserQueries
+      : context?.originalPrompt || '';
     const verboseInfo: AssumptionVerboseInfo = {
       stage: 'assumptions',
       stageTransition: context?.lastStageTransition,
@@ -388,6 +449,14 @@ export class VerboseInfoBuilder {
       maxSteps: context ? context.maxSteps : undefined,
       isComplete: !context || context.currentStep >= context.maxSteps,
     };
+
+    // Add problem summary if we have original query
+    if (originalQuery) {
+      verboseInfo.problemSummary = {
+        originalQuery: originalQuery,
+        extractedAt: Date.now()
+      };
+    }
 
     // Add code snippets info
     const codeContexts = context?.codeContexts ? Array.from(context.codeContexts.values()).flat() : [];
@@ -658,6 +727,15 @@ export class VerboseInfoFormatter {
     }
     if (info.isComplete) {
       lines.push(`✅ Complete`);
+    }
+    
+    if (info.problemSummary) {
+      lines.push(`\n📝 Problem Summary:`);
+      lines.push(`   Original Query: ${info.problemSummary.originalQuery}`);
+      if (info.problemSummary.restatedProblem) {
+        lines.push(`   Restated: ${info.problemSummary.restatedProblem}`);
+        lines.push(`   (Extracted from: ${info.problemSummary.extractedFrom})`);
+      }
     }
     
     if (info.codeSnippets) {

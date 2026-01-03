@@ -139,8 +139,28 @@ describe('HarmonyAssistant', () => {
     } as any;
 
     // Setup HarmonyClient mock
+    const mockChatManager = {
+      addQuery: jest.fn(),
+      getAggregatedPrompt: jest.fn().mockReturnValue(''),
+      updateProblemSummary: jest.fn(),
+      hasContent: jest.fn().mockReturnValue(false),
+      getAllQueries: jest.fn().mockReturnValue([]),
+      getMeaningfulQueries: jest.fn().mockReturnValue([]),
+      getAllRelatedFiles: jest.fn().mockReturnValue([]),
+      getProblemSummary: jest.fn().mockReturnValue(undefined),
+      clear: jest.fn(),
+      initialize: jest.fn(),
+      exportForTransition: jest.fn().mockReturnValue({
+        queries: [],
+        aggregatedPrompt: '',
+        relatedFiles: [],
+      }),
+      getState: jest.fn().mockReturnValue(null),
+    };
+
     mockHarmonyClient = {
       getCurrentStage: jest.fn().mockReturnValue('chat'),
+      getChatManager: jest.fn().mockReturnValue(mockChatManager),
       callServer: jest.fn().mockResolvedValue({
         content: 'Test response',
         reasoning: undefined,

@@ -24,6 +24,7 @@ import {
   StageStateMachine,
   StageHandlerRegistry,
   WorkflowStage,
+  ChatManager,
 } from "./harmony";
 
 // Re-export WorkflowStage for backward compatibility
@@ -66,6 +67,7 @@ export class HarmonyClient {
 
   // Modular components
   private contextManager: ConversationContextManager;
+  private chatManager: ChatManager;
   private stageDetector: StageDetector;
   private promptBuilder: PromptBuilder;
   private toolExecutor: ToolExecutor;
@@ -90,6 +92,7 @@ export class HarmonyClient {
 
     // Initialize modular components
     this.contextManager = new ConversationContextManager();
+    this.chatManager = new ChatManager();
     this.stageDetector = new StageDetector(this.stageStateMachine);
     this.promptBuilder = new PromptBuilder(
       config,
@@ -155,6 +158,11 @@ export class HarmonyClient {
           }
           const finalContext = this.contextManager.getContext();
           console.log(`[Harmony] Starting new conversation in stage: ${finalContext?.currentStage || 'chat'}`);
+          
+          // Initialize chat manager when entering chat stage
+          if (finalContext?.currentStage === 'chat') {
+            this.chatManager.initialize();
+          }
         } else {
           // Context exists, just update stage if needed
           const context = this.contextManager.getContext();
@@ -174,6 +182,18 @@ export class HarmonyClient {
             
             if (detectedStage !== previousStage) {
               console.log(`[Harmony] ✅ STAGE TRANSITION APPROVED: ${previousStage} -> ${detectedStage}`);
+              
+              // When transitioning from chat to assumptions, use aggregated prompt
+              if (previousStage === 'chat' && detectedStage === 'assumptions' && this.chatManager.hasContent()) {
+                const chatExport = this.chatManager.exportForTransition();
+                if (chatExport.aggregatedPrompt) {
+                  console.log(`[Harmony] Using aggregated prompt from ChatManager (${chatExport.queries.length} queries)`);
+                  prompt = chatExport.aggregatedPrompt;
+                }
+                // Clear chat manager after transition
+                this.chatManager.clear();
+              }
+              
               // Perform the transition first
               this.contextManager.updateStage(detectedStage, prompt);
               // VerboseInfo will be included in the final response, no need to send it separately
@@ -231,9 +251,9 @@ export class HarmonyClient {
           `[Harmony] Reached maximum steps (${context.maxSteps}) for task: "${context.originalPrompt}"`
         );
         const verboseInfo = context.currentStage === 'chat'
-          ? VerboseInfoBuilder.forChatStage(context)
+          ? VerboseInfoBuilder.forChatStage(context, undefined, undefined, undefined, undefined, conversationHistory)
           : context.currentStage === 'assumptions'
-          ? VerboseInfoBuilder.forAssumptionStage(context)
+          ? VerboseInfoBuilder.forAssumptionStage(context, undefined, conversationHistory)
           : VerboseInfoBuilder.forImplementationStage(context, this.progressPlanManager);
         verboseInfo.isComplete = true;
         delete verboseInfo.step;
@@ -1129,12 +1149,14 @@ export class HarmonyClient {
             fileExtractionResult, // file extraction from extension.ts
             content, // response content for problem restatement
             parsed.reasoning, // response reasoning for problem restatement
-            toolCallsForVerbose
+            toolCallsForVerbose,
+            conversationHistory
           );
         } else if (currentStage === 'assumptions') {
           verboseInfo = VerboseInfoBuilder.forAssumptionStage(
             finalContext,
-            toolCallsForVerbose
+            toolCallsForVerbose,
+            conversationHistory
           );
         } else {
           // Implementation stage - track file operations from tool calls
@@ -1304,9 +1326,9 @@ export class HarmonyClient {
               verboseInfo: (() => {
                 const stage = currentStage;
                 const info = stage === 'chat'
-                  ? VerboseInfoBuilder.forChatStage(context)
+                  ? VerboseInfoBuilder.forChatStage(context, undefined, undefined, undefined, undefined, conversationHistory)
                   : stage === 'assumptions'
-                  ? VerboseInfoBuilder.forAssumptionStage(context)
+                  ? VerboseInfoBuilder.forAssumptionStage(context, undefined, conversationHistory)
                   : VerboseInfoBuilder.forImplementationStage(context, this.progressPlanManager);
                 info.isComplete = true;
                 return info;
@@ -1333,14 +1355,14 @@ export class HarmonyClient {
           const stageForVerbose = currentStage;
           const noToolCallsVerboseInfo: VerboseInfo = context
             ? (stageForVerbose === 'chat'
-                ? VerboseInfoBuilder.forChatStage(context)
+                ? VerboseInfoBuilder.forChatStage(context, undefined, undefined, undefined, undefined, conversationHistory)
                 : stageForVerbose === 'assumptions'
-                ? VerboseInfoBuilder.forAssumptionStage(context)
+                ? VerboseInfoBuilder.forAssumptionStage(context, undefined, conversationHistory)
                 : VerboseInfoBuilder.forImplementationStage(context, this.progressPlanManager))
             : (stageForVerbose === 'chat'
-                ? VerboseInfoBuilder.forChatStage(null)
+                ? VerboseInfoBuilder.forChatStage(null, undefined, undefined, undefined, undefined, conversationHistory)
                 : stageForVerbose === 'assumptions'
-                ? VerboseInfoBuilder.forAssumptionStage(null)
+                ? VerboseInfoBuilder.forAssumptionStage(null, undefined, conversationHistory)
                 : VerboseInfoBuilder.forImplementationStage(null, this.progressPlanManager));
 
           const mergedVerboseInfo: VerboseInfo = continuationResponse.verboseInfo
@@ -1382,9 +1404,9 @@ export class HarmonyClient {
       // Build verbose info
       const finalContextForVerbose = this.contextManager.getContext();
       let verboseInfo: VerboseInfo = currentStage === 'chat'
-        ? VerboseInfoBuilder.forChatStage(finalContextForVerbose, fileExtractionResult, content, parsed.reasoning)
+        ? VerboseInfoBuilder.forChatStage(finalContextForVerbose, fileExtractionResult, content, parsed.reasoning, undefined, conversationHistory)
         : currentStage === 'assumptions'
-        ? VerboseInfoBuilder.forAssumptionStage(finalContextForVerbose)
+        ? VerboseInfoBuilder.forAssumptionStage(finalContextForVerbose, undefined, conversationHistory)
         : VerboseInfoBuilder.forImplementationStage(finalContextForVerbose, this.progressPlanManager);
       verboseInfo.isComplete = true;
       delete verboseInfo.step;
@@ -1515,14 +1537,14 @@ export class HarmonyClient {
               const stageForVerbose3 = (context?.currentStage || currentStage) as 'chat' | 'assumptions' | 'implementation';
               const noToolCallsVerboseInfo: VerboseInfo = context
                 ? (stageForVerbose3 === 'chat'
-                    ? VerboseInfoBuilder.forChatStage(context)
+                    ? VerboseInfoBuilder.forChatStage(context, undefined, undefined, undefined, undefined, conversationHistory)
                     : stageForVerbose3 === 'assumptions'
-                    ? VerboseInfoBuilder.forAssumptionStage(context)
+                    ? VerboseInfoBuilder.forAssumptionStage(context, undefined, conversationHistory)
                     : VerboseInfoBuilder.forImplementationStage(context, this.progressPlanManager))
                 : (stageForVerbose3 === 'chat'
-                    ? VerboseInfoBuilder.forChatStage(null)
+                    ? VerboseInfoBuilder.forChatStage(null, undefined, undefined, undefined, undefined, conversationHistory)
                     : stageForVerbose3 === 'assumptions'
-                    ? VerboseInfoBuilder.forAssumptionStage(null)
+                    ? VerboseInfoBuilder.forAssumptionStage(null, undefined, conversationHistory)
                     : VerboseInfoBuilder.forImplementationStage(null, this.progressPlanManager));
 
               const mergedVerboseInfo: VerboseInfo = continuationResponse.verboseInfo
@@ -1571,14 +1593,14 @@ export class HarmonyClient {
             const stageForVerbose2 = (context?.currentStage || currentStage) as 'chat' | 'assumptions' | 'implementation';
             const noToolCallsVerboseInfo: VerboseInfo = context
               ? (stageForVerbose2 === 'chat'
-                  ? VerboseInfoBuilder.forChatStage(context)
+                  ? VerboseInfoBuilder.forChatStage(context, undefined, undefined, undefined, undefined, conversationHistory)
                   : stageForVerbose2 === 'assumptions'
-                  ? VerboseInfoBuilder.forAssumptionStage(context)
+                  ? VerboseInfoBuilder.forAssumptionStage(context, undefined, conversationHistory)
                   : VerboseInfoBuilder.forImplementationStage(context, this.progressPlanManager))
               : (stageForVerbose2 === 'chat'
-                  ? VerboseInfoBuilder.forChatStage(null)
+                  ? VerboseInfoBuilder.forChatStage(null, undefined, undefined, undefined, undefined, conversationHistory)
                   : stageForVerbose2 === 'assumptions'
-                  ? VerboseInfoBuilder.forAssumptionStage(null)
+                  ? VerboseInfoBuilder.forAssumptionStage(null, undefined, conversationHistory)
                   : VerboseInfoBuilder.forImplementationStage(null, this.progressPlanManager));
 
             const mergedVerboseInfo: VerboseInfo = continuationResponse.verboseInfo
@@ -1646,22 +1668,29 @@ export class HarmonyClient {
   }
 
   /**
+   * Get the ChatManager instance
+   */
+  getChatManager(): ChatManager {
+    return this.chatManager;
+  }
+
+  /**
    * Get current verboseInfo for display
    * Returns minimal verboseInfo for chat stage if no context exists
    */
-  getCurrentVerboseInfo(): VerboseInfo {
+  getCurrentVerboseInfo(conversationHistory?: readonly ChatMessage[]): VerboseInfo {
     const context = this.contextManager.getContext();
     
     // If no context exists, return minimal chat stage verboseInfo
     if (!context) {
-      return VerboseInfoBuilder.forChatStage(null);
+      return VerboseInfoBuilder.forChatStage(null, undefined, undefined, undefined, undefined, conversationHistory);
     }
 
     const currentStage = context.currentStage;
     if (currentStage === 'chat') {
-      return VerboseInfoBuilder.forChatStage(context);
+      return VerboseInfoBuilder.forChatStage(context, undefined, undefined, undefined, undefined, conversationHistory);
     } else if (currentStage === 'assumptions') {
-      return VerboseInfoBuilder.forAssumptionStage(context);
+      return VerboseInfoBuilder.forAssumptionStage(context, undefined, conversationHistory);
     } else {
       return VerboseInfoBuilder.forImplementationStage(context, this.progressPlanManager);
     }
@@ -1739,14 +1768,20 @@ export class HarmonyClient {
       
       if (fromStage === 'chat') {
         // Send chatVerboseInfo before transitioning to assumptions
+        // Note: conversationHistory not available in this context, pass undefined
         verboseInfo = VerboseInfoBuilder.forChatStage(
           context,
-          fileExtractionResult
+          fileExtractionResult,
+          undefined,
+          undefined,
+          undefined,
+          undefined
         );
         console.log(`[Harmony] 📋 Sending chat verbose info to webview (before transition: chat -> assumptions)`);
       } else if (fromStage === 'assumptions') {
         // Send assumptionsVerboseInfo before transitioning to implementation
-        verboseInfo = VerboseInfoBuilder.forAssumptionStage(context);
+        // Note: conversationHistory not available in this context, pass undefined
+        verboseInfo = VerboseInfoBuilder.forAssumptionStage(context, undefined, undefined);
         console.log(`[Harmony] 📋 Sending assumptions verbose info to webview (before transition: assumptions -> implementation)`);
       }
       
@@ -1800,10 +1835,11 @@ export class HarmonyClient {
 
     try {
       // Build verboseInfo for the current stage (after transition)
+      // Note: conversationHistory not available in this context, pass undefined
       const verboseInfo: VerboseInfo = context.currentStage === 'chat'
-        ? VerboseInfoBuilder.forChatStage(context, fileExtractionResult)
+        ? VerboseInfoBuilder.forChatStage(context, fileExtractionResult, undefined, undefined, undefined, undefined)
         : context.currentStage === 'assumptions'
-        ? VerboseInfoBuilder.forAssumptionStage(context)
+        ? VerboseInfoBuilder.forAssumptionStage(context, undefined, undefined)
         : VerboseInfoBuilder.forImplementationStage(context, this.progressPlanManager);
 
       console.log(`[Harmony] 📋 Sending ${context.currentStage} verbose info to webview (after transition)`);
