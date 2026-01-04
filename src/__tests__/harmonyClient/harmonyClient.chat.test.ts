@@ -934,7 +934,7 @@ describe('HarmonyClient - Chat Stage', () => {
       expect(context).toBeDefined();
       expect(context?.codeContexts).toBeDefined();
 
-      const aggregatedPromptContext = context?.codeContexts?.get('aggregated_prompt.md');
+      const aggregatedPromptContext = context?.codeContexts?.get('aggregated_prompt.json');
       expect(aggregatedPromptContext).toBeDefined();
       expect(aggregatedPromptContext?.length).toBeGreaterThan(0);
 
@@ -943,16 +943,28 @@ describe('HarmonyClient - Chat Stage', () => {
 
       if (activePromptContext) {
         const promptContent = activePromptContext.getContentAsString();
+        const promptData = JSON.parse(promptContent);
+        
+        // Verify JSON structure
+        expect(promptData).toHaveProperty('queries');
+        expect(promptData).toHaveProperty('assistantResponses');
+        expect(promptData).toHaveProperty('relatedFiles');
+        expect(promptData).toHaveProperty('summary');
         
         // Verify all 3 queries are included (including the first one that was missed in ChatManager)
         // The transition command "move to assumptions" should NOT be included
-        expect(promptContent).toContain('create hello.py with greet and main function');
-        expect(promptContent).toContain('write unit test for greet');
-        expect(promptContent).toContain('create README');
-        expect(promptContent).not.toContain('move to assumptions'); // Transition command should be excluded
+        expect(promptData.queries).toBeInstanceOf(Array);
+        expect(promptData.queries).toContain('create hello.py with greet and main function');
+        expect(promptData.queries).toContain('write unit test for greet');
+        expect(promptData.queries).toContain('create README');
+        expect(promptData.queries).not.toContain('move to assumptions'); // Transition command should be excluded
+        expect(promptData.queries.length).toBe(3);
         
-        // Verify it's in the expected format
-        expect(promptContent).toMatch(/Please address the following requests:/);
+        // Verify assistantResponses is an array
+        expect(promptData.assistantResponses).toBeInstanceOf(Array);
+        
+        // Verify relatedFiles is an array
+        expect(promptData.relatedFiles).toBeInstanceOf(Array);
         
         // This test should FAIL if the first query is missing
         // The fallback logic should use conversation history to capture all queries
@@ -960,6 +972,128 @@ describe('HarmonyClient - Chat Stage', () => {
 
       // ChatManager should have been cleared after transition
       expect(chatManager.hasContent()).toBe(false);
+    });
+
+    it('should create assumption_data.json CodeContext when transitioning from assumptions to implementation', async () => {
+      // First, transition from chat to assumptions
+      const chatManager = client.getChatManager();
+      chatManager.initialize();
+      chatManager.addQuery('create a calculator app');
+      
+      const contextManager = (client as any).contextManager;
+      contextManager.initialize('create a calculator app', 'chat');
+      
+      // Mock response for chat -> assumptions transition
+      const chatToAssumptionsResponse = {
+        status: 200,
+        data: {
+          choices: [{ text: '<|channel|>final<|message|>Moving to assumptions stage<|end|>' }],
+        },
+      };
+      
+      mockedAxios.post.mockResolvedValueOnce(chatToAssumptionsResponse);
+      mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
+        content: 'Moving to assumptions stage',
+        rawToolCalls: [],
+      });
+      mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
+      
+      await client.callServer('move to assumptions', 'assumptions', undefined, false, [
+        { role: 'user', content: 'create a calculator app' },
+        { role: 'assistant', content: 'I will help you create a calculator app.' },
+        { role: 'user', content: 'move to assumptions' },
+      ]);
+      
+      // Verify we're in assumptions stage
+      expect(client.getCurrentStage()).toBe('assumptions');
+      
+      // Now simulate assumptions stage responses with analysis and code snippets
+      const assumptionsResponse = {
+        status: 200,
+        data: {
+          choices: [{ text: '<|channel|>final<|message|>Here is my analysis:\n\nI will create a calculator with add, subtract, multiply, and divide functions.\n\n```python calculator.py\ndef add(a, b):\n    return a + b\n\ndef subtract(a, b):\n    return a - b\n```<|end|>' }],
+        },
+      };
+      
+      mockedAxios.post.mockResolvedValueOnce(assumptionsResponse);
+      mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
+        content: 'Here is my analysis:\n\nI will create a calculator with add, subtract, multiply, and divide functions.\n\n```python calculator.py\ndef add(a, b):\n    return a + b\n\ndef subtract(a, b):\n    return a - b\n```',
+        rawToolCalls: [],
+      });
+      mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
+      
+      // Make a call in assumptions stage to generate analysis
+      await client.callServer('analyze the requirements', 'assumptions', undefined, false, [
+        { role: 'user', content: 'create a calculator app' },
+        { role: 'assistant', content: 'I will help you create a calculator app.' },
+        { role: 'user', content: 'move to assumptions' },
+        { role: 'assistant', content: 'Moving to assumptions stage' },
+        { role: 'user', content: 'analyze the requirements' },
+      ]);
+      
+      // Now transition to implementation stage
+      const implementationResponse = {
+        status: 200,
+        data: {
+          choices: [{ text: '<|channel|>final<|message|>Moving to implementation stage<|end|>' }],
+        },
+      };
+      
+      mockedAxios.post.mockResolvedValueOnce(implementationResponse);
+      mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
+        content: 'Moving to implementation stage',
+        rawToolCalls: [],
+      });
+      mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
+      
+      // Transition to implementation with conversation history that includes assumptions stage responses
+      const conversationHistory = [
+        { role: 'user' as const, content: 'create a calculator app' },
+        { role: 'assistant' as const, content: 'I will help you create a calculator app.' },
+        { role: 'user' as const, content: 'move to assumptions' },
+        { role: 'assistant' as const, content: 'Moving to assumptions stage' },
+        { role: 'user' as const, content: 'analyze the requirements' },
+        { role: 'assistant' as const, content: 'Here is my analysis:\n\nI will create a calculator with add, subtract, multiply, and divide functions.\n\n```python calculator.py\ndef add(a, b):\n    return a + b\n\ndef subtract(a, b):\n    return a - b\n```' },
+        { role: 'user' as const, content: 'move to implementation' },
+      ];
+      
+      await client.callServer('move to implementation', 'implementation', undefined, false, conversationHistory);
+      
+      // Verify assumption_data.json CodeContext was created
+      const context = contextManager.getContext();
+      expect(context).toBeDefined();
+      expect(context?.codeContexts).toBeDefined();
+      
+      const assumptionDataContext = context?.codeContexts?.get('assumption_data.json');
+      expect(assumptionDataContext).toBeDefined();
+      expect(assumptionDataContext?.length).toBeGreaterThan(0);
+      
+      const activeAssumptionData = assumptionDataContext?.find((cc: CodeContext) => cc.isActive);
+      expect(activeAssumptionData).toBeDefined();
+      
+      if (activeAssumptionData) {
+        const assumptionDataContent = activeAssumptionData.getContentAsString();
+        const assumptionData = JSON.parse(assumptionDataContent);
+        
+        // Verify the structure
+        expect(assumptionData).toHaveProperty('assumptions');
+        expect(assumptionData).toHaveProperty('codeSnippets');
+        expect(assumptionData).toHaveProperty('summary');
+        
+        // Verify assumptions content includes the analysis
+        expect(assumptionData.assumptions).toBeInstanceOf(Array);
+        expect(assumptionData.assumptions.length).toBeGreaterThan(0);
+        expect(assumptionData.assumptions.some((a: string) => a.includes('analysis'))).toBe(true);
+        
+        // Verify code snippets were extracted
+        expect(assumptionData.codeSnippets).toBeInstanceOf(Array);
+        expect(assumptionData.codeSnippets.length).toBeGreaterThan(0);
+        expect(assumptionData.codeSnippets.some((cs: any) => cs.file.includes('calculator.py'))).toBe(true);
+        
+        // Verify summary exists
+        expect(assumptionData.summary).toBeTruthy();
+        expect(assumptionData.summary).toContain('assumptions stage');
+      }
     });
   });
 });

@@ -235,29 +235,76 @@ export class XmlProcessor {
                         // Try to find complete JSON using brace matching from this position
                         let jsonMatch = this.extractJsonFromPosition(raw, argsStartPos);
                         
-                        // If brace matching failed (JSON is incomplete), try to extract partial JSON
+                        // If brace matching failed (JSON is incomplete), try to extract from raw string directly
+                        // This handles cases where the JSON is truncated but we can still extract key fields
                         if (!jsonMatch) {
-                            // Find where the JSON starts (after the opening quote)
-                            const jsonStart = argsStartPos;
-                            // Try to find the last complete property before truncation
-                            // Look for patterns like "key":"value" or "key":value
-                            const partialJsonMatch = raw.substring(jsonStart).match(/^(\{[^}]*"file_path"\s*:\s*"[^"]*"[^}]*)/);
-                            if (partialJsonMatch) {
-                                // Try to close the JSON object
-                                let partialJson = partialJsonMatch[1];
-                                // If it doesn't end with }, try to add it
-                                if (!partialJson.trim().endsWith('}')) {
-                                    // Try to extract what we have and make it valid JSON
-                                    // Remove any incomplete property at the end
-                                    const lastComma = partialJson.lastIndexOf(',');
-                                    if (lastComma > 0) {
-                                        partialJson = partialJson.substring(0, lastComma) + '}';
-                                    } else {
-                                        partialJson = partialJson + '}';
+                            console.log(`[XmlProcessor] Brace matching failed, extracting fields directly from raw string for incomplete tool call...`);
+                            // Extract fields directly from raw string instead of trying to reconstruct JSON
+                            const filePathMatch = raw.match(/"file_path"\s*:\s*"([^"]+)"/);
+                            const filePath = filePathMatch ? filePathMatch[1] : null;
+                            
+                            // Extract content - look for "content":" and extract everything until end of raw string
+                            // or until we find a closing quote followed by } or end of string
+                            const contentStartMatch = raw.match(/"content"\s*:\s*"/);
+                            let content = '';
+                            if (contentStartMatch && contentStartMatch.index !== undefined) {
+                                const contentStartPos = contentStartMatch.index + contentStartMatch[0].length;
+                                // Extract from content start to end of raw string (content is truncated)
+                                const remainingRaw = raw.substring(contentStartPos);
+                                // Try to find the end of the content string (closing quote that's not escaped)
+                                let contentEndPos = remainingRaw.length;
+                                let foundClosingQuote = false;
+                                
+                                for (let i = 0; i < remainingRaw.length; i++) {
+                                    if (remainingRaw[i] === '"' && (i === 0 || remainingRaw[i - 1] !== '\\')) {
+                                        // Found unescaped closing quote - this might be the end of content
+                                        // But check if there's more after (like ,} or })
+                                        const afterQuote = remainingRaw.substring(i + 1).trim();
+                                        if (afterQuote.startsWith('}') || afterQuote.startsWith(',}') || afterQuote.startsWith(', }')) {
+                                            contentEndPos = i;
+                                            foundClosingQuote = true;
+                                            break;
+                                        }
                                     }
                                 }
-                                jsonMatch = partialJson;
-                                console.log(`[XmlProcessor] Extracted partial JSON from incomplete tool call: ${jsonMatch.substring(0, 100)}`);
+                                
+                                // If no closing quote found (incomplete content string), look for closing }
+                                // that would close the JSON object and stop before it
+                                if (!foundClosingQuote) {
+                                    // Look backwards from the end for a } that would close the JSON
+                                    // We want to stop before any } at the end (or followed by just whitespace/quotes)
+                                    const trimmedRemaining = remainingRaw.trim();
+                                    const lastBraceIndex = trimmedRemaining.lastIndexOf('}');
+                                    if (lastBraceIndex >= 0) {
+                                        // Check if this } is at the end or followed by just whitespace/quotes
+                                        const afterBrace = trimmedRemaining.substring(lastBraceIndex + 1).trim();
+                                        if (afterBrace === '' || afterBrace === "'" || afterBrace === '"') {
+                                            // This } closes the JSON object, stop before it
+                                            const originalIndex = remainingRaw.indexOf(trimmedRemaining) + lastBraceIndex;
+                                            contentEndPos = originalIndex;
+                                        }
+                                    }
+                                }
+                                
+                                const rawContent = remainingRaw.substring(0, contentEndPos);
+                                // Unescape JSON string escapes
+                                content = rawContent
+                                    .replace(/\\n/g, '\n')
+                                    .replace(/\\t/g, '\t')
+                                    .replace(/\\r/g, '\r')
+                                    .replace(/\\"/g, '"')
+                                    .replace(/\\'/g, "'")
+                                    .replace(/\\\\/g, '\\')
+                                    .trim();
+                            }
+                            
+                            if (filePath || content) {
+                                // Construct minimal JSON with extracted fields
+                                const extractedFields: any = {};
+                                if (filePath) extractedFields.file_path = filePath;
+                                if (content) extractedFields.content = content;
+                                jsonMatch = JSON.stringify(extractedFields);
+                                console.log(`[XmlProcessor] Extracted fields from incomplete tool call: file_path=${filePath || 'N/A'}, content length=${content.length}`);
                             }
                         }
                         

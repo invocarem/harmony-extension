@@ -192,6 +192,7 @@ describe('HarmonyAssistant', () => {
     // Setup ConversationManager mock
     mockConversationManager = {
       addMessage: jest.fn(),
+      getHistory: jest.fn().mockReturnValue([]),
       getHistoryForTemplate: jest.fn().mockReturnValue([]),
       getLength: jest.fn().mockReturnValue(0),
       clear: jest.fn(),

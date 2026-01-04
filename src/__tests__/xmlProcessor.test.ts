@@ -323,6 +323,44 @@ A tiny Python script that greets a user.
           expect(content.trim()).not.toBe('}');
         }
       });
+
+      it('should extract both file_path and content from incomplete tool call when JSON is truncated', () => {
+        // This tests the bug fix: when JSON is incomplete/truncated (no closing brace),
+        // both file_path and content should be extracted directly from raw string
+        // This simulates the actual bug where content was undefined
+        const incompleteToolCall = `<tool_call name="create_file" args='{"file_path":"hello.md","content":"# hello.py – Simple Greeting Module
+
+## Table of Contents
+1. [Project Overview](#project-overview)  
+2. [Installation](#installation)  
+3. [Usage](#usage)  
+   - [Command‑line](#command‑line)  
+   - [Programmatic API](#pro`;
+        
+        const result = XmlProcessor.extractToolCalls(incompleteToolCall);
+        
+        expect(result).toHaveLength(1);
+        expect(result[0].name).toBe('create_file');
+        
+        // Both fields should be extracted even though JSON is incomplete
+        expect(result[0].args.file_path).toBe('hello.md');
+        expect(result[0].args.content).toBeDefined();
+        expect(result[0].args.content).not.toBeUndefined();
+        
+        // Content should be properly extracted
+        const content = result[0].args.content;
+        expect(content).toContain('# hello.py – Simple Greeting Module');
+        expect(content).toContain('## Table of Contents');
+        expect(content).toContain('[Project Overview](#project-overview)');
+        expect(content).toContain('[Installation](#installation)');
+        expect(content).toContain('[Usage](#usage)');
+        expect(content).toContain('[Command‑line](#command‑line)');
+        expect(content).toContain('[Programmatic API](#pro');
+        
+        // Content should NOT end with closing brace
+        expect(content.endsWith('}')).toBe(false);
+        expect(content).not.toMatch(/\}\s*$/);
+      });
     });
 
     describe('Variant patterns', () => {

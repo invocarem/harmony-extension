@@ -266,22 +266,165 @@ export class HarmonyClient {
                 if (aggregatedPrompt) {
                   prompt = aggregatedPrompt;
                   
-                  // Save aggregatedPrompt to CodeContext (won't be created as file yet)
-                  const promptLines = aggregatedPrompt.split('\n');
+                  // Collect assistant responses from chat stage
+                  const assistantResponses: Array<{content: string; reasoning?: string}> = [];
+                  if (conversationHistory && conversationHistory.length > 0) {
+                    let inChatStage = true;
+                    for (const message of conversationHistory) {
+                      if (message.role === 'user') {
+                        const content = message.content.trim();
+                        const hasStageTransition = /\b(move\s+to|go\s+to|goto)\s+(assumptions|implementation|chat)\b/i.test(content);
+                        if (hasStageTransition && content.toLowerCase().includes('assumptions')) {
+                          break;
+                        }
+                      } else if (message.role === 'assistant') {
+                        const assistantContent = message.content.trim();
+                        if (inChatStage) {
+                          if (assistantContent && assistantContent.length > 0) {
+                            assistantResponses.push({
+                              content: assistantContent,
+                              reasoning: message.reasoning
+                            });
+                          }
+                        }
+                        // Check if assistant response indicates stage transition
+                        const contentLower = assistantContent.toLowerCase();
+                        if (contentLower.includes('moving to assumptions') || 
+                            contentLower.includes('transitioning to assumptions') ||
+                            contentLower.includes('now in assumptions stage')) {
+                          inChatStage = false;
+                        }
+                      }
+                    }
+                  }
+                  
+                  // Get related files from ChatManager
+                  const relatedFiles = this.chatManager.getAllRelatedFiles();
+                  
+                  // Create JSON structure for aggregated_prompt
+                  const aggregatedPromptData = {
+                    queries: queries,
+                    assistantResponses: assistantResponses,
+                    relatedFiles: relatedFiles,
+                    summary: `Aggregated user queries from chat stage: ${queries.length} queries, ${assistantResponses.length} assistant responses, ${relatedFiles.length} related files`
+                  };
+                  
+                  // Save aggregatedPrompt as JSON to CodeContext (won't be created as file yet)
+                  const promptJson = JSON.stringify(aggregatedPromptData, null, 2);
+                  const promptLines = promptJson.split('\n');
                   const promptContext = new CodeContext(
-                    'aggregated_prompt.md',
+                    'aggregated_prompt.json',
                     promptLines,
                     false, // waitForCreate: false - just store, don't create file yet
                     'v1',
                     Date.now(),
-                    'Aggregated user queries from chat stage'
+                    'Aggregated user queries and assistant responses from chat stage'
                   );
                   this.contextManager.addCodeContext(promptContext);
-                  console.log(`[Harmony] Saved aggregatedPrompt to CodeContext (${queries.length} queries)`);
+                  console.log(`[Harmony] Saved aggregatedPrompt to CodeContext (${queries.length} queries, ${assistantResponses.length} assistant responses, ${relatedFiles.length} related files)`);
                 }
                 
                 // Clear chat manager after transition
                 this.chatManager.clear();
+              }
+              
+              // When transitioning from assumptions to implementation, save assumptions data
+              if (previousStage === 'assumptions' && detectedStage === 'implementation') {
+                // Collect assumptions/analysis content from conversation history
+                const assumptionsData: {
+                  assumptions: string[];
+                  codeSnippets: Array<{ file: string; description?: string }>;
+                  summary: string;
+                } = {
+                  assumptions: [],
+                  codeSnippets: [],
+                  summary: '',
+                };
+                
+                if (conversationHistory && conversationHistory.length > 0) {
+                  let inAssumptionsStage = false;
+                  const assumptionsResponses: string[] = [];
+                  
+                  for (const message of conversationHistory) {
+                    if (message.role === 'user') {
+                      const content = message.content.trim();
+                      // Check if this message contains a stage transition command
+                      const hasStageTransition = /\b(move\s+to|go\s+to|goto)\s+(assumptions|implementation|chat)\b/i.test(content);
+                      if (hasStageTransition && content.toLowerCase().includes('assumptions')) {
+                        // Entering assumptions stage
+                        inAssumptionsStage = true;
+                      } else if (hasStageTransition && content.toLowerCase().includes('implementation')) {
+                        // Leaving assumptions stage for implementation
+                        break;
+                      }
+                    } else if (message.role === 'assistant' && inAssumptionsStage) {
+                      // Collect assistant responses from assumptions stage
+                      const content = message.content.trim();
+                      if (content && content.length > 0) {
+                        assumptionsResponses.push(content);
+                        assumptionsData.assumptions.push(content);
+                      }
+                    } else if (message.role === 'assistant') {
+                      // Check if assistant response indicates stage transition to assumptions
+                      const content = message.content.toLowerCase();
+                      if (content.includes('moving to assumptions') || 
+                          content.includes('transitioning to assumptions') ||
+                          content.includes('now in assumptions stage')) {
+                        inAssumptionsStage = true;
+                      }
+                    }
+                  }
+                  
+                  // Extract code snippets from assumptions responses
+                  const codeBlockPattern = /```(?:\w+)?\s*[\n ]([\s\S]*?)```/g;
+                  for (const response of assumptionsResponses) {
+                    const matches = response.matchAll(codeBlockPattern);
+                    for (const match of matches) {
+                      const codeBlock = match[0];
+                      // Try to extract file path from code block or surrounding text
+                      const fileMatch = codeBlock.match(/```(\w+)?\s*([^\n]+\.\w+)/) || 
+                                       response.match(/(?:file|path|create|generate)[:\s]+([^\s\n]+\.\w+)/i);
+                      const fileName = fileMatch ? (fileMatch[2] || fileMatch[1]) : 'unknown';
+                      assumptionsData.codeSnippets.push({
+                        file: fileName,
+                        description: `Code snippet from assumptions stage`,
+                      });
+                    }
+                  }
+                  
+                  // Create summary
+                  if (assumptionsResponses.length > 0) {
+                    assumptionsData.summary = `Analysis and assumptions from ${assumptionsResponses.length} response(s) in assumptions stage. Generated ${assumptionsData.codeSnippets.length} code snippet(s).`;
+                  }
+                }
+                
+                // Also check for code contexts that were created in assumptions stage
+                const context = this.contextManager.getContext();
+                if (context?.codeContexts) {
+                  for (const [fileName, versions] of context.codeContexts.entries()) {
+                    const activeVersion = versions.find(v => v.isActive);
+                    if (activeVersion && fileName !== 'aggregated_prompt.json' && fileName !== 'assumption_data.json') {
+                      assumptionsData.codeSnippets.push({
+                        file: fileName,
+                        description: activeVersion.description || `Code context for ${fileName}`,
+                      });
+                    }
+                  }
+                }
+                
+                // Create assumption_data.json CodeContext
+                const assumptionDataJson = JSON.stringify(assumptionsData, null, 2);
+                const assumptionDataLines = assumptionDataJson.split('\n');
+                const assumptionDataContext = new CodeContext(
+                  'assumption_data.json',
+                  assumptionDataLines,
+                  false, // waitForCreate: false - just store, don't create file yet
+                  'v1',
+                  Date.now(),
+                  'Assumptions and analysis data from assumptions stage'
+                );
+                this.contextManager.addCodeContext(assumptionDataContext);
+                console.log(`[Harmony] Saved assumption_data to CodeContext (${assumptionsData.assumptions.length} assumptions, ${assumptionsData.codeSnippets.length} code snippets)`);
               }
               
               // Perform the transition first
@@ -299,7 +442,7 @@ export class HarmonyClient {
                     console.log(`[Harmony] Implementation stage: Checking for diagnostic CodeContexts to auto-generate...`);
                     
                     // Find CodeContexts with waitForCreate: false and special diagnostic names
-                    const diagnosticFiles = ['aggregated_prompt.md', 'assumption_data.json'];
+                    const diagnosticFiles = ['aggregated_prompt.json', 'assumption_data.json'];
                     
                     for (const fileName of diagnosticFiles) {
                       const versions = updatedContext.codeContexts.get(fileName);
@@ -310,28 +453,33 @@ export class HarmonyClient {
                             const content = activeVersion.getContentAsString();
                             if (content && content.trim().length > 0) {
                               console.log(`[Harmony] Auto-generating diagnostic file: ${fileName}`);
-                              const createResult = await this.nativeToolsManager.callTool('create_file', {
-                                file_path: fileName,
-                                content: content
-                              });
-                              
-                              if (!createResult.isError) {
-                                console.log(`[Harmony] ✅ Successfully created diagnostic file: ${fileName}`);
-                              } else if (createResult.content?.[0]?.text?.includes('already exists')) {
-                                // File exists, use replace_file
-                                const replaceResult = await this.nativeToolsManager.callTool('replace_file', {
+                              try {
+                                const createResult = await this.nativeToolsManager.callTool('create_file', {
                                   file_path: fileName,
                                   content: content
                                 });
-                                if (!replaceResult.isError) {
-                                  console.log(`[Harmony] ✅ Successfully updated diagnostic file: ${fileName}`);
+                                
+                                if (createResult && !createResult.isError) {
+                                  console.log(`[Harmony] ✅ Successfully created diagnostic file: ${fileName}`);
+                                } else if (createResult && createResult.content?.[0]?.text?.includes('already exists')) {
+                                  // File exists, use replace_file
+                                  const replaceResult = await this.nativeToolsManager.callTool('replace_file', {
+                                    file_path: fileName,
+                                    content: content
+                                  });
+                                  if (replaceResult && !replaceResult.isError) {
+                                    console.log(`[Harmony] ✅ Successfully updated diagnostic file: ${fileName}`);
+                                  } else {
+                                    const errorMsg = replaceResult?.content?.[0]?.text || 'Unknown error';
+                                    console.warn(`[Harmony] ⚠️ Failed to update diagnostic file ${fileName}: ${errorMsg}`);
+                                  }
                                 } else {
-                                  const errorMsg = replaceResult.content?.[0]?.text || 'Unknown error';
-                                  console.warn(`[Harmony] ⚠️ Failed to update diagnostic file ${fileName}: ${errorMsg}`);
+                                  const errorMsg = createResult?.content?.[0]?.text || 'Unknown error';
+                                  console.warn(`[Harmony] ⚠️ Failed to create diagnostic file ${fileName}: ${errorMsg}`);
                                 }
-                              } else {
-                                const errorMsg = createResult.content?.[0]?.text || 'Unknown error';
-                                console.warn(`[Harmony] ⚠️ Failed to create diagnostic file ${fileName}: ${errorMsg}`);
+                              } catch (error: any) {
+                                // Silently ignore errors during diagnostic file creation (non-critical)
+                                console.warn(`[Harmony] ⚠️ Error creating diagnostic file ${fileName}:`, error.message || error);
                               }
                             }
                           } catch (error: any) {

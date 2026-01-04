@@ -20,10 +20,24 @@ const mockedAxios = axios as jest.Mocked<typeof axios>;
  */
 async function setupImplementationStage(
   client: HarmonyClient,
-  mockHarmonyProcessor: jest.Mocked<HarmonyProcessor>
+  mockHarmonyProcessor: jest.Mocked<HarmonyProcessor>,
+  mockNativeToolsManager: jest.Mocked<NativeToolsManager>
 ): Promise<void> {
   // Use shared helpers to transition through assumptions to implementation
   await transitionToAssumptions(client, mockHarmonyProcessor);
+  
+  // Set up default mock for diagnostic file creation
+  // These files are auto-generated when transitioning to implementation stage
+  // Use mockResolvedValue to handle any number of diagnostic file calls
+  // Tests can then chain mockResolvedValueOnce for their specific calls
+  const defaultDiagnosticMock = {
+    content: [{ type: 'text', text: 'Successfully created diagnostic file' }],
+    isError: false,
+  };
+  
+  // Set up default mock that will be used for any calls not specifically mocked
+  // This handles diagnostic files and provides a fallback
+  mockNativeToolsManager.callTool.mockResolvedValue(defaultDiagnosticMock);
   
   // Now transition to implementation stage
   const implementationResponse = {
@@ -115,7 +129,7 @@ describe('HarmonyClient - Implementation Stage', () => {
   describe('File Creation and Modification', () => {
     it('should automatically fallback from create_file to replace_file when file exists', async () => {
       // First, transition to implementation stage using explicit command
-      await setupImplementationStage(client, mockHarmonyProcessor);
+      await setupImplementationStage(client, mockHarmonyProcessor, mockNativeToolsManager);
 
       // Now test the fallback in implementation stage
       const mockResponse = {
@@ -168,6 +182,7 @@ describe('HarmonyClient - Implementation Stage', () => {
 
       mockNativeToolsManager.getAvailableTools.mockReturnValue([createFileTool, replaceFileTool]);
 
+      // Note: setupImplementationStage already made 2 calls (aggregated_prompt.json, assumption_data.json)
       // First call to create_file returns error about file existing
       mockNativeToolsManager.callTool
         .mockResolvedValueOnce({
@@ -182,14 +197,23 @@ describe('HarmonyClient - Implementation Stage', () => {
 
       const result = await client.callServer('now create test.txt with new content');
 
-      // Verify create_file was called first
-      expect(mockNativeToolsManager.callTool).toHaveBeenNthCalledWith(1, 'create_file', {
+      // Verify create_file was called (after diagnostic file calls from setupImplementationStage)
+      // Note: Only assumption_data.json is created (no aggregated_prompt.json since we didn't go through chat->assumptions)
+      const createFileCall = mockNativeToolsManager.callTool.mock.calls.find(
+        (call) => call[0] === 'create_file' && call[1]?.file_path === 'test.txt'
+      );
+      expect(createFileCall).toBeDefined();
+      expect(createFileCall![1]).toEqual({
         file_path: 'test.txt',
         content: 'new content',
       });
 
-      // Verify replace_file was called second with same arguments
-      expect(mockNativeToolsManager.callTool).toHaveBeenNthCalledWith(2, 'replace_file', {
+      // Verify replace_file was called with same arguments
+      const replaceFileCall = mockNativeToolsManager.callTool.mock.calls.find(
+        (call) => call[0] === 'replace_file' && call[1]?.file_path === 'test.txt'
+      );
+      expect(replaceFileCall).toBeDefined();
+      expect(replaceFileCall![1]).toEqual({
         file_path: 'test.txt',
         content: 'new content',
       });
@@ -208,7 +232,7 @@ describe('HarmonyClient - Implementation Stage', () => {
 
     it('should not fallback to replace_file when create_file succeeds', async () => {
       // First, transition to implementation stage using explicit command
-      await setupImplementationStage(client, mockHarmonyProcessor);
+      await setupImplementationStage(client, mockHarmonyProcessor, mockNativeToolsManager);
 
       // Now test the successful create_file in implementation stage
       const mockResponse = {
@@ -249,6 +273,7 @@ describe('HarmonyClient - Implementation Stage', () => {
       mockNativeToolsManager.getAvailableTools.mockReturnValue([createFileTool]);
 
       // create_file succeeds (file doesn't exist)
+      // Note: setupImplementationStage already made 2 calls (aggregated_prompt.json, assumption_data.json)
       mockNativeToolsManager.callTool.mockResolvedValueOnce({
         content: [{ type: 'text', text: 'Successfully created file: newfile.txt' }],
         isError: false,
@@ -256,8 +281,9 @@ describe('HarmonyClient - Implementation Stage', () => {
 
       const result = await client.callServer('now create newfile.txt with new content');
 
-      // Verify create_file was called only once
-      expect(mockNativeToolsManager.callTool).toHaveBeenCalledTimes(1);
+      // Verify create_file was called (setupImplementationStage made 1 diagnostic call, then this test made 1)
+      // Note: Only assumption_data.json is created (no aggregated_prompt.json since we didn't go through chat->assumptions)
+      expect(mockNativeToolsManager.callTool).toHaveBeenCalledTimes(2);
       expect(mockNativeToolsManager.callTool).toHaveBeenCalledWith('create_file', {
         file_path: 'newfile.txt',
         content: 'new content',
@@ -275,7 +301,7 @@ describe('HarmonyClient - Implementation Stage', () => {
   describe('Continuation Logic in Implementation Stage', () => {
     it('should continue from read_file to replace_file', async () => {
       // Use helper to transition to implementation stage
-      await setupImplementationStage(client, mockHarmonyProcessor);
+      await setupImplementationStage(client, mockHarmonyProcessor, mockNativeToolsManager);
 
       // First response: read_file - needs continuation hint to trigger continuation
       const readFileResponse = {
@@ -391,10 +417,11 @@ describe('HarmonyClient - Implementation Stage', () => {
       // Actually: setupImplementationStage = assumptions(1) + implementation(1) = 2, then test call = 1, continuation = 1, total = 4
       expect(mockedAxios.post).toHaveBeenCalledTimes(4);
       
-      // Should have executed only the read_file tool call
+      // Should have executed only the read_file tool call (plus 2 from setupImplementationStage)
       // The continuation to replace_file is blocked because we're already in a continuation
-      expect(mockNativeToolsManager.callTool).toHaveBeenCalledTimes(1);
-      expect(mockNativeToolsManager.callTool).toHaveBeenNthCalledWith(1, 'read_file', { file_path: 'test.txt' });
+      // setupImplementationStage made 1 diagnostic call (assumption_data.json), then this test made 1 = 2 total
+      expect(mockNativeToolsManager.callTool).toHaveBeenCalledTimes(2);
+      expect(mockNativeToolsManager.callTool).toHaveBeenNthCalledWith(2, 'read_file', { file_path: 'test.txt' });
       
       // Should have only the read_file tool call in result (replace_file continuation was blocked)
       expect(result.toolCalls?.length).toBe(1);
@@ -402,7 +429,7 @@ describe('HarmonyClient - Implementation Stage', () => {
     });
 
     it('should not continue when task is complete with file modification', async () => {
-      await setupImplementationStage(client, mockHarmonyProcessor);
+      await setupImplementationStage(client, mockHarmonyProcessor, mockNativeToolsManager);
 
       const mockResponse = {
         status: 200,
@@ -458,7 +485,7 @@ describe('HarmonyClient - Implementation Stage', () => {
     });
 
     it('should handle tool execution errors gracefully', async () => {
-      await setupImplementationStage(client, mockHarmonyProcessor);
+      await setupImplementationStage(client, mockHarmonyProcessor, mockNativeToolsManager);
 
       const mockResponse = {
         status: 200,
@@ -511,7 +538,7 @@ describe('HarmonyClient - Implementation Stage', () => {
     });
 
     it('should handle multiple tool calls in one response', async () => {
-      await setupImplementationStage(client, mockHarmonyProcessor);
+      await setupImplementationStage(client, mockHarmonyProcessor, mockNativeToolsManager);
 
       const mockResponse = {
         status: 200,
@@ -554,6 +581,7 @@ describe('HarmonyClient - Implementation Stage', () => {
 
       mockNativeToolsManager.getAvailableTools.mockReturnValue([createFileTool]);
 
+      // Note: setupImplementationStage already made 2 calls (aggregated_prompt.json, assumption_data.json)
       mockNativeToolsManager.callTool
         .mockResolvedValueOnce({
           content: [{ type: 'text', text: 'Successfully created file: file1.txt' }],
@@ -571,11 +599,12 @@ describe('HarmonyClient - Implementation Stage', () => {
       expect(result.toolCalls?.[0].arguments.file_path).toBe('file1.txt');
       expect(result.toolCalls?.[1].name).toBe('create_file');
       expect(result.toolCalls?.[1].arguments.file_path).toBe('file2.txt');
-      expect(mockNativeToolsManager.callTool).toHaveBeenCalledTimes(2);
+      // setupImplementationStage made 1 diagnostic call (assumption_data.json), then this test made 2 more = 3 total
+      expect(mockNativeToolsManager.callTool).toHaveBeenCalledTimes(3);
     });
 
     it('should handle mixed success and error tool calls', async () => {
-      await setupImplementationStage(client, mockHarmonyProcessor);
+      await setupImplementationStage(client, mockHarmonyProcessor, mockNativeToolsManager);
 
       const mockResponse = {
         status: 200,
@@ -638,7 +667,7 @@ describe('HarmonyClient - Implementation Stage', () => {
 
   describe('Error Handling and Edge Cases', () => {
     it('should handle empty file content', async () => {
-      await setupImplementationStage(client, mockHarmonyProcessor);
+      await setupImplementationStage(client, mockHarmonyProcessor, mockNativeToolsManager);
 
       const mockResponse = {
         status: 200,
@@ -689,7 +718,7 @@ describe('HarmonyClient - Implementation Stage', () => {
     });
 
     it('should handle responses with no tool calls and no content', async () => {
-      await setupImplementationStage(client, mockHarmonyProcessor);
+      await setupImplementationStage(client, mockHarmonyProcessor, mockNativeToolsManager);
 
       const mockResponse = {
         status: 200,
@@ -719,7 +748,7 @@ describe('HarmonyClient - Implementation Stage', () => {
     });
 
     it('should handle tool call extraction failures', async () => {
-      await setupImplementationStage(client, mockHarmonyProcessor);
+      await setupImplementationStage(client, mockHarmonyProcessor, mockNativeToolsManager);
 
       const mockResponse = {
         status: 200,
@@ -753,7 +782,7 @@ describe('HarmonyClient - Implementation Stage', () => {
     });
 
     it('should stop continuation when max steps reached', async () => {
-      await setupImplementationStage(client, mockHarmonyProcessor);
+      await setupImplementationStage(client, mockHarmonyProcessor, mockNativeToolsManager);
 
       // Set max steps to 2 and current step to 2 (already at max)
       const context = (client as any).contextManager.getContext();
@@ -996,7 +1025,7 @@ describe('HarmonyClient - Implementation Stage', () => {
       ]);
 
       // Transition to implementation stage
-      await setupImplementationStage(client, mockHarmonyProcessor);
+      await setupImplementationStage(client, mockHarmonyProcessor, mockNativeToolsManager);
 
       // Verify we're in implementation stage
       expect(client.getCurrentStage()).toBe('implementation');
@@ -1068,7 +1097,7 @@ describe('HarmonyClient - Implementation Stage', () => {
         { goal: 'Create config.json' },
       ]);
 
-      await setupImplementationStage(client, mockHarmonyProcessor);
+      await setupImplementationStage(client, mockHarmonyProcessor, mockNativeToolsManager);
 
       // Mock response with create_file tool call
       const implementationResponse = {
@@ -1136,7 +1165,7 @@ describe('HarmonyClient - Implementation Stage', () => {
         { goal: 'Create file2.py' },
       ]);
 
-      await setupImplementationStage(client, mockHarmonyProcessor);
+      await setupImplementationStage(client, mockHarmonyProcessor, mockNativeToolsManager);
 
       const createFileTool = {
         name: 'create_file',
@@ -1232,7 +1261,7 @@ describe('HarmonyClient - Implementation Stage', () => {
         { goal: 'Step 3: Create tests.py' },
       ]);
 
-      await setupImplementationStage(client, mockHarmonyProcessor);
+      await setupImplementationStage(client, mockHarmonyProcessor, mockNativeToolsManager);
 
       const createFileTool = {
         name: 'create_file',

@@ -2,7 +2,6 @@ import * as path from "path";
 import * as fs from "fs";
 import * as vscode from "vscode";
 import { ChatMessage } from "./conversationManager";
-import { filterHarmonyTokens } from "./utils/harmonyTokenFilter";
 
 export class TemplateRenderer {
   constructor(
@@ -32,14 +31,23 @@ export class TemplateRenderer {
         ? this.formatConversationHistory(conversationHistory)
         : '';
       
-      const defaultPrompt = `${historyText}<|start|>user<|channel|>final<|message|>
-{{prompt}}
-
-<|end|>
-<|start|>assistant<|channel|>final<|message|>`;
+      let defaultPrompt = `${historyText}{{prompt}}`;
       
-      // Filter harmony tokens if harmonyMode is false
-      return this.harmonyMode ? defaultPrompt : filterHarmonyTokens(defaultPrompt);
+      // Add harmony tokens at beginning and end when harmony mode is true
+      if (this.harmonyMode) {
+        defaultPrompt = `<|start|>user<|channel|>final<|message|>${defaultPrompt}<|end|>`;
+      }
+      
+      // Replace template variables
+      defaultPrompt = defaultPrompt.replace(/{{(\w+)}}/g, (match, key) => {
+        const value = templateContext[key];
+        if (value === undefined || value === null || (typeof value === 'string' && value.trim() === '')) {
+          return "";
+        }
+        return String(value);
+      });
+      
+      return defaultPrompt;
     }
   }
 
@@ -92,8 +100,8 @@ ${assistantContent}
       ? this.formatConversationHistory(conversationHistory)
       : '';
     
-    // Filter harmony tokens from template if harmonyMode is false
-    let templateToRender = this.harmonyMode ? template : filterHarmonyTokens(template);
+    // Templates no longer contain harmony tokens - they're added conditionally
+    let templateToRender = template;
     
     // Simple template rendering - replace {{variable}} with values
     // Handle both {{variable}} and {variable} patterns
@@ -113,16 +121,14 @@ ${assistantContent}
         return String(value);
       });
     
-    // Insert conversation history before the user message
-    // Look for the first occurrence of <|start|>user to insert history before it (only if harmonyMode is true)
+    // Insert conversation history before the content
     if (historyText) {
-      if (this.harmonyMode && rendered.includes('<|start|>user')) {
-        const userIndex = rendered.indexOf('<|start|>user');
-        rendered = historyText + rendered.substring(userIndex);
-      } else if (!this.harmonyMode) {
-        // For plain jinja mode, prepend history
-        rendered = historyText + rendered;
-      }
+      rendered = historyText + rendered;
+    }
+    
+    // Add harmony tokens at beginning and end when harmony mode is true
+    if (this.harmonyMode) {
+      rendered = `<|start|>user<|channel|>final<|message|>${rendered}<|end|>`;
     }
     
     return rendered;
