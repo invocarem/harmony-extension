@@ -29,8 +29,8 @@ STEP_ADVANCEMENT_SUGGESTIONS.md
 # 开发脚本和工具
 test-webpack.js
 
-# Node.js 依赖（可选，如果不需要离线安装）
-# node_modules/**
+# Node.js 依赖（已通过 webpack 打包到 dist，无需包含）
+node_modules/**
 
 # 其他
 *.map
