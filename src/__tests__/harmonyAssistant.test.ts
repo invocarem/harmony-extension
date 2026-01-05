@@ -9,6 +9,7 @@ import { MCPManager } from '../mcpManager';
 import { RulesManager } from '../rulesManager';
 import { NativeToolsManager } from '../nativeToolManager';
 import * as vscode from 'vscode';
+import { ConfirmationManager } from '../harmony';
 
 // Mock VSCode
 jest.mock('vscode', () => ({
@@ -280,7 +281,8 @@ describe('HarmonyAssistant', () => {
       expect(mockStageStateMachine.determineNextStage).toHaveBeenCalledWith(
         'assumptions',
         expect.any(String), // finalMessage may have file context prepended
-        []
+        [],
+        expect.any(ConfirmationManager)
       );
       expect(mockHarmonyClient.callServer).toHaveBeenCalledWith(
         expect.any(String),
@@ -331,7 +333,8 @@ describe('HarmonyAssistant', () => {
       expect(mockStageStateMachine.determineNextStage).toHaveBeenCalledWith(
         'chat',
         expect.any(String),
-        []
+        [],
+        expect.any(ConfirmationManager)
       );
       const callArgs = mockHarmonyClient.callServer.mock.calls[0];
       expect(callArgs[1]).toBe('assumptions');
