@@ -175,7 +175,7 @@ describe('NativeToolsManager', () => {
     it('should read file successfully', async () => {
       const filePath = 'test.txt';
       const content = 'Hello, world!';
-      const resolvedPath = path.join(workspaceRoot, filePath);
+      const resolvedPath = path.resolve(workspaceRoot, filePath);
       
       (mockFs.promises.readFile as jest.Mock).mockResolvedValue(content);
       

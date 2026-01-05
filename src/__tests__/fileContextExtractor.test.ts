@@ -36,17 +36,15 @@ describe('FileContextExtractor', () => {
       const workspaceRoot = '/home/chenchen/code/ordo';
       const actualFilePath = path.join(workspaceRoot, 'Tests/LatinServices/Psalm71Tests.swift');
       const filenameOnly = 'Psalm71Tests.swift';
-      const wrongPath = path.join(workspaceRoot, filenameOnly); // This is where it will try to resolve
+      const wrongPath = path.resolve(workspaceRoot, filenameOnly);   // <-- built the same way
 
       // Mock that file does NOT exist at the wrong location (workspace root + filename)
       (fs.promises.stat as jest.Mock).mockImplementation((filePath: any) => {
         const resolvedPath = typeof filePath === 'string' ? filePath : filePath.toString();
         if (resolvedPath === wrongPath) {
-          // File doesn't exist at workspace root + filename
           return Promise.reject(new Error(`ENOENT: no such file or directory, open '${wrongPath}'`));
         }
         if (resolvedPath === actualFilePath) {
-          // File exists at the actual location
           return Promise.resolve({
             isFile: () => true,
             isDirectory: () => false,
@@ -65,11 +63,11 @@ describe('FileContextExtractor', () => {
       // Should fail to extract the file context and keep the reference in the message
       expect(result.fileContexts).toHaveLength(0);
       expect(result.cleanMessage).toContain(`@file:${filenameOnly}`);
-      
+
       // Should have attempted to stat the wrong path (workspace root + filename)
       expect(fs.promises.stat).toHaveBeenCalledWith(wrongPath);
-      
-      // Should have logged a warning - update the expected string to match the actual format
+
+      // Should have logged a warning
       expect(consoleWarnSpy).toHaveBeenCalledWith(
         expect.stringContaining(`Failed to get file context for "${filenameOnly}"`),
         expect.any(String)
@@ -78,11 +76,10 @@ describe('FileContextExtractor', () => {
       consoleWarnSpy.mockRestore();
     });
 
-
     it('should successfully resolve file when relative path is provided', async () => {
       const workspaceRoot = '/home/chenchen/code/ordo';
       const relativePath = 'Tests/LatinServices/Psalm71Tests.swift';
-      const actualFilePath = path.join(workspaceRoot, relativePath);
+      const actualFilePath = path.resolve(workspaceRoot, relativePath);   // <-- built the same way
       const fileContent = '// File content here';
 
       // Mock that file exists at the correct location
@@ -100,13 +97,13 @@ describe('FileContextExtractor', () => {
 
       // Should successfully extract the file context
       expect(result.fileContexts).toHaveLength(1);
-      expect(result.fileContexts[0].path).toBe(actualFilePath);
+      expect(result.fileContexts[0].path).toBe(actualFilePath);   // <-- now matches
       expect(result.fileContexts[0].content).toBe(fileContent);
       expect(result.fileContexts[0].type).toBe('file');
-      
+
       // Should have removed the file reference from the message
       expect(result.cleanMessage).not.toContain(`@file:${relativePath}`);
-      
+
       // Should have called stat with the resolved path
       expect(fs.promises.stat).toHaveBeenCalledWith(actualFilePath);
       expect(fs.promises.readFile).toHaveBeenCalledWith(actualFilePath, 'utf-8');
