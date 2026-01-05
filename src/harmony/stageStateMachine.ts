@@ -1,5 +1,6 @@
 import { ChatMessage } from "../conversationManager";
 import { MCPToolResult } from "../mcpClient";
+import { ConfirmationManager } from "./confirmationManager";
 
 export type WorkflowStage = 'init' | 'chat' | 'assumptions' | 'implementation';
 
@@ -91,7 +92,11 @@ export class StageStateMachine {
   /**
    * Detect trigger from prompt
    */
-  private detectTrigger(prompt: string, currentStage: WorkflowStage): TransitionTrigger {
+  private detectTrigger(
+    prompt: string,
+    currentStage: WorkflowStage,
+    confirmationManager?: ConfirmationManager
+  ): TransitionTrigger {
     const promptLower = prompt.toLowerCase().trim();
 
     // Init stage always transitions to chat (handled separately, but included for completeness)
@@ -99,7 +104,18 @@ export class StageStateMachine {
       return 'initialize';
     }
 
-    // Explicit commands (checked first)
+    // Check for confirmation responses (high priority - checked before explicit commands)
+    if (confirmationManager) {
+      const pendingConfirmation = confirmationManager.getPendingConfirmation(currentStage);
+      if (pendingConfirmation && confirmationManager.isConfirmationResponse(prompt)) {
+        console.log(`[StageStateMachine] Confirmation detected: ${pendingConfirmation.action} from ${currentStage}`);
+        // Consume the confirmation
+        confirmationManager.consumeConfirmation(currentStage);
+        return pendingConfirmation.action as TransitionTrigger;
+      }
+    }
+
+    // Explicit commands (checked after confirmations)
     if (/\b(move\s+to|go\s+to|goto|start|begin)\s+(implementation|implement)\b/i.test(promptLower)) {
       return 'move_to_implementation';
     }
@@ -160,10 +176,11 @@ export class StageStateMachine {
   determineNextStage(
     currentStage: WorkflowStage,
     prompt: string,
-    conversationHistory?: readonly ChatMessage[]
+    conversationHistory?: readonly ChatMessage[],
+    confirmationManager?: ConfirmationManager
   ): WorkflowStage | null {
     // Detect trigger from prompt
-    const trigger = this.detectTrigger(prompt, currentStage);
+    const trigger = this.detectTrigger(prompt, currentStage, confirmationManager);
     
     if (trigger === 'none') {
       return null; // Stay in current stage

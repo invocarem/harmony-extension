@@ -15,6 +15,7 @@ import { cleanVerboseResponse } from "./utils/responseCleaner";
 import { StageStateMachine, WorkflowStage } from "./harmony/stageStateMachine";
 import { FileExtractionResult, VerboseInfoBuilder, VerboseInfoFormatter } from "./utils/verboseInfo";
 import { CommandExtractor } from "./utils/commandExtractor";
+import { ConfirmationManager } from "./harmony/confirmationManager";
 
 export class HarmonyAssistant {
   private webviewManager: WebviewManager;
@@ -28,6 +29,7 @@ export class HarmonyAssistant {
   private conversationManager: ConversationManager;
   private stageStateMachine: StageStateMachine;
   private fileManager: FileManager;
+  private confirmationManager: ConfirmationManager;
   private lastActiveTextEditor: vscode.TextEditor | undefined;
   private editorChangeDisposable: vscode.Disposable | undefined;
 
@@ -40,6 +42,7 @@ export class HarmonyAssistant {
     this.conversationManager = new ConversationManager();
     this.stageStateMachine = new StageStateMachine();
     this.fileManager = new FileManager();
+    this.confirmationManager = new ConfirmationManager();
     this.harmonyClient = new HarmonyClient(this.config, this.mcpManager, this.rulesManager, this.nativeToolsManager);
     
     // Set up callback to send verboseInfo to webview before stage transitions
@@ -473,10 +476,13 @@ export class HarmonyAssistant {
           const detectedStage = this.stageStateMachine.determineNextStage(
             currentStage,
             finalMessage,
-            history
+            history,
+            this.confirmationManager
           );
           if (detectedStage && detectedStage !== currentStage) {
             console.log(`[Harmony] Stage transition detected in extension (regex fallback): ${currentStage} -> ${detectedStage}`);
+            // Clear confirmation after successful transition
+            this.confirmationManager.clear();
             currentStage = detectedStage;
           }
         } else {
@@ -484,8 +490,13 @@ export class HarmonyAssistant {
           const detectedStage = this.stageStateMachine.determineNextStage(
             'chat',
             finalMessage,
-            history
+            history,
+            this.confirmationManager
           );
+          if (detectedStage && detectedStage !== currentStage) {
+            // Clear confirmation after successful transition
+            this.confirmationManager.clear();
+          }
           currentStage = detectedStage || 'chat';
         }
       }
@@ -537,6 +548,14 @@ export class HarmonyAssistant {
         content: cleanedContent,
         reasoning: response.reasoning,
       });
+
+      // Detect and store confirmation requests in assistant responses
+      const conversationHistory = this.conversationManager.getHistory();
+      this.confirmationManager.detectAndStoreConfirmation(
+        cleanedContent,
+        currentStage,
+        conversationHistory
+      );
 
       // Update problem summary in ChatManager if in chat stage and response looks like a restatement
       if (currentStage === 'chat' && cleanedContent) {
@@ -819,7 +838,8 @@ export class HarmonyAssistant {
    */
   public clearConversationHistory(): void {
     this.conversationManager.clear();
-    console.log(`[Harmony] Conversation history cleared`);
+    this.confirmationManager.clear();
+    console.log(`[Harmony] Conversation history and confirmations cleared`);
   }
 
   private async sendCodeContext(): Promise<void> {

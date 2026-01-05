@@ -1,6 +1,7 @@
 import { ChatMessage } from "../conversationManager";
 import { StageStateMachine, WorkflowStage } from "./stageStateMachine";
 import { ConversationContext } from "./conversationContext";
+import { ConfirmationManager } from "./confirmationManager";
 
 /**
  * Detects the appropriate workflow stage based on the prompt
@@ -16,7 +17,8 @@ export class StageDetector {
   detectStage(
     prompt: string,
     conversationHistory: readonly ChatMessage[] | undefined,
-    conversationContext: ConversationContext | null
+    conversationContext: ConversationContext | null,
+    confirmationManager?: ConfirmationManager
   ): WorkflowStage {
     // Get current stage from context or default to init
     const currentStage = conversationContext?.currentStage || 'init';
@@ -40,7 +42,7 @@ export class StageDetector {
     }
     
     // Use state machine to determine next stage
-    const nextStage = this.stageStateMachine.determineNextStage(currentStage, prompt, conversationHistory);
+    const nextStage = this.stageStateMachine.determineNextStage(currentStage, prompt, conversationHistory, confirmationManager);
     if (nextStage !== null) {
       console.log(`[StageDetector] State machine determined stage transition: ${currentStage} -> ${nextStage}`);
       return nextStage; // IMMEDIATELY return the new stage from state machine
