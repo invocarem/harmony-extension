@@ -16,6 +16,9 @@ export class XmlProcessor {
         
         console.log(`[XmlProcessor] extractToolCalls called with text (${text.length} chars): "${text.substring(0, 200)}${text.length > 200 ? '...' : ''}"`);
         
+        // Track all processed positions to avoid duplicate extraction
+        const processedPositions: Array<{ start: number; end: number }> = [];
+        
         // Self-closing tool call patterns - support both <tool_call> and <MCP_CALL>
         // Use a more robust approach that handles > characters inside quoted strings
         const selfClosingTagNames = ['tool_call', 'MCP_CALL'];
@@ -41,6 +44,8 @@ export class XmlProcessor {
                         if (parsed) {
                             console.log(`[XmlProcessor] Successfully parsed tool call: ${parsed.name}`);
                             results.push(parsed);
+                            // Track this processed position
+                            processedPositions.push({ start: startPos, end: tagEnd });
                         } else {
                             console.warn(`[XmlProcessor] Failed to parse attributes from: "${attributes.substring(0, 100)}"`);
                         }
@@ -53,6 +58,7 @@ export class XmlProcessor {
         // These patterns look for <|...tool_call or |...tool_call variants
         // We'll use a similar approach but look for the variant prefix first
         // Process <| first, then | (but skip if already matched by <|)
+        // Note: processedRanges is local to variant patterns, processedPositions tracks all processed ranges
         const processedRanges: Array<{ start: number; end: number }> = [];
         
         for (const tagName of selfClosingTagNames) {
@@ -73,11 +79,12 @@ export class XmlProcessor {
                         const attributesMatch = raw.match(new RegExp(`${tagName}\\s+(.+?)\\s*/>`, 's'));
                         if (attributesMatch) {
                             const attributes = attributesMatch[1];
-                            const parsed = this.parseAttributes(attributes, raw);
-                            if (parsed) {
-                                results.push(parsed);
-                                processedRanges.push({ start: variantStart, end: tagEnd });
-                            }
+                                const parsed = this.parseAttributes(attributes, raw);
+                                if (parsed) {
+                                    results.push(parsed);
+                                    processedRanges.push({ start: variantStart, end: tagEnd });
+                                    processedPositions.push({ start: variantStart, end: tagEnd });
+                                }
                         }
                     }
                 }
@@ -109,6 +116,7 @@ export class XmlProcessor {
                                 const parsed = this.parseAttributes(attributes, raw);
                                 if (parsed) {
                                     results.push(parsed);
+                                    processedPositions.push({ start: variantStart, end: tagEnd });
                                 }
                             }
                         }
@@ -127,7 +135,17 @@ export class XmlProcessor {
             let match: RegExpExecArray | null;
             while ((match = fullElementRegex.exec(text)) !== null) {
                 const raw = match[0];
+                const matchStart = match.index!;
+                const matchEnd = matchStart + raw.length;
                 const content = match[1].trim();
+                
+                // Skip if this position was already processed
+                const isAlreadyProcessed = processedPositions.some(
+                    range => matchStart >= range.start && matchStart < range.end
+                );
+                if (isAlreadyProcessed) {
+                    continue;
+                }
                 
                 try {
                     // Try to parse JSON content inside element
@@ -141,6 +159,7 @@ export class XmlProcessor {
                                 name: toolData.name,
                                 args
                             });
+                            processedPositions.push({ start: matchStart, end: matchEnd });
                             continue;
                         }
                     }
@@ -151,6 +170,7 @@ export class XmlProcessor {
                         const parsed = this.parseAttributes(attrMatch[1], raw);
                         if (parsed) {
                             results.push(parsed);
+                            processedPositions.push({ start: matchStart, end: matchEnd });
                         }
                     }
                 } catch (error) {
@@ -170,13 +190,12 @@ export class XmlProcessor {
         while ((startMatch = toolCallStartPattern.exec(text)) !== null) {
             const startPos = startMatch.index;
             
-            // Check if this is already part of a complete match we found
-            const isAlreadyMatched = results.some(result => {
-                const resultStart = text.indexOf(result.raw);
-                return resultStart !== -1 && startPos >= resultStart && startPos < resultStart + result.raw.length;
-            });
+            // Check if this position was already processed by earlier sections
+            const isAlreadyProcessed = processedPositions.some(
+                range => startPos >= range.start && startPos < range.end
+            );
             
-            if (isAlreadyMatched) {
+            if (isAlreadyProcessed) {
                 continue;
             }
             
@@ -198,7 +217,9 @@ export class XmlProcessor {
                     const raw = lenientMatch[0];
                     const parsed = this.parseAttributes(attributes, raw);
                     if (parsed) {
+                        const rawEnd = startPos + raw.length;
                         results.push(parsed);
+                        processedPositions.push({ start: startPos, end: rawEnd });
                         continue;
                     }
                 }

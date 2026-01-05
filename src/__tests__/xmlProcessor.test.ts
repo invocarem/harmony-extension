@@ -29,6 +29,17 @@ describe('XmlProcessor', () => {
         expect(result[0].name).toBe('tool1');
         expect(result[1].name).toBe('tool2');
       });
+
+      it('should not extract duplicate tool calls when same tool call appears in text', () => {
+        // This test reproduces the bug where the same tool call gets extracted multiple times
+        // The incomplete/truncated handler was processing tool calls already extracted by the self-closing loop
+        const text = 'The correct format is: <tool_call name="analyze_latin" args=\'{"word": "invenietur"}\' /> Please note that the tool call must be in this exact format.';
+        const result = XmlProcessor.extractToolCalls(text);
+        
+        expect(result).toHaveLength(1);
+        expect(result[0].name).toBe('analyze_latin');
+        expect(result[0].args).toEqual({ word: 'invenietur' });
+      });
     });
 
     describe('Brace matching fallback for complex JSON', () => {

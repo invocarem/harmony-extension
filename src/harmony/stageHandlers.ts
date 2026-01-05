@@ -63,7 +63,9 @@ class ImplementationStageHandler implements StageHandler {
                               /^\s*(next\s+step|continue|proceed|advance)\s*$/i.test(promptTrimmed);
     
     // Follow ProgressPlan/PlanStep to determine action, not hardcode it
-    const plan = context.progressPlan;
+    // Refresh context to get the newly created plan if it was just created
+    const updatedContext = contextManager?.getContext() || context;
+    const plan = updatedContext.progressPlan;
     const codeContexts = contextManager?.getCodeContexts() || [];
     let shouldUseCodeContext = false;
     let shouldCallLLM = false;
@@ -114,6 +116,8 @@ class ImplementationStageHandler implements StageHandler {
       }
     }
 
+    // All tasks should have a ProgressPlan (created in assumptions stage)
+    // If plan doesn't exist, treat as error case and call LLM
     if (plan && progressPlanManager) {
       // Get current step (pending or in_progress)
       const currentStep = plan.steps.find(step => 
@@ -139,22 +143,35 @@ class ImplementationStageHandler implements StageHandler {
           console.log(`[StageHandler:Implementation] ProgressPlan: Step requires file creation but no CodeContext, calling LLM to generate tool calls`);
         } else {
           // Step doesn't explicitly need file creation or unclear - call LLM to determine action
-          shouldCallLLM = true;
-          console.log(`[StageHandler:Implementation] ProgressPlan: Step doesn't require file creation, calling LLM to determine action`);
+          // Also use CodeContext if available (even if step doesn't explicitly require file creation)
+          if (codeContexts.length > 0) {
+            shouldUseCodeContext = true;
+            console.log(`[StageHandler:Implementation] ProgressPlan: Using CodeContext (no LLM call needed)`);
+          } else {
+            shouldCallLLM = true;
+            console.log(`[StageHandler:Implementation] ProgressPlan: Step doesn't require file creation, calling LLM to determine action`);
+          }
         }
       } else {
         // No active step - call LLM to determine next action
-        shouldCallLLM = true;
-        console.log(`[StageHandler:Implementation] ProgressPlan: No active step found, calling LLM to determine action`);
+        // But first check if we have CodeContext that can be used
+        if (codeContexts.length > 0) {
+          shouldUseCodeContext = true;
+          console.log(`[StageHandler:Implementation] ProgressPlan: No active step but CodeContext available, using CodeContext`);
+        } else {
+          shouldCallLLM = true;
+          console.log(`[StageHandler:Implementation] ProgressPlan: No active step found, calling LLM to determine action`);
+        }
       }
     } else {
-      // No plan - fallback to CodeContext check
+      // No plan exists (shouldn't happen in normal flow, but handle gracefully)
+      console.warn(`[StageHandler:Implementation] No ProgressPlan found (unexpected) - falling back to CodeContext check or LLM`);
       if (codeContexts.length > 0) {
         shouldUseCodeContext = true;
-        console.log(`[StageHandler:Implementation] No ProgressPlan: Using CodeContext (no LLM call needed)`);
+        console.log(`[StageHandler:Implementation] Fallback: Using CodeContext (no LLM call needed)`);
       } else {
         shouldCallLLM = true;
-        console.log(`[StageHandler:Implementation] No ProgressPlan: No CodeContext, calling LLM to generate tool calls`);
+        console.log(`[StageHandler:Implementation] Fallback: No CodeContext, calling LLM to generate tool calls`);
       }
     }
 
@@ -316,7 +333,8 @@ class AssumptionsStageHandler implements StageHandler {
         console.log(`[StageHandler:Assumptions] Added ${codeBlockCount} code context(s)`);
       }
 
-      // Create ProgressPlan for complex tasks
+      // Create ProgressPlan for all tasks (simple and hard)
+      // This provides a unified execution model for implementation stage
       if (!context.progressPlan) {
         try {
           const complexity = autoTransitionManager.detectTaskComplexity(
@@ -325,12 +343,13 @@ class AssumptionsStageHandler implements StageHandler {
             toolCalls
           );
           
+          const taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          const originalPrompt = context.originalPrompt;
+          
+          let steps: Array<{ goal: string; description?: string; tools?: string[] }> = [];
+          
           if (complexity === 'hard') {
-            const taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-            const originalPrompt = context.originalPrompt;
-            
-            // Extract steps from content
-            const steps: Array<{ goal: string; description?: string; tools?: string[] }> = [];
+            // Extract steps from content for hard tasks (3+ steps)
             const stepMatches = content.match(/(?:^|\n)(?:\d+\.|\*\s+|-\s+|Step\s+\d+[:.]?\s*)(.+?)(?=\n(?:\d+\.|\*\s+|-\s+|Step\s+\d+[:.]?|$))/gi);
             
             if (stepMatches && stepMatches.length >= 3) {
@@ -341,7 +360,7 @@ class AssumptionsStageHandler implements StageHandler {
                 }
               });
             } else {
-              // Fallback: create generic steps
+              // Fallback: create generic steps for hard tasks
               for (let i = 1; i <= 3; i++) {
                 steps.push({ 
                   goal: `Step ${i}: Complete part ${i} of the task`, 
@@ -350,20 +369,43 @@ class AssumptionsStageHandler implements StageHandler {
               }
             }
             
-            const plan = progressPlanManager.createPlan(
-              taskId,
-              originalPrompt,
-              'hard',
-              steps.length > 0 ? steps : [
+            // Default fallback for hard tasks
+            if (steps.length === 0) {
+              steps = [
                 { goal: 'Step 1: Analyze requirements', description: 'Understand the task requirements' },
                 { goal: 'Step 2: Design solution', description: 'Plan the implementation approach' },
                 { goal: 'Step 3: Implement solution', description: 'Execute the implementation' }
-              ]
-            );
+              ];
+            }
+          } else {
+            // Simple task (1-2 steps): create default plan
+            // Extract steps if available, otherwise use single-step default
+            const stepMatches = content.match(/(?:^|\n)(?:\d+\.|\*\s+|-\s+|Step\s+\d+[:.]?\s*)(.+?)(?=\n(?:\d+\.|\*\s+|-\s+|Step\s+\d+[:.]?|$))/gi);
             
-            contextManager.setProgressPlan(plan);
-            console.log(`[StageHandler:Assumptions] Created ProgressPlan with ${plan.totalSteps} steps`);
+            if (stepMatches && stepMatches.length >= 1 && stepMatches.length <= 2) {
+              stepMatches.forEach((match) => {
+                const goal = match.replace(/^(?:\d+\.|\*\s+|-\s+|Step\s+\d+[:.]?\s*)/i, '').trim();
+                if (goal) {
+                  steps.push({ goal, description: goal });
+                }
+              });
+            } else {
+              // Default: single step for simple tasks
+              steps = [
+                { goal: 'Complete the task', description: 'Execute the task implementation' }
+              ];
+            }
           }
+          
+          const plan = progressPlanManager.createPlan(
+            taskId,
+            originalPrompt,
+            complexity || 'simple',
+            steps
+          );
+          
+          contextManager.setProgressPlan(plan);
+          console.log(`[StageHandler:Assumptions] Created ProgressPlan with ${plan.totalSteps} step(s) (complexity: ${plan.complexity})`);
         } catch (error) {
           console.warn(`[StageHandler:Assumptions] Error creating plan:`, error);
         }

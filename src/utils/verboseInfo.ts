@@ -509,12 +509,15 @@ export class VerboseInfoBuilder {
     fileOperations?: FileOperationResult,
     toolCalls?: Array<{ name: string; stage: WorkflowStage; success: boolean; error?: string; relatedStep?: number }>
   ): ImplementationVerboseInfo {
+    // Only include step/maxSteps when there's a ProgressPlan (real multi-step task)
+    // For simple tasks without a plan, don't show misleading step counts
+    const hasProgressPlan = !!context?.progressPlan;
     const verboseInfo: ImplementationVerboseInfo = {
       stage: 'implementation',
       stageTransition: context?.lastStageTransition,
-      step: context ? context.currentStep : undefined,
-      maxSteps: context ? context.maxSteps : undefined,
-      isComplete: !context || context.currentStep >= context.maxSteps,
+      step: hasProgressPlan && context ? context.currentStep : undefined,
+      maxSteps: hasProgressPlan && context ? context.maxSteps : undefined,
+      isComplete: !context || (hasProgressPlan ? context.currentStep >= context.maxSteps : true),
     };
 
     // Add plan progress with file operation linking

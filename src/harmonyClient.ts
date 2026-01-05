@@ -1101,15 +1101,15 @@ export class HarmonyClient {
                 toolCalls
               );
               
+              // Create ProgressPlan for all tasks (simple and hard)
+              // This provides a unified execution model for implementation stage
+              const taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+              const originalPrompt = context.originalPrompt || prompt;
+              
+              let steps: Array<{ goal: string; description?: string; tools?: string[] }> = [];
+              
               if (complexity === 'hard') {
-                // Task is complex (3+ steps), create a ProgressPlan
-                const taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-                const originalPrompt = context.originalPrompt || prompt;
-                
-                // Extract steps from content
-                const steps: Array<{ goal: string; description?: string; tools?: string[] }> = [];
-                
-                // Try to extract steps from numbered list or step indicators
+                // Extract steps from content for hard tasks (3+ steps)
                 const stepMatches = content.match(/(?:^|\n)(?:\d+\.|\*\s+|-\s+|Step\s+\d+[:.]?\s*)(.+?)(?=\n(?:\d+\.|\*\s+|-\s+|Step\s+\d+[:.]?|$))/gi);
                 if (stepMatches && stepMatches.length >= 3) {
                   stepMatches.forEach((match) => {
@@ -1153,20 +1153,43 @@ export class HarmonyClient {
                   }
                 }
                 
-                const plan = this.progressPlanManager.createPlan(
-                  taskId,
-                  originalPrompt,
-                  'hard',
-                  steps.length > 0 ? steps : [
+                // Default fallback for hard tasks
+                if (steps.length === 0) {
+                  steps = [
                     { goal: 'Step 1: Analyze requirements', description: 'Understand the task requirements' },
                     { goal: 'Step 2: Design solution', description: 'Plan the implementation approach' },
                     { goal: 'Step 3: Implement solution', description: 'Execute the implementation' }
-                  ]
-                );
+                  ];
+                }
+              } else {
+                // Simple task (1-2 steps): create default plan
+                // Extract steps if available, otherwise use single-step default
+                const stepMatches = content.match(/(?:^|\n)(?:\d+\.|\*\s+|-\s+|Step\s+\d+[:.]?\s*)(.+?)(?=\n(?:\d+\.|\*\s+|-\s+|Step\s+\d+[:.]?|$))/gi);
                 
-                this.contextManager.setProgressPlan(plan);
-                console.log(`[Harmony] Assumptions stage: Created ProgressPlan with ${plan.totalSteps} steps for complex task`);
+                if (stepMatches && stepMatches.length >= 1 && stepMatches.length <= 2) {
+                  stepMatches.forEach((match) => {
+                    const goal = match.replace(/^(?:\d+\.|\*\s+|-\s+|Step\s+\d+[:.]?\s*)/i, '').trim();
+                    if (goal) {
+                      steps.push({ goal, description: goal });
+                    }
+                  });
+                } else {
+                  // Default: single step for simple tasks
+                  steps = [
+                    { goal: 'Complete the task', description: 'Execute the task implementation' }
+                  ];
+                }
               }
+              
+              const plan = this.progressPlanManager.createPlan(
+                taskId,
+                originalPrompt,
+                complexity || 'simple',
+                steps
+              );
+              
+              this.contextManager.setProgressPlan(plan);
+              console.log(`[Harmony] Assumptions stage: Created ProgressPlan with ${plan.totalSteps} step(s) (complexity: ${plan.complexity})`);
             } catch (error) {
               // Don't let plan creation break the main flow
               console.warn(`[Harmony] Error during plan creation:`, error);
@@ -1682,8 +1705,12 @@ export class HarmonyClient {
 
       // Log final response summary
       if (context) {
+        // Only show step info when there's a ProgressPlan (real multi-step task)
+        const stepInfo = context.progressPlan 
+          ? `, step: ${context.currentStep}/${context.maxSteps}` 
+          : '';
         console.log(
-          `[Harmony] Response complete - stage: ${currentStage}, step: ${context.currentStep}/${context.maxSteps}, isContinuation: ${isContinuation}`
+          `[Harmony] Response complete - stage: ${currentStage}${stepInfo}, isContinuation: ${isContinuation}`
         );
       }
 
