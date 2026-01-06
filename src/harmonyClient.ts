@@ -364,19 +364,19 @@ export class HarmonyClient {
                 
                 // Export assumptions data using AssumptionsManager
                 const assumptionsExport = this.assumptionsManager.exportForTransition(context?.originalPrompt);
-                console.log(`[Harmony] Transition: Exported assumptions data - has progressPlan: ${!!assumptionsExport.progressPlan}, has planSteps: ${!!assumptionsExport.planSteps}`);
+                console.log(`[Harmony] Transition: Exported assumptions data - has progressPlan: ${!!assumptionsExport.progressPlan}, steps: ${assumptionsExport.progressPlan?.totalSteps || 0}`);
                 
                 // If a plan was created in exportForTransition, set it in context
                 if (assumptionsExport.progressPlan && !context?.progressPlan) {
                   this.contextManager.setProgressPlan(assumptionsExport.progressPlan);
                 }
                 
-                // Create assumption_data.json CodeContext with progressPlan and planSteps
+                // Create assumption_data.json CodeContext with progressPlan
+                // Note: planSteps is redundant (it's already in progressPlan.steps), so we don't include it
                 const assumptionsData = {
                   assumptions: assumptionsExport.assumptions,
                   codeSnippets: assumptionsExport.codeSnippets,
                   progressPlan: assumptionsExport.progressPlan,
-                  planSteps: assumptionsExport.planSteps,
                   summary: assumptionsExport.summary,
                 };
                 
@@ -1075,7 +1075,8 @@ export class HarmonyClient {
               const complexity = this.autoTransitionManager.detectTaskComplexity(
                 content,
                 parsed.reasoning,
-                toolCalls
+                toolCalls,
+                context.originalPrompt
               );
               
               // Create ProgressPlan for all tasks (simple and hard)

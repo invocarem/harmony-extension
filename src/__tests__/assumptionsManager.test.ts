@@ -197,7 +197,6 @@ describe('AssumptionsManager', () => {
       expect(exportData.assumptions).toEqual([]);
       expect(exportData.codeSnippets).toEqual([]);
       expect(exportData.progressPlan).toBeUndefined();
-      expect(exportData.planSteps).toBeUndefined();
       expect(exportData.summary).toContain('No assumptions data');
     });
 
@@ -233,7 +232,7 @@ describe('AssumptionsManager', () => {
       expect(exportData.progressPlan?.complexity).toBe('hard');
     });
 
-    it('should export planSteps from progressPlan', () => {
+    it('should export progressPlan with steps (planSteps is redundant, use progressPlan.steps)', () => {
       const plan = progressPlanManager.createPlan(
         'task-123',
         'Test task',
@@ -246,20 +245,20 @@ describe('AssumptionsManager', () => {
       manager.setTaskId('task-123');
       
       const exportData = manager.exportForTransition();
-      expect(exportData.planSteps).toBeDefined();
-      expect(exportData.planSteps).toHaveLength(2);
-      expect(exportData.planSteps?.[0].stepNumber).toBe(1);
-      expect(exportData.planSteps?.[0].goal).toBe('Step 1');
-      expect(exportData.planSteps?.[0].description).toBe('First step');
-      expect(exportData.planSteps?.[0].tools).toEqual(['create_file']);
-      expect(exportData.planSteps?.[1].stepNumber).toBe(2);
+      expect(exportData.progressPlan).toBeDefined();
+      expect(exportData.progressPlan?.steps).toBeDefined();
+      expect(exportData.progressPlan?.steps).toHaveLength(2);
+      expect(exportData.progressPlan?.steps[0].stepNumber).toBe(1);
+      expect(exportData.progressPlan?.steps[0].goal).toBe('Step 1');
+      expect(exportData.progressPlan?.steps[0].description).toBe('First step');
+      expect(exportData.progressPlan?.steps[0].tools).toEqual(['create_file']);
+      expect(exportData.progressPlan?.steps[1].stepNumber).toBe(2);
     });
 
     it('should not export progressPlan when taskId is set but plan does not exist', () => {
       manager.setTaskId('non-existent-task');
       const exportData = manager.exportForTransition();
       expect(exportData.progressPlan).toBeUndefined();
-      expect(exportData.planSteps).toBeUndefined();
     });
 
     it('should include plan info in summary when plan exists', () => {
@@ -301,13 +300,14 @@ describe('AssumptionsManager', () => {
       expect(exportData.progressPlan?.complexity).toBe('simple');
       expect(exportData.progressPlan?.totalSteps).toBe(1);
       
-      // Verify planSteps
-      expect(exportData.planSteps).toBeDefined();
-      expect(exportData.planSteps).toHaveLength(1);
-      expect(exportData.planSteps?.[0].goal).toBe('Complete the task');
-      expect(exportData.planSteps?.[0].description).toBe('Execute the task implementation');
-      expect(exportData.planSteps?.[0].status).toBe('pending');
-      expect(exportData.planSteps?.[0].stepNumber).toBe(1);
+      // Verify steps (planSteps is redundant, use progressPlan.steps)
+      expect(exportData.progressPlan?.steps).toBeDefined();
+      expect(exportData.progressPlan?.steps).toHaveLength(1);
+      expect(exportData.progressPlan?.steps[0].goal).toBe('Complete the task');
+      expect(exportData.progressPlan?.steps[0].description).toContain('Execute the task:');
+      expect(exportData.progressPlan?.steps[0].description).toContain(originalPrompt);
+      expect(exportData.progressPlan?.steps[0].status).toBe('pending');
+      expect(exportData.progressPlan?.steps[0].stepNumber).toBe(1);
       
       // Verify taskId was set
       expect(manager.getTaskId()).toBeDefined();
@@ -327,7 +327,6 @@ describe('AssumptionsManager', () => {
       
       // Verify no plan was created
       expect(exportData.progressPlan).toBeUndefined();
-      expect(exportData.planSteps).toBeUndefined();
       expect(manager.getTaskId()).toBeUndefined();
     });
 
@@ -353,7 +352,7 @@ describe('AssumptionsManager', () => {
       expect(exportData.progressPlan?.originalPrompt).toBe('Existing task'); // Original prompt, not new one
       expect(exportData.progressPlan?.complexity).toBe('hard');
       expect(exportData.progressPlan?.totalSteps).toBe(2);
-      expect(exportData.planSteps).toHaveLength(2);
+      expect(exportData.progressPlan?.steps).toHaveLength(2);
     });
 
     it('should export updated plan when plan is modified', () => {
@@ -372,8 +371,8 @@ describe('AssumptionsManager', () => {
       progressPlanManager.updateStepStatus('task-123', 1, 'completed');
       
       const exportData = manager.exportForTransition();
-      expect(exportData.planSteps?.[0].status).toBe('completed');
-      expect(exportData.planSteps?.[1].status).toBe('pending');
+      expect(exportData.progressPlan?.steps[0].status).toBe('completed');
+      expect(exportData.progressPlan?.steps[1].status).toBe('pending');
     });
   });
 
@@ -488,9 +487,9 @@ describe('AssumptionsManager', () => {
       
       // Export should reflect updates
       const exportData = manager.exportForTransition();
-      expect(exportData.planSteps?.[0].status).toBe('completed');
-      expect(exportData.planSteps?.[1].status).toBe('in_progress');
-      expect(exportData.planSteps?.[2].status).toBe('pending');
+      expect(exportData.progressPlan?.steps[0].status).toBe('completed');
+      expect(exportData.progressPlan?.steps[1].status).toBe('in_progress');
+      expect(exportData.progressPlan?.steps[2].status).toBe('pending');
     });
   });
 });

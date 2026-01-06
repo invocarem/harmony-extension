@@ -176,14 +176,14 @@ export class AssumptionsManager {
 
   /**
    * Export assumptions data for transition to implementation stage
-   * Includes assumptions, code snippets, progressPlan, and planSteps
+   * Includes assumptions, code snippets, and progressPlan
+   * Note: planSteps is redundant (it's already in progressPlan.steps), so we don't export it separately
    * Ensures a plan exists before export (creates default plan if needed)
    */
   exportForTransition(originalPrompt?: string): {
     assumptions: string[];
     codeSnippets: Array<{ file: string; description?: string }>;
     progressPlan?: ProgressPlan;
-    planSteps?: PlanStep[];
     summary: string;
   } {
     if (!this.state) {
@@ -202,18 +202,19 @@ export class AssumptionsManager {
     // ENFORCEMENT: If no plan exists and we have originalPrompt, create a default plan
     if (!progressPlan && originalPrompt) {
       const taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      // Use originalPrompt to create a more meaningful description
+      const description = originalPrompt.length > 150 
+        ? `Execute the task: ${originalPrompt.substring(0, 150)}...`
+        : `Execute the task: ${originalPrompt}`;
       progressPlan = this.progressPlanManager.createPlan(
         taskId,
         originalPrompt,
         'simple',
-        [{ goal: 'Complete the task', description: 'Execute the task implementation' }]
+        [{ goal: 'Complete the task', description }]
       );
       this.setTaskId(taskId);
       console.log(`[AssumptionsManager] Created default plan with taskId: ${taskId}`);
     }
-
-    // Extract planSteps from progressPlan
-    const planSteps = progressPlan?.steps;
 
     // Create summary
     const summary = `Analysis and assumptions from ${this.state.assumptions.length} response(s) in assumptions stage. Generated ${this.state.codeSnippets.length} code snippet(s).${progressPlan ? ` Plan created with ${progressPlan.totalSteps} step(s) (complexity: ${progressPlan.complexity}).` : ''}`;
@@ -225,7 +226,7 @@ export class AssumptionsManager {
         description: s.description,
       })),
       progressPlan,
-      planSteps,
+      // Note: planSteps is redundant (it's already in progressPlan.steps), so we don't export it
       summary,
     };
   }

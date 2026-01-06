@@ -32,11 +32,11 @@ describe('AssumptionsManager - Task Complexity Verification', () => {
       expect(exportData.progressPlan?.complexity).toBe('simple');
       expect(exportData.progressPlan?.totalSteps).toBe(1);
       
-      // Verify planSteps is included
-      expect(exportData.planSteps).toBeDefined();
-      expect(exportData.planSteps).toHaveLength(1);
-      expect(exportData.planSteps?.[0].goal).toBe('Complete the task');
-      expect(exportData.planSteps?.[0].stepNumber).toBe(1);
+      // Verify steps are included in progressPlan (planSteps is redundant)
+      expect(exportData.progressPlan?.steps).toBeDefined();
+      expect(exportData.progressPlan?.steps).toHaveLength(1);
+      expect(exportData.progressPlan?.steps[0].goal).toBe('Complete the task');
+      expect(exportData.progressPlan?.steps[0].stepNumber).toBe(1);
       
       // Verify summary includes plan info
       expect(exportData.summary).toContain('Plan created');
@@ -66,11 +66,11 @@ describe('AssumptionsManager - Task Complexity Verification', () => {
       expect(exportData.progressPlan?.complexity).toBe('simple');
       expect(exportData.progressPlan?.totalSteps).toBe(2);
       
-      // Verify planSteps is included
-      expect(exportData.planSteps).toBeDefined();
-      expect(exportData.planSteps).toHaveLength(2);
-      expect(exportData.planSteps?.[0].stepNumber).toBe(1);
-      expect(exportData.planSteps?.[1].stepNumber).toBe(2);
+      // Verify steps are included in progressPlan (planSteps is redundant)
+      expect(exportData.progressPlan?.steps).toBeDefined();
+      expect(exportData.progressPlan?.steps).toHaveLength(2);
+      expect(exportData.progressPlan?.steps[0].stepNumber).toBe(1);
+      expect(exportData.progressPlan?.steps[1].stepNumber).toBe(2);
     });
   });
 
@@ -100,13 +100,13 @@ describe('AssumptionsManager - Task Complexity Verification', () => {
       expect(exportData.progressPlan?.complexity).toBe('hard');
       expect(exportData.progressPlan?.totalSteps).toBe(4);
       
-      // Verify planSteps is included
-      expect(exportData.planSteps).toBeDefined();
-      expect(exportData.planSteps).toHaveLength(4);
-      expect(exportData.planSteps?.[0].stepNumber).toBe(1);
-      expect(exportData.planSteps?.[0].goal).toBe('Step 1: Setup project structure');
-      expect(exportData.planSteps?.[3].stepNumber).toBe(4);
-      expect(exportData.planSteps?.[3].goal).toBe('Step 4: Add tests');
+      // Verify steps are included in progressPlan (planSteps is redundant)
+      expect(exportData.progressPlan?.steps).toBeDefined();
+      expect(exportData.progressPlan?.steps).toHaveLength(4);
+      expect(exportData.progressPlan?.steps[0].stepNumber).toBe(1);
+      expect(exportData.progressPlan?.steps[0].goal).toBe('Step 1: Setup project structure');
+      expect(exportData.progressPlan?.steps[3].stepNumber).toBe(4);
+      expect(exportData.progressPlan?.steps[3].goal).toBe('Step 4: Add tests');
       
       // Verify summary includes plan info
       expect(exportData.summary).toContain('Plan created');
@@ -135,11 +135,11 @@ describe('AssumptionsManager - Task Complexity Verification', () => {
       expect(exportData.progressPlan).toBeDefined();
       expect(exportData.progressPlan?.complexity).toBe('hard');
       
-      // Verify planSteps includes tools
-      expect(exportData.planSteps).toBeDefined();
-      expect(exportData.planSteps?.[0].tools).toEqual(['create_file']);
-      expect(exportData.planSteps?.[1].tools).toEqual(['create_file', 'write_file']);
-      expect(exportData.planSteps?.[2].tools).toEqual(['replace_file']);
+      // Verify steps include tools (planSteps is redundant, use progressPlan.steps)
+      expect(exportData.progressPlan?.steps).toBeDefined();
+      expect(exportData.progressPlan?.steps[0].tools).toEqual(['create_file']);
+      expect(exportData.progressPlan?.steps[1].tools).toEqual(['create_file', 'write_file']);
+      expect(exportData.progressPlan?.steps[2].tools).toEqual(['replace_file']);
     });
   });
 
@@ -158,12 +158,11 @@ describe('AssumptionsManager - Task Complexity Verification', () => {
       
       const exportData = manager.exportForTransition();
       
-      // Simulate assumption_data.json structure
+      // Simulate assumption_data.json structure (planSteps is redundant, removed)
       const assumptionData = {
         assumptions: exportData.assumptions,
         codeSnippets: exportData.codeSnippets,
         progressPlan: exportData.progressPlan,
-        planSteps: exportData.planSteps,
         summary: exportData.summary,
       };
       
@@ -171,7 +170,6 @@ describe('AssumptionsManager - Task Complexity Verification', () => {
       expect(assumptionData.assumptions).toBeDefined();
       expect(assumptionData.codeSnippets).toBeDefined();
       expect(assumptionData.progressPlan).toBeDefined();
-      expect(assumptionData.planSteps).toBeDefined();
       expect(assumptionData.summary).toBeDefined();
       
       // Verify progressPlan structure
@@ -180,9 +178,6 @@ describe('AssumptionsManager - Task Complexity Verification', () => {
       expect(assumptionData.progressPlan?.totalSteps).toBe(1);
       expect(assumptionData.progressPlan?.steps).toBeDefined();
       expect(assumptionData.progressPlan?.createdAt).toBeDefined();
-      
-      // Verify planSteps matches progressPlan.steps
-      expect(assumptionData.planSteps).toEqual(assumptionData.progressPlan?.steps);
     });
 
     it('should create correct assumption_data.json structure for hard task', () => {
@@ -205,12 +200,11 @@ describe('AssumptionsManager - Task Complexity Verification', () => {
       
       const exportData = manager.exportForTransition();
       
-      // Simulate assumption_data.json structure
+      // Simulate assumption_data.json structure (planSteps is redundant, removed)
       const assumptionData = {
         assumptions: exportData.assumptions,
         codeSnippets: exportData.codeSnippets,
         progressPlan: exportData.progressPlan,
-        planSteps: exportData.planSteps,
         summary: exportData.summary,
       };
       
@@ -218,16 +212,12 @@ describe('AssumptionsManager - Task Complexity Verification', () => {
       expect(assumptionData.assumptions).toHaveLength(2);
       expect(assumptionData.codeSnippets).toHaveLength(2);
       expect(assumptionData.progressPlan).toBeDefined();
-      expect(assumptionData.planSteps).toBeDefined();
       
       // Verify progressPlan structure
       expect(assumptionData.progressPlan?.taskId).toBe('hard-task');
       expect(assumptionData.progressPlan?.complexity).toBe('hard');
       expect(assumptionData.progressPlan?.totalSteps).toBe(3);
-      
-      // Verify planSteps matches progressPlan.steps
-      expect(assumptionData.planSteps).toEqual(assumptionData.progressPlan?.steps);
-      expect(assumptionData.planSteps).toHaveLength(3);
+      expect(assumptionData.progressPlan?.steps).toHaveLength(3);
     });
   });
 
@@ -248,7 +238,6 @@ describe('AssumptionsManager - Task Complexity Verification', () => {
         assumptions: exportData.assumptions,
         codeSnippets: exportData.codeSnippets,
         progressPlan: exportData.progressPlan,
-        planSteps: exportData.planSteps,
         summary: exportData.summary,
       };
       
@@ -260,8 +249,8 @@ describe('AssumptionsManager - Task Complexity Verification', () => {
       const parsed = JSON.parse(json);
       expect(parsed.progressPlan).toBeDefined();
       expect(parsed.progressPlan.complexity).toBe('simple');
-      expect(parsed.planSteps).toBeDefined();
-      expect(parsed.planSteps.length).toBe(1);
+      expect(parsed.progressPlan.steps).toBeDefined();
+      expect(parsed.progressPlan.steps.length).toBe(1);
     });
 
     it('should serialize hard task assumption_data.json correctly', () => {
@@ -284,7 +273,6 @@ describe('AssumptionsManager - Task Complexity Verification', () => {
         assumptions: exportData.assumptions,
         codeSnippets: exportData.codeSnippets,
         progressPlan: exportData.progressPlan,
-        planSteps: exportData.planSteps,
         summary: exportData.summary,
       };
       
@@ -297,8 +285,8 @@ describe('AssumptionsManager - Task Complexity Verification', () => {
       expect(parsed.progressPlan).toBeDefined();
       expect(parsed.progressPlan.complexity).toBe('hard');
       expect(parsed.progressPlan.totalSteps).toBe(3);
-      expect(parsed.planSteps).toBeDefined();
-      expect(parsed.planSteps.length).toBe(3);
+      expect(parsed.progressPlan.steps).toBeDefined();
+      expect(parsed.progressPlan.steps.length).toBe(3);
     });
   });
 });

@@ -13,15 +13,53 @@ export class AutoTransitionManager {
   /**
    * Detect task complexity from assumptions stage response
    * Returns: 'simple' (1-2 steps), 'hard' (3+ steps), or null if unable to determine
+   * 
+   * Priority:
+   * 1. Check LLM response (content + reasoning) - this is the LLM's analysis
+   * 2. Fall back to originalPrompt if LLM response doesn't have clear steps
+   *    (especially important for jinja-only models where reasoning is empty)
    */
   detectTaskComplexity(
     content: string,
     reasoning?: string,
-    toolCalls?: MCPToolCall[]
+    toolCalls?: MCPToolCall[],
+    originalPrompt?: string
   ): 'simple' | 'hard' | null {
-    // Combine all text for analysis
-    const combinedText = [content, reasoning].filter(Boolean).join(' ');
-    const lowerText = combinedText.toLowerCase();
+    // First, try to detect from LLM response (content + reasoning)
+    // For jinja-only models, reasoning will be empty, so we rely on content
+    const llmText = [content, reasoning].filter(Boolean).join(' ');
+    
+    // Check if LLM response has clear step indicators
+    const llmComplexity = this.detectComplexityFromText(llmText);
+    if (llmComplexity !== null) {
+      return llmComplexity;
+    }
+    
+    // Fallback: Check originalPrompt if LLM response doesn't have clear steps
+    // This is important when:
+    // - LLM doesn't explicitly repeat the steps in its response
+    // - Using jinja-only models (no reasoning channel)
+    // - LLM analyzes but doesn't format as "Step 1, Step 2, Step 3"
+    if (originalPrompt) {
+      const promptComplexity = this.detectComplexityFromText(originalPrompt);
+      if (promptComplexity !== null) {
+        return promptComplexity;
+      }
+    }
+    
+    // If neither has clear indicators, default to simple
+    return 'simple';
+  }
+
+  /**
+   * Internal helper to detect complexity from a text string
+   */
+  private detectComplexityFromText(text: string): 'simple' | 'hard' | null {
+    if (!text || text.trim().length === 0) {
+      return null;
+    }
+    
+    const lowerText = text.toLowerCase();
     
     // Priority 1: Look for explicit step numbers (most reliable)
     // Match patterns like: "Step 1", "Step 2", "Step 3", "Step1", "step 1:", "Step 1:", etc.
@@ -33,7 +71,7 @@ export class AutoTransitionManager {
     
     let maxStepNumber = 0;
     for (const pattern of stepNumberPatterns) {
-      const matches = combinedText.matchAll(pattern);
+      const matches = text.matchAll(pattern);
       for (const match of matches) {
         const stepNum = parseInt(match[1] || match[0].match(/\d+/)?.[0] || '0', 10);
         if (stepNum > maxStepNumber) {
@@ -70,16 +108,19 @@ export class AutoTransitionManager {
     
     // Priority 3: Look for numbered list patterns (1., 2., 3., etc.)
     const numberedListPattern = /(?:^|\n)\s*\d+[.)]\s+/gm;
-    const numberedListMatches = combinedText.match(numberedListPattern);
+    const numberedListMatches = text.match(numberedListPattern);
     if (numberedListMatches) {
       const listCount = numberedListMatches.length;
       stepCount = Math.max(stepCount, listCount);
     }
     
-    // Simple task: 1-2 steps
-    if (stepCount <= 2) {
+    // If we found clear step indicators, return the complexity
+    if (stepCount >= 3) {
+      return 'hard';
+    }
+    if (stepCount >= 1) {
       // Check if it's a straightforward single-file operation
-      const singleFileOperation = /\b(update|create|modify|edit)\s+\w+\.\w{2,4}\b/i.test(combinedText);
+      const singleFileOperation = /\b(update|create|modify|edit)\s+\w+\.\w{2,4}\b/i.test(text);
       if (singleFileOperation && stepCount <= 1) {
         return 'simple';
       }
@@ -88,13 +129,8 @@ export class AutoTransitionManager {
       }
     }
     
-    // Hard task: 3+ steps
-    if (stepCount >= 3) {
-      return 'hard';
-    }
-    
-    // Default: if we can't determine, consider it simple for auto-transition
-    return 'simple';
+    // No clear indicators found in this text
+    return null;
   }
 
   /**
@@ -120,7 +156,7 @@ export class AutoTransitionManager {
     }
 
     // Trigger 2: Detect task complexity
-    const complexity = this.detectTaskComplexity(content, reasoning, toolCalls);
+    const complexity = this.detectTaskComplexity(content, reasoning, toolCalls, originalPrompt);
     if (!complexity) {
       return { shouldTransition: false };
     }

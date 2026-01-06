@@ -89,6 +89,91 @@ export class ProgressPlanManager {
   }
 
   /**
+   * Update step details (goal, description, tools) in a plan
+   * Preserves the step's current status unless explicitly provided
+   */
+  updateStep(
+    taskId: string,
+    stepNumber: number,
+    updates: { goal?: string; description?: string; tools?: string[]; status?: PlanStep['status'] }
+  ): boolean {
+    const plan = this.plans.get(taskId);
+    if (!plan) {
+      return false;
+    }
+
+    const step = plan.steps.find((s) => s.stepNumber === stepNumber);
+    if (!step) {
+      return false;
+    }
+
+    // Update provided fields
+    if (updates.goal !== undefined) {
+      step.goal = updates.goal;
+    }
+    if (updates.description !== undefined) {
+      step.description = updates.description;
+    }
+    if (updates.tools !== undefined) {
+      step.tools = updates.tools;
+    }
+    if (updates.status !== undefined) {
+      step.status = updates.status;
+    }
+
+    // Check if all steps are completed
+    if (plan.steps.every((s) => s.status === 'completed')) {
+      plan.completedAt = Date.now();
+    }
+
+    return true;
+  }
+
+  /**
+   * Update or replace plan steps
+   * If step numbers match existing steps, they are updated; otherwise new steps are added
+   * Updates totalSteps count
+   */
+  updatePlanSteps(
+    taskId: string,
+    newSteps: Array<{ goal: string; description?: string; tools?: string[] }>,
+    preserveStatus: boolean = true
+  ): boolean {
+    const plan = this.plans.get(taskId);
+    if (!plan) {
+      return false;
+    }
+
+    // Create new step objects with step numbers
+    const updatedSteps: PlanStep[] = newSteps.map((step, index) => {
+      const stepNumber = index + 1;
+      const existingStep = plan.steps.find((s) => s.stepNumber === stepNumber);
+      
+      return {
+        stepNumber,
+        goal: step.goal,
+        description: step.description,
+        tools: step.tools || [],
+        // Preserve status if requested and step exists, otherwise default to pending
+        status: preserveStatus && existingStep ? existingStep.status : 'pending',
+      };
+    });
+
+    plan.steps = updatedSteps;
+    plan.totalSteps = updatedSteps.length;
+
+    // Check if all steps are completed
+    if (plan.steps.every((s) => s.status === 'completed')) {
+      plan.completedAt = Date.now();
+    } else if (plan.completedAt) {
+      // If plan was completed but now has incomplete steps, clear completedAt
+      plan.completedAt = undefined;
+    }
+
+    return true;
+  }
+
+  /**
    * Mark a plan as completed
    */
   completePlan(taskId: string): boolean {

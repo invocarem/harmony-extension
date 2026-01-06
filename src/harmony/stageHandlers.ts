@@ -333,69 +333,94 @@ class AssumptionsStageHandler implements StageHandler {
         console.log(`[StageHandler:Assumptions] Added ${codeBlockCount} code context(s)`);
       }
 
-      // Create ProgressPlan for all tasks (simple and hard)
+      // Create or update ProgressPlan for all tasks (simple and hard)
       // This provides a unified execution model for implementation stage
-      if (!context.progressPlan) {
-        try {
-          const complexity = autoTransitionManager.detectTaskComplexity(
-            content,
-            parsed.reasoning,
-            toolCalls
-          );
+      try {
+        const complexity = autoTransitionManager.detectTaskComplexity(
+          content,
+          parsed.reasoning,
+          toolCalls,
+          context.originalPrompt
+        );
+        
+        let steps: Array<{ goal: string; description?: string; tools?: string[] }> = [];
+        
+        // Extract steps from content based on complexity
+        if (complexity === 'hard') {
+          // Extract steps from content for hard tasks (3+ steps)
+          const stepMatches = content.match(/(?:^|\n)(?:\d+\.|\*\s+|-\s+|Step\s+\d+[:.]?\s*)(.+?)(?=\n(?:\d+\.|\*\s+|-\s+|Step\s+\d+[:.]?|$))/gi);
           
-          const taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-          const originalPrompt = context.originalPrompt;
-          
-          let steps: Array<{ goal: string; description?: string; tools?: string[] }> = [];
-          
-          if (complexity === 'hard') {
-            // Extract steps from content for hard tasks (3+ steps)
-            const stepMatches = content.match(/(?:^|\n)(?:\d+\.|\*\s+|-\s+|Step\s+\d+[:.]?\s*)(.+?)(?=\n(?:\d+\.|\*\s+|-\s+|Step\s+\d+[:.]?|$))/gi);
-            
-            if (stepMatches && stepMatches.length >= 3) {
-              stepMatches.forEach((match) => {
-                const goal = match.replace(/^(?:\d+\.|\*\s+|-\s+|Step\s+\d+[:.]?\s*)/i, '').trim();
-                if (goal) {
-                  steps.push({ goal, description: goal });
-                }
-              });
-            } else {
-              // Fallback: create generic steps for hard tasks
-              for (let i = 1; i <= 3; i++) {
-                steps.push({ 
-                  goal: `Step ${i}: Complete part ${i} of the task`, 
-                  description: `Execute step ${i} of the implementation plan` 
-                });
+          if (stepMatches && stepMatches.length >= 3) {
+            stepMatches.forEach((match) => {
+              const goal = match.replace(/^(?:\d+\.|\*\s+|-\s+|Step\s+\d+[:.]?\s*)/i, '').trim();
+              if (goal) {
+                steps.push({ goal, description: goal });
               }
-            }
-            
-            // Default fallback for hard tasks
-            if (steps.length === 0) {
-              steps = [
-                { goal: 'Step 1: Analyze requirements', description: 'Understand the task requirements' },
-                { goal: 'Step 2: Design solution', description: 'Plan the implementation approach' },
-                { goal: 'Step 3: Implement solution', description: 'Execute the implementation' }
-              ];
-            }
+            });
           } else {
-            // Simple task (1-2 steps): create default plan
-            // Extract steps if available, otherwise use single-step default
-            const stepMatches = content.match(/(?:^|\n)(?:\d+\.|\*\s+|-\s+|Step\s+\d+[:.]?\s*)(.+?)(?=\n(?:\d+\.|\*\s+|-\s+|Step\s+\d+[:.]?|$))/gi);
-            
-            if (stepMatches && stepMatches.length >= 1 && stepMatches.length <= 2) {
-              stepMatches.forEach((match) => {
-                const goal = match.replace(/^(?:\d+\.|\*\s+|-\s+|Step\s+\d+[:.]?\s*)/i, '').trim();
-                if (goal) {
-                  steps.push({ goal, description: goal });
-                }
+            // Fallback: create generic steps for hard tasks
+            for (let i = 1; i <= 3; i++) {
+              steps.push({ 
+                goal: `Step ${i}: Complete part ${i} of the task`, 
+                description: `Execute step ${i} of the implementation plan` 
               });
-            } else {
-              // Default: single step for simple tasks
-              steps = [
-                { goal: 'Complete the task', description: 'Execute the task implementation' }
-              ];
             }
           }
+          
+          // Default fallback for hard tasks
+          if (steps.length === 0) {
+            steps = [
+              { goal: 'Step 1: Analyze requirements', description: 'Understand the task requirements' },
+              { goal: 'Step 2: Design solution', description: 'Plan the implementation approach' },
+              { goal: 'Step 3: Implement solution', description: 'Execute the implementation' }
+            ];
+          }
+        } else {
+          // Simple task (1-2 steps): create default plan
+          // Extract steps if available, otherwise use single-step default
+          const stepMatches = content.match(/(?:^|\n)(?:\d+\.|\*\s+|-\s+|Step\s+\d+[:.]?\s*)(.+?)(?=\n(?:\d+\.|\*\s+|-\s+|Step\s+\d+[:.]?|$))/gi);
+          
+          if (stepMatches && stepMatches.length >= 1 && stepMatches.length <= 2) {
+            stepMatches.forEach((match) => {
+              const goal = match.replace(/^(?:\d+\.|\*\s+|-\s+|Step\s+\d+[:.]?\s*)/i, '').trim();
+              if (goal) {
+                steps.push({ goal, description: goal });
+              }
+            });
+          } else {
+            // Default: single step for simple tasks - use originalPrompt for better description
+            const originalPrompt = context.originalPrompt || '';
+            const description = originalPrompt 
+              ? `Execute the task: ${originalPrompt.substring(0, 100)}${originalPrompt.length > 100 ? '...' : ''}`
+              : 'Execute the task implementation';
+            steps = [
+              { goal: 'Complete the task', description }
+            ];
+          }
+        }
+        
+        // If plan exists, update it; otherwise create a new one
+        if (context.progressPlan) {
+          // Update existing plan with new steps (preserve status of existing steps)
+          const updated = progressPlanManager.updatePlanSteps(
+            context.progressPlan.taskId,
+            steps,
+            true // preserveStatus: keep current status of steps
+          );
+          
+          if (updated) {
+            const updatedPlan = progressPlanManager.getPlan(context.progressPlan.taskId);
+            if (updatedPlan) {
+              contextManager.setProgressPlan(updatedPlan);
+              console.log(`[StageHandler:Assumptions] Updated ProgressPlan with ${updatedPlan.totalSteps} step(s) (complexity: ${updatedPlan.complexity})`);
+            }
+          } else {
+            console.warn(`[StageHandler:Assumptions] Failed to update existing plan`);
+          }
+        } else {
+          // Create new plan
+          const taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          const originalPrompt = context.originalPrompt;
           
           const plan = progressPlanManager.createPlan(
             taskId,
@@ -406,9 +431,9 @@ class AssumptionsStageHandler implements StageHandler {
           
           contextManager.setProgressPlan(plan);
           console.log(`[StageHandler:Assumptions] Created ProgressPlan with ${plan.totalSteps} step(s) (complexity: ${plan.complexity})`);
-        } catch (error) {
-          console.warn(`[StageHandler:Assumptions] Error creating plan:`, error);
         }
+      } catch (error) {
+        console.warn(`[StageHandler:Assumptions] Error creating/updating plan:`, error);
       }
     }
   }
