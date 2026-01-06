@@ -25,6 +25,7 @@ import {
   StageHandlerRegistry,
   WorkflowStage,
   ChatManager,
+  AssumptionsManager,
 } from "./harmony";
 
 // Re-export WorkflowStage for backward compatibility
@@ -68,6 +69,7 @@ export class HarmonyClient {
   // Modular components
   private contextManager: ConversationContextManager;
   private chatManager: ChatManager;
+  private assumptionsManager: AssumptionsManager;
   private stageDetector: StageDetector;
   private promptBuilder: PromptBuilder;
   private toolExecutor: ToolExecutor;
@@ -93,6 +95,7 @@ export class HarmonyClient {
     // Initialize modular components
     this.contextManager = new ConversationContextManager();
     this.chatManager = new ChatManager();
+    this.assumptionsManager = new AssumptionsManager(this.progressPlanManager);
     this.stageDetector = new StageDetector(this.stageStateMachine);
     this.promptBuilder = new PromptBuilder(
       config,
@@ -185,6 +188,9 @@ export class HarmonyClient {
               
               // When transitioning from chat to assumptions, use aggregated prompt
               if (previousStage === 'chat' && detectedStage === 'assumptions') {
+                // Initialize assumptions manager when entering assumptions stage
+                this.assumptionsManager.initialize();
+                
                 // Get aggregated prompt from ChatManager if available
                 let aggregatedPrompt: string | undefined;
                 let queries: string[] = [];
@@ -330,89 +336,50 @@ export class HarmonyClient {
               
               // When transitioning from assumptions to implementation, save assumptions data
               if (previousStage === 'assumptions' && detectedStage === 'implementation') {
-                // Collect assumptions/analysis content from conversation history
-                const assumptionsData: {
-                  assumptions: string[];
-                  codeSnippets: Array<{ file: string; description?: string }>;
-                  summary: string;
-                } = {
-                  assumptions: [],
-                  codeSnippets: [],
-                  summary: '',
-                };
-                
-                if (conversationHistory && conversationHistory.length > 0) {
-                  let inAssumptionsStage = false;
-                  const assumptionsResponses: string[] = [];
-                  
-                  for (const message of conversationHistory) {
-                    if (message.role === 'user') {
-                      const content = message.content.trim();
-                      // Check if this message contains a stage transition command
-                      const hasStageTransition = /\b(move\s+to|go\s+to|goto)\s+(assumptions|implementation|chat)\b/i.test(content);
-                      if (hasStageTransition && content.toLowerCase().includes('assumptions')) {
-                        // Entering assumptions stage
-                        inAssumptionsStage = true;
-                      } else if (hasStageTransition && content.toLowerCase().includes('implementation')) {
-                        // Leaving assumptions stage for implementation
-                        break;
-                      }
-                    } else if (message.role === 'assistant' && inAssumptionsStage) {
-                      // Collect assistant responses from assumptions stage
-                      const content = message.content.trim();
-                      if (content && content.length > 0) {
-                        assumptionsResponses.push(content);
-                        assumptionsData.assumptions.push(content);
-                      }
-                    } else if (message.role === 'assistant') {
-                      // Check if assistant response indicates stage transition to assumptions
-                      const content = message.content.toLowerCase();
-                      if (content.includes('moving to assumptions') || 
-                          content.includes('transitioning to assumptions') ||
-                          content.includes('now in assumptions stage')) {
-                        inAssumptionsStage = true;
-                      }
-                    }
-                  }
-                  
-                  // Extract code snippets from assumptions responses
-                  const codeBlockPattern = /```(?:\w+)?\s*[\n ]([\s\S]*?)```/g;
-                  for (const response of assumptionsResponses) {
-                    const matches = response.matchAll(codeBlockPattern);
-                    for (const match of matches) {
-                      const codeBlock = match[0];
-                      // Try to extract file path from code block or surrounding text
-                      const fileMatch = codeBlock.match(/```(\w+)?\s*([^\n]+\.\w+)/) || 
-                                       response.match(/(?:file|path|create|generate)[:\s]+([^\s\n]+\.\w+)/i);
-                      const fileName = fileMatch ? (fileMatch[2] || fileMatch[1]) : 'unknown';
-                      assumptionsData.codeSnippets.push({
-                        file: fileName,
-                        description: `Code snippet from assumptions stage`,
-                      });
-                    }
-                  }
-                  
-                  // Create summary
-                  if (assumptionsResponses.length > 0) {
-                    assumptionsData.summary = `Analysis and assumptions from ${assumptionsResponses.length} response(s) in assumptions stage. Generated ${assumptionsData.codeSnippets.length} code snippet(s).`;
-                  }
-                }
-                
                 // Also check for code contexts that were created in assumptions stage
                 const context = this.contextManager.getContext();
                 if (context?.codeContexts) {
                   for (const [fileName, versions] of context.codeContexts.entries()) {
                     const activeVersion = versions.find(v => v.isActive);
                     if (activeVersion && fileName !== 'aggregated_prompt.json' && fileName !== 'assumption_data.json') {
-                      assumptionsData.codeSnippets.push({
-                        file: fileName,
-                        description: activeVersion.description || `Code context for ${fileName}`,
-                      });
+                      this.assumptionsManager.addCodeSnippet(
+                        fileName,
+                        activeVersion.description || `Code context for ${fileName}`
+                      );
                     }
                   }
                 }
                 
-                // Create assumption_data.json CodeContext
+                // If plan was created, ensure taskId is set in AssumptionsManager
+                if (context?.progressPlan) {
+                  // Ensure AssumptionsManager is initialized
+                  if (!this.assumptionsManager.getState()) {
+                    this.assumptionsManager.initialize();
+                  }
+                  this.assumptionsManager.setTaskId(context.progressPlan.taskId);
+                  console.log(`[Harmony] Transition: Set taskId in AssumptionsManager: ${context.progressPlan.taskId}`);
+                } else {
+                  console.log(`[Harmony] Transition: No progressPlan found in context`);
+                }
+                
+                // Export assumptions data using AssumptionsManager
+                const assumptionsExport = this.assumptionsManager.exportForTransition(context?.originalPrompt);
+                console.log(`[Harmony] Transition: Exported assumptions data - has progressPlan: ${!!assumptionsExport.progressPlan}, has planSteps: ${!!assumptionsExport.planSteps}`);
+                
+                // If a plan was created in exportForTransition, set it in context
+                if (assumptionsExport.progressPlan && !context?.progressPlan) {
+                  this.contextManager.setProgressPlan(assumptionsExport.progressPlan);
+                }
+                
+                // Create assumption_data.json CodeContext with progressPlan and planSteps
+                const assumptionsData = {
+                  assumptions: assumptionsExport.assumptions,
+                  codeSnippets: assumptionsExport.codeSnippets,
+                  progressPlan: assumptionsExport.progressPlan,
+                  planSteps: assumptionsExport.planSteps,
+                  summary: assumptionsExport.summary,
+                };
+                
                 const assumptionDataJson = JSON.stringify(assumptionsData, null, 2);
                 const assumptionDataLines = assumptionDataJson.split('\n');
                 const assumptionDataContext = new CodeContext(
@@ -424,7 +391,10 @@ export class HarmonyClient {
                   'Assumptions and analysis data from assumptions stage'
                 );
                 this.contextManager.addCodeContext(assumptionDataContext);
-                console.log(`[Harmony] Saved assumption_data to CodeContext (${assumptionsData.assumptions.length} assumptions, ${assumptionsData.codeSnippets.length} code snippets)`);
+                console.log(`[Harmony] Saved assumption_data to CodeContext (${assumptionsExport.assumptions.length} assumptions, ${assumptionsExport.codeSnippets.length} code snippets${assumptionsExport.progressPlan ? `, plan with ${assumptionsExport.progressPlan.totalSteps} step(s)` : ''})`);
+                
+                // Clear assumptions manager after transition
+                this.assumptionsManager.clear();
               }
               
               // Perform the transition first
@@ -1074,6 +1044,13 @@ export class HarmonyClient {
                 // Get the current user prompt from context for description extraction
                 const currentPrompt = context.originalPrompt || prompt;
                 this.contextManager.addCodeContext(codeContext, currentPrompt, content);
+                
+                // Track code snippet in AssumptionsManager
+                this.assumptionsManager.addCodeSnippet(
+                  codeContext.name,
+                  codeContext.description || `Code snippet from assumptions stage`
+                );
+                
                 codeBlockCount++;
                 console.log(`[Harmony] Assumptions stage: Extracted code context for file: ${codeContext.name} (${codeContext.content.length} lines, version: ${codeContext.version})`);
               }
@@ -1189,11 +1166,22 @@ export class HarmonyClient {
               );
               
               this.contextManager.setProgressPlan(plan);
-              console.log(`[Harmony] Assumptions stage: Created ProgressPlan with ${plan.totalSteps} step(s) (complexity: ${plan.complexity})`);
+              // Set taskId in AssumptionsManager when plan is created
+              // Ensure AssumptionsManager is initialized before setting taskId
+              if (!this.assumptionsManager.getState()) {
+                this.assumptionsManager.initialize();
+              }
+              this.assumptionsManager.setTaskId(plan.taskId);
+              console.log(`[Harmony] Assumptions stage: Created ProgressPlan with ${plan.totalSteps} step(s) (complexity: ${plan.complexity}), taskId: ${plan.taskId}`);
             } catch (error) {
               // Don't let plan creation break the main flow
               console.warn(`[Harmony] Error during plan creation:`, error);
             }
+          }
+          
+          // Track assumptions responses during assumptions stage
+          if (currentStage === 'assumptions' && content) {
+            this.assumptionsManager.addAssumption(content);
           }
         }
       } catch (error) {
@@ -1988,6 +1976,13 @@ export class HarmonyClient {
   }
 
   /**
+   * Get the AssumptionsManager instance
+   */
+  getAssumptionsManager(): AssumptionsManager {
+    return this.assumptionsManager;
+  }
+
+  /**
    * Get current verboseInfo for display
    * Returns minimal verboseInfo for chat stage if no context exists
    */
@@ -2218,4 +2213,5 @@ export class HarmonyClient {
     return this.progressPlanManager;
   }
 }
+
 

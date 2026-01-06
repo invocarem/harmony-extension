@@ -20,6 +20,8 @@ export { StageHandlerRegistry, StageHandler } from './stageHandlers';
 export { IntentionDetector, UserIntent } from './intentionDetector';
 export { ChatManager } from './chatManager';
 export type { ChatState, ChatQuery } from './chatManager';
+export { AssumptionsManager } from './assumptionsManager';
+export type { AssumptionState, AssumptionCodeSnippet } from './assumptionsManager';
 export { ConfirmationManager } from './confirmationManager';
 export type { PendingConfirmation } from './confirmationManager';
 
