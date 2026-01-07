@@ -189,26 +189,36 @@ export class ImplementationManager {
     }
 
     const fileModificationTools = ['create_file', 'replace_file', 'write_file', 'update_file'];
-    const successfulFileMods = toolCalls.filter(tc => 
-      fileModificationTools.includes(tc.name) && !tc.result?.isError
-    );
+    const allFileModToolCalls = toolCalls.filter(tc => fileModificationTools.includes(tc.name));
+    const successfulFileMods = allFileModToolCalls.filter(tc => !tc.result?.isError);
+
+    // If there were file modification tool calls but all failed, revert step to pending
+    if (allFileModToolCalls.length > 0 && successfulFileMods.length === 0) {
+      if (currentStep.status === 'in_progress') {
+        this.progressPlanManager.updateStepStatus(this.state.taskId, currentStep.stepNumber, 'pending');
+        console.log(`[ImplementationManager] Reverted step ${currentStep.stepNumber} to pending due to tool call failures`);
+      }
+      return undefined;
+    }
 
     if (successfulFileMods.length === 0) {
       return undefined;
     }
 
-    // Filter files to only those that match the current step
+    // Record all file creations and filter files to only those that match the current step
     const filesForCurrentStep: string[] = [];
     for (const toolCall of successfulFileMods) {
       const filePath = toolCall.arguments?.file_path || toolCall.arguments?.filePath;
       if (filePath) {
+        // Always record the file creation (even if it doesn't match the step)
+        const status = toolCall.name === 'replace_file' ? 'replaced' : 'created';
+        this.recordFileCreated(filePath, currentStep.stepNumber, status);
+        
         // Check if file matches current step using filterCodeContextsForStep
         const tempCodeContext = new CodeContext(filePath, ['']);
         const matched = this.filterCodeContextsForStep([tempCodeContext], currentStep);
         if (matched.length > 0) {
           filesForCurrentStep.push(filePath);
-          const status = toolCall.name === 'replace_file' ? 'replaced' : 'created';
-          this.recordFileCreated(filePath, currentStep.stepNumber, status);
         }
       }
     }
@@ -287,18 +297,48 @@ export class ImplementationManager {
     // Find code contexts whose filename is mentioned in the step
     const matchedContexts = codeContexts.filter(codeContext => {
       const fileName = codeContext.name.toLowerCase();
-      const baseName = fileName.split('.')[0]; // e.g., "hello" from "hello.py"
+      
+      // For test files, check first and require explicit mention - don't fall through to other checks
+      if (fileName.endsWith('.test.py') || fileName.endsWith('_test.py') || fileName.includes('.test.')) {
+        // Test files must be explicitly mentioned in step - exact filename match only
+        const exactFileNamePattern = new RegExp(`\\b${this.escapeRegex(fileName)}\\b`, 'i');
+        const matchesExact = exactFileNamePattern.test(stepText);
+        const matchesTestKeyword = stepText.includes('test') || stepText.includes('test.') || stepText.includes('_test');
+        // Only match if exact filename is mentioned OR test keyword is explicitly mentioned with base name
+        if (!matchesExact && !matchesTestKeyword) {
+          return false; // Test files that don't match explicitly should not match at all
+        }
+        return true;
+      }
       
       // First check: exact filename match (e.g., "hello.py" matches "create hello.py")
+      // Only check for non-test files
       const fileNamePattern = new RegExp(`\\b${this.escapeRegex(fileName)}\\b`, 'i');
       if (fileNamePattern.test(stepText)) {
         return true;
       }
       
-      // Second check: base name match with file type validation
+      // For markdown files, require explicit mention
+      if (fileName.endsWith('.md')) {
+        return stepText.includes('document') || stepText.includes('doc') || stepText.includes('.md') || stepText.includes(fileName);
+      }
+      
+      // Second check: base name match with file type validation (for non-test files)
+      // Extract base name (everything before the first dot)
+      const baseName = fileName.split('.')[0]; // e.g., "hello" from "hello.py"
+      
       // Only match if base name appears AND file type matches step description
       if (stepText.includes(baseName)) {
-        return this.isFileTypeMatch(fileName, stepText);
+        // If step mentions test/document, don't match regular .py files
+        if (stepText.includes('test') || stepText.includes('document') || stepText.includes('doc')) {
+          return false;
+        }
+        // For regular .py files, must explicitly mention .py or the exact filename
+        if (fileName.endsWith('.py')) {
+          return stepText.includes('.py') || stepText.includes(fileName);
+        }
+        // For other file types, allow base name match
+        return true;
       }
       
       return false;
@@ -311,7 +351,20 @@ export class ImplementationManager {
     }
     
     // Fallback: if only one code context remains, use it
-    const remainingContexts = codeContexts.filter(cc => cc.waitForCreate);
+    // BUT: Don't match test files or markdown files unless step explicitly mentions them
+    const remainingContexts = codeContexts.filter(cc => {
+      if (!cc.waitForCreate) return false;
+      const fileName = cc.name.toLowerCase();
+      // Don't match test files unless step mentions test
+      if (fileName.endsWith('.test.py') || fileName.endsWith('_test.py') || fileName.includes('.test.')) {
+        return stepText.includes('test') || stepText.includes('test.') || stepText.includes('_test') || stepText.includes(fileName);
+      }
+      // Don't match markdown files unless step mentions document/doc
+      if (fileName.endsWith('.md')) {
+        return stepText.includes('document') || stepText.includes('doc') || stepText.includes('.md') || stepText.includes(fileName);
+      }
+      return true;
+    });
     if (remainingContexts.length === 1) {
       return remainingContexts;
     }

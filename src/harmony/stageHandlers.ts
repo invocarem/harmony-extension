@@ -160,14 +160,9 @@ class ImplementationStageHandler implements StageHandler {
     // Handle next_step command if detected - delegate to ImplementationManager
     if (isNextStepRequest && plan) {
       const currentStep = this.implementationManager.getCurrentStep();
-      if (currentStep) {
-        this.implementationManager.completeStep(currentStep.stepNumber);
-        console.log(`[StageHandler:Implementation] @cmd:next_step - Marked step ${currentStep.stepNumber} (${currentStep.goal}) as completed`);
-      }
-
-      const nextStep = this.implementationManager.advanceToNextStep();
-      if (!nextStep) {
-        // No more steps - all completed
+      
+      if (!currentStep) {
+        // No current step - all completed or no plan
         const updatedPlan = this.implementationManager.getProgressPlan();
         if (updatedPlan?.completedAt) {
           return {
@@ -178,8 +173,43 @@ class ImplementationStageHandler implements StageHandler {
             }
           };
         }
-      } else {
-        console.log(`[StageHandler:Implementation] @cmd:next_step - Advanced to step ${nextStep.stepNumber}: ${nextStep.goal}`);
+        // Continue with normal flow
+        console.log(`[StageHandler:Implementation] @cmd:next_step - No current step found`);
+      } else if (currentStep.status === 'in_progress') {
+        // Second call: step is already in_progress (from previous advance) - process it
+        console.log(`[StageHandler:Implementation] @cmd:next_step - Step ${currentStep.stepNumber} is in_progress, processing it now`);
+        // Continue with normal flow - don't return early, let it process the step
+      } else if (currentStep.status === 'pending') {
+        // Current step is pending - advance to it (set to in_progress) and PROCESS it
+        // This happens when step 1 completes and step 2 becomes current but is still pending
+        const advancedStep = this.implementationManager.advanceToNextStep();
+        if (advancedStep) {
+          console.log(`[StageHandler:Implementation] @cmd:next_step - Advanced to step ${advancedStep.stepNumber}: ${advancedStep.goal}, processing it now`);
+          // Continue with normal flow - process the step (don't return early)
+        }
+      } else if (currentStep.status === 'completed') {
+        // Current step is completed - advance to next step and PROCESS it
+        console.log(`[StageHandler:Implementation] @cmd:next_step - Step ${currentStep.stepNumber} already completed, advancing to next step`);
+        
+        // Try to advance to next step
+        const nextStep = this.implementationManager.advanceToNextStep();
+        if (!nextStep) {
+          // No more steps - all completed
+          const updatedPlan = this.implementationManager.getProgressPlan();
+          if (updatedPlan?.completedAt) {
+            return {
+              shouldSkipLLM: true,
+              response: {
+                content: '✅ All steps in the plan have been completed!',
+                verboseInfo: { stage: 'implementation' as const, isComplete: true }
+              }
+            };
+          }
+        } else {
+          // We advanced to a new step - PROCESS it (don't stop)
+          console.log(`[StageHandler:Implementation] @cmd:next_step - Advanced to step ${nextStep.stepNumber}: ${nextStep.goal}, processing it now`);
+          // Continue with normal flow - process the step (don't return early)
+        }
       }
     }
 

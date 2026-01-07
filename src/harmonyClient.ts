@@ -1248,13 +1248,14 @@ export class HarmonyClient {
             this.implementationManager.initialize(plan.taskId);
           }
           
-          // Count successful file modification tool executions
-          const successfulFileMods = executedToolCalls.filter(tc => 
-            fileModificationTools.includes(tc.name) && !tc.result?.isError
+          // Check for file modification tool executions (both successful and failed)
+          const fileModToolCalls = executedToolCalls.filter(tc => 
+            fileModificationTools.includes(tc.name)
           );
 
-          if (successfulFileMods.length > 0) {
+          if (fileModToolCalls.length > 0) {
             // Delegate to ImplementationManager to process file creations and complete steps
+            // This will also handle reverting steps to pending if all tool calls failed
             const completedStepNumber = this.implementationManager.processFileCreations(executedToolCalls);
             
             if (completedStepNumber) {
