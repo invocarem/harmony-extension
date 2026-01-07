@@ -1,207 +1,104 @@
 /**
- * Utility functions for logging in the Harmony system
+ * Logger utility with configurable verbosity
+ * Allows easy toggling of verbose logging for specific components
  */
 
+// Global flag to control verbose logging (can be set via config)
+let verboseToolExtraction = false;
+
+export const Logger = {
+  /**
+   * Set verbose mode for tool extraction logging
+   */
+  setVerboseToolExtraction(enabled: boolean): void {
+    verboseToolExtraction = enabled;
+  },
+
+  /**
+   * Check if verbose tool extraction logging is enabled
+   */
+  isVerboseToolExtraction(): boolean {
+    return verboseToolExtraction;
+  },
+
+  /**
+   * Log message only if verbose tool extraction is enabled
+   */
+  logVerbose(component: string, message: string, ...args: any[]): void {
+    if (verboseToolExtraction) {
+      console.log(`[${component}] ${message}`, ...args);
+    }
+  },
+
+  /**
+   * Log warning (always shown, regardless of verbose mode)
+   */
+  logWarn(component: string, message: string, ...args: any[]): void {
+    console.warn(`[${component}] ${message}`, ...args);
+  },
+};
+
 /**
- * 分批打印长日志信息
+ * Log a long message (truncated for readability)
  */
-export function logLongMessage(prefix: string, message: string, chunkSize = 1000): void {
-  console.log(`${prefix} (total length: ${message.length})`);
-  if (!message || message.length === 0) {
-    console.log(`${prefix}: [EMPTY]`);
-    return;
-  }
-  
-  // 如果消息不长于chunkSize，直接打印
-  if (message.length <= chunkSize) {
+export function logLongMessage(prefix: string, message: string, maxLength: number = 500): void {
+  if (message.length > maxLength) {
+    console.log(`${prefix} (${message.length} chars): ${message.substring(0, maxLength)}...`);
+  } else {
     console.log(`${prefix}: ${message}`);
-    return;
-  }
-  
-  // 分批打印
-  const numChunks = Math.ceil(message.length / chunkSize);
-  for (let i = 0; i < numChunks; i++) {
-    const start = i * chunkSize;
-    const end = start + chunkSize;
-    const chunk = message.substring(start, Math.min(end, message.length));
-    console.log(`${prefix} chunk ${i + 1}/${numChunks}: ${chunk}`);
   }
 }
 
 /**
- * 记录API请求信息
+ * Log API request details
  */
-export function logApiRequest(endpoint: string, prompt: string, maxPreviewLength = 100): void {
-  console.log(`[Harmony] Calling endpoint: ${endpoint}`);
-  const preview = prompt.length > maxPreviewLength 
-    ? `${prompt.substring(0, maxPreviewLength)}...` 
+export function logApiRequest(endpoint: string, prompt: string, maxPromptLength: number = 200): void {
+  const promptPreview = prompt.length > maxPromptLength 
+    ? `${prompt.substring(0, maxPromptLength)}...` 
     : prompt;
-  console.log(`[Harmony] Prompt: ${preview}`);
+  console.log(`[Harmony] Calling endpoint: ${endpoint}`);
+  console.log(`[Harmony] Prompt: ${promptPreview}`);
 }
 
 /**
- * 记录工具调用信息
+ * Log tool calls
  */
-export function logToolCalls(toolCalls: Array<{ name: string; type?: string }>): void {
+export function logToolCalls(toolCalls: Array<{ name: string }>): void {
   if (toolCalls.length > 0) {
-    console.log(`[Harmony] Found ${toolCalls.length} tool call(s):`);
-    toolCalls.forEach((call, index) => {
-      const type = call.type ? ` (${call.type})` : '';
-      console.log(`  ${index + 1}. ${call.name}${type}`);
-    });
+    console.log(`[Harmony] Tool calls: ${toolCalls.map(tc => tc.name).join(', ')}`);
   }
 }
 
 /**
- * 记录规则应用信息
+ * Log rules information
  */
-export function logRules(applicableRules: Array<{ id: string; description?: string }>): void {
-  if (applicableRules.length > 0) {
-    console.log(`[Rules] Found ${applicableRules.length} applicable rule(s)`);
-    applicableRules.forEach(rule => {
-      console.log(`[Rules] Matched rule: ${rule.id}${rule.description ? ` (${rule.description})` : ""}`);
-    });
-  }
-}
-
-
-// Add these logging functions to your logger.ts file or create them inline in llamaClient.ts
-
-/**
- * Log step information for multi-step continuations
- */
-export function logStepInfo(stepNumber: number, maxSteps: number, originalPrompt: string): void {
-  console.log(`[Harmony] Step ${stepNumber}/${maxSteps} for task: "${originalPrompt.substring(0, 100)}${originalPrompt.length > 100 ? '...' : ''}"`);
-}
-
-/**
- * Log continuation decision details
- */
-export function logContinuationDecision(
-  shouldContinue: boolean,
-  reason: string,
-  hasFileModification: boolean,
-  hasCompletionPhrase: boolean,
-  onlyDiscoveryTools: boolean
-): void {
-  console.log(`[Harmony] Continuation decision: ${shouldContinue ? 'CONTINUE' : 'STOP'}`);
-  console.log(`[Harmony] Reason: ${reason}`);
-  console.log(`[Harmony] Factors: hasFileModification=${hasFileModification}, hasCompletionPhrase=${hasCompletionPhrase}, onlyDiscoveryTools=${onlyDiscoveryTools}`);
-}
-
-/**
- * Log tool execution results
- */
-export function logToolExecutionResults(
-  executedToolCalls: Array<{ name: string; result?: any }>
-): void {
-  if (executedToolCalls.length === 0) return;
-  
-  console.log(`[Harmony] Tool execution results:`);
-  executedToolCalls.forEach((toolCall, index) => {
-    if (toolCall.result?.isError) {
-      console.log(`  ${index + 1}. ❌ ${toolCall.name}: Error - ${toolCall.result.content?.[0]?.text || 'Unknown error'}`);
-    } else {
-      console.log(`  ${index + 1}. ✅ ${toolCall.name}: Success`);
-      // Log first 200 chars of result if available
-      if (toolCall.result?.content?.[0]?.text) {
-        const text = toolCall.result.content[0].text;
-        const preview = text.length > 200 ? `${text.substring(0, 200)}...` : text;
-        console.log(`       Result preview: ${preview}`);
-      }
-    }
-  });
-}
-
-/**
- * Log conversation context state
- */
-export function logConversationContext(context: any): void {
-  if (!context) {
-    console.log(`[Harmony] No active conversation context`);
-    return;
-  }
-  
-  console.log(`[Harmony] Conversation context:`);
-  console.log(`  Original prompt: "${context.originalPrompt.substring(0, 100)}${context.originalPrompt.length > 100 ? '...' : ''}"`);
-  console.log(`  Steps: ${context.steps.length}/${context.maxSteps}`);
-  console.log(`  Current step: ${context.currentStep}`);
-  
-  if (context.steps.length > 0) {
-    console.log(`  Previous steps summary:`);
-    context.steps.forEach((step: any, index: number) => {
-      console.log(`    Step ${index + 1}: ${step.toolCalls.length} tool calls, ${step.reasoning?.length || 0} chars reasoning`);
-    });
+export function logRules(rules: any[]): void {
+  if (rules && rules.length > 0) {
+    console.log(`[Rules] Loaded ${rules.length} rule(s)`);
   }
 }
 
 /**
- * Log verboseInfo when toString() is called
- * Uses logLongMessage for long verboseInfo content
- * This is called automatically when toString() is invoked on verboseInfo objects
+ * Log step information
  */
-export function logVerboseInfo(verboseInfo: any, formattedString: string): void {
+export function logStepInfo(currentStep: number | undefined, maxSteps: number | undefined, originalPrompt?: string): void {
+  if (currentStep !== undefined && maxSteps !== undefined) {
+    console.log(`[Harmony] Step ${currentStep}/${maxSteps}${originalPrompt ? ` - ${originalPrompt.substring(0, 50)}...` : ''}`);
+  }
+}
+
+/**
+ * Log verbose info
+ */
+export function logVerboseInfo(verboseInfo: any, formatted?: string): void {
   if (!verboseInfo) {
-    console.log(`[VerboseInfo] toString() called on null/undefined verboseInfo`);
+    console.log('[VerboseInfo] toString() called on null/undefined verboseInfo');
     return;
   }
   
-  const stage = verboseInfo.stage || 'unknown';
-  const stageEmojiMap: Record<string, string> = {
-    'chat': '💬',
-    'assumptions': '🔍',
-    'implementation': '⚙️',
-    'init': '🔄'
-  };
-  const stageEmoji = stageEmojiMap[stage] || '📋';
-  
-  console.log(`[VerboseInfo] ${stageEmoji} toString() called for ${stage} stage verboseInfo`);
-  
-  // Log basic info
-  if (verboseInfo.stageTransition) {
-    console.log(`[VerboseInfo] Stage transition: ${verboseInfo.stageTransition.from} → ${verboseInfo.stageTransition.to}`);
+  if (formatted) {
+    console.log(`[VerboseInfo] ${formatted}`);
+  } else {
+    console.log('[VerboseInfo]', verboseInfo);
   }
-  
-  if (verboseInfo.step !== undefined && verboseInfo.maxSteps !== undefined) {
-    console.log(`[VerboseInfo] Progress: Step ${verboseInfo.step}/${verboseInfo.maxSteps}`);
-  }
-  
-  if (verboseInfo.isComplete) {
-    console.log(`[VerboseInfo] Status: Complete`);
-  }
-  
-  // Log stage-specific highlights
-  if (stage === 'chat' && verboseInfo.problemSummary) {
-    console.log(`[VerboseInfo] Problem restated: ${verboseInfo.problemSummary.restatedProblem?.substring(0, 100) || 'N/A'}${verboseInfo.problemSummary.restatedProblem && verboseInfo.problemSummary.restatedProblem.length > 100 ? '...' : ''}`);
-  }
-  
-  if (stage === 'assumptions' && verboseInfo.progressPlan) {
-    console.log(`[VerboseInfo] ProgressPlan created: ${verboseInfo.progressPlan.totalSteps} steps, complexity: ${verboseInfo.progressPlan.complexity}`);
-    if (verboseInfo.progressPlan.steps && verboseInfo.progressPlan.steps.length > 0) {
-      console.log(`[VerboseInfo] Plan steps:`);
-      verboseInfo.progressPlan.steps.forEach((step: any) => {
-        const statusIcon = step.status === 'completed' ? '✅' : step.status === 'in_progress' ? '🔄' : '⏳';
-        console.log(`[VerboseInfo]   ${statusIcon} Step ${step.stepNumber}: ${step.goal}`);
-      });
-    }
-  }
-  
-  if (stage === 'implementation' && verboseInfo.planProgress) {
-    console.log(`[VerboseInfo] Plan progress: ${verboseInfo.planProgress.completedSteps}/${verboseInfo.planProgress.totalSteps} steps completed`);
-    if (verboseInfo.planProgress.currentStep) {
-      console.log(`[VerboseInfo] Current step: ${verboseInfo.planProgress.currentStep.stepNumber} - ${verboseInfo.planProgress.currentStep.goal} (${verboseInfo.planProgress.currentStep.status})`);
-    }
-  }
-  
-  if (verboseInfo.fileOperations) {
-    const created = verboseInfo.fileOperations.created?.length || 0;
-    const updated = verboseInfo.fileOperations.updated?.length || 0;
-    const failed = verboseInfo.fileOperations.failed?.length || 0;
-    if (created > 0 || updated > 0 || failed > 0) {
-      console.log(`[VerboseInfo] File operations: ${created} created, ${updated} updated, ${failed} failed`);
-    }
-  }
-  
-  // Log the full formatted string using logLongMessage for long content
-  logLongMessage(`[VerboseInfo] Full toString() output`, formattedString, 2000);
 }

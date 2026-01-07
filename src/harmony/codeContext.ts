@@ -46,9 +46,10 @@ export class CodeContext {
         const trimmed = name.trim();
         // Must have a file extension (at least 2 chars after dot)
         if (!/\.\w{2,4}$/.test(trimmed)) return false;
-        // Must not be just common words like "File", "file", "Code", etc.
-        const commonWords = /^(file|File|code|Code|script|Script|text|Text|data|Data)$/i;
-        if (commonWords.test(trimmed.split('.')[0])) return false;
+      // Must not be just common words like "File", "file", "Code", etc.
+      const baseName = trimmed.split(/[\/\.]/)[0]; // Get first part before any path separators or dots
+      const commonWords = /^(file|File|code|Code|script|Script|text|Text|data|Data)$/i;
+      if (commonWords.test(baseName)) return false;
         // Must look like a valid file path (alphanumeric, dots, slashes, hyphens, underscores)
         return /^[\w\/\.\-]+\.\w{2,4}$/.test(trimmed);
       };
@@ -107,12 +108,14 @@ export class CodeContext {
     const isValidFileName = (name: string): boolean => {
       if (!name || name.trim().length === 0) return false;
       const trimmed = name.trim();
-      // Must have a file extension (at least 2 chars after dot)
+      // Must have a file extension (at least 2 chars after the last dot)
       if (!/\.\w{2,4}$/.test(trimmed)) return false;
       // Must not be just common words like "File", "file", "Code", etc.
+      const baseName = trimmed.split(/[\/\.]/)[0]; // Get first part before any path separators or dots
       const commonWords = /^(file|File|code|Code|script|Script|text|Text|data|Data)$/i;
-      if (commonWords.test(trimmed.split('.')[0])) return false;
+      if (commonWords.test(baseName)) return false;
       // Must look like a valid file path (alphanumeric, dots, slashes, hyphens, underscores)
+      // Allow multiple dots (e.g., hello.test.py, config.json.backup)
       return /^[\w\/\.\-]+\.\w{2,4}$/.test(trimmed);
     };
     
@@ -149,13 +152,20 @@ export class CodeContext {
         beforeMatch.match(/`([^`]+\.\w{2,4})`/i);
       
       // Also check if file path is mentioned in the code block itself
-      const codeBlockWithPath = codeContent.match(/^#\s*(?:file|path)[:\s]+([^\n]+\.\w{2,4})/i) ||
-                                codeContent.match(/\/\/\s*(?:file|path)[:\s]+([^\n]+\.\w{2,4})/i);
+      // Support formats like: "# File path: hello.py", "# file path: hello.py", "# File: hello.py", "# hello.py", "// file path: hello.py"
+      // Try matching at the start of any line (not just the first line), in case there's leading whitespace
+      const codeBlockWithPath = codeContent.match(/^#\s*(?:file\s+path|file|path)[:\s]+([^\n]+\.\w{2,4})/im) ||
+                                codeContent.match(/^\/\/\s*(?:file\s+path|file|path)[:\s]+([^\n]+\.\w{2,4})/im) ||
+                                // Match simple "# filename.ext" pattern (must be first or second line, to avoid false matches)
+                                codeContent.match(/^(?:[^\n]*\n)?#\s+([a-zA-Z][\w\.-]*\.\w{2,4})\s*(?:\n|$)/im);
       
       const extractedName = filePathMatch?.[1] || codeBlockWithPath?.[1];
-      // Only use extracted name if it's valid
-      if (extractedName && isValidFileName(extractedName)) {
-        fileName = extractedName;
+      // Only use extracted name if it's valid (trim whitespace first)
+      if (extractedName) {
+        const trimmedName = extractedName.trim();
+        if (isValidFileName(trimmedName)) {
+          fileName = trimmedName;
+        }
       }
     }
 

@@ -4,6 +4,7 @@
  */
 
 import { ProgressPlanManager, ProgressPlan, PlanStep } from "../progressPlanManager";
+import { AutoTransitionManager } from "./autoTransitionManager";
 
 /**
  * Represents a code snippet extracted during assumptions stage
@@ -36,9 +37,12 @@ export interface AssumptionState {
 export class AssumptionsManager {
   private state: AssumptionState | null = null;
   private progressPlanManager: ProgressPlanManager;
+  private autoTransitionManager: AutoTransitionManager;
 
-  constructor(progressPlanManager: ProgressPlanManager) {
+  constructor(progressPlanManager: ProgressPlanManager, autoTransitionManager?: AutoTransitionManager) {
     this.progressPlanManager = progressPlanManager;
+    // Create AutoTransitionManager if not provided (for backwards compatibility)
+    this.autoTransitionManager = autoTransitionManager || new AutoTransitionManager(progressPlanManager);
   }
 
   /**
@@ -175,6 +179,76 @@ export class AssumptionsManager {
   }
 
   /**
+   * Create or update a plan based on assumptions stage response
+   * This is the central place for plan creation during assumptions stage
+   */
+  createOrUpdatePlan(
+    content: string,
+    originalPrompt: string,
+    reasoning?: string,
+    toolCalls?: any[]
+  ): ProgressPlan | null {
+    if (!originalPrompt) {
+      return null;
+    }
+
+    // Use AutoTransitionManager for complexity detection
+    const complexity = this.autoTransitionManager.detectTaskComplexity(
+      content,
+      reasoning,
+      toolCalls,
+      originalPrompt
+    ) || 'simple';
+
+    // Extract steps using AutoTransitionManager
+    const steps = this.autoTransitionManager.extractStepsFromText(
+      content,
+      originalPrompt,
+      complexity
+    );
+
+    // Use existing plan if available, otherwise create new one
+    let plan: ProgressPlan;
+    if (this.state?.taskId) {
+      const existingPlan = this.progressPlanManager.getPlan(this.state.taskId);
+      if (existingPlan) {
+        // Update existing plan
+        this.progressPlanManager.updatePlanSteps(
+          this.state.taskId,
+          steps,
+          true // preserveStatus
+        );
+        plan = this.progressPlanManager.getPlan(this.state.taskId)!;
+      } else {
+        // Create new plan
+        const taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        plan = this.progressPlanManager.createPlan(
+          taskId,
+          originalPrompt,
+          complexity,
+          steps
+        );
+        this.setTaskId(taskId);
+      }
+    } else {
+      // Create new plan
+      const taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      plan = this.progressPlanManager.createPlan(
+        taskId,
+        originalPrompt,
+        complexity,
+        steps
+      );
+      this.setTaskId(taskId);
+    }
+
+    console.log(`[AssumptionsManager] Plan ${plan.taskId} - ${complexity} complexity, ${plan.totalSteps} step(s)`);
+    return plan;
+  }
+
+
+
+  /**
    * Export assumptions data for transition to implementation stage
    * Includes assumptions, code snippets, and progressPlan
    * Note: planSteps is redundant (it's already in progressPlan.steps), so we don't export it separately
@@ -199,21 +273,13 @@ export class AssumptionsManager {
       ? this.progressPlanManager.getPlan(this.state.taskId)
       : undefined;
 
-    // ENFORCEMENT: If no plan exists and we have originalPrompt, create a default plan
+    // ENFORCEMENT: If no plan exists and we have originalPrompt, create a plan
+    // Use the centralized plan creation method
     if (!progressPlan && originalPrompt) {
-      const taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      // Use originalPrompt to create a more meaningful description
-      const description = originalPrompt.length > 150 
-        ? `Execute the task: ${originalPrompt.substring(0, 150)}...`
-        : `Execute the task: ${originalPrompt}`;
-      progressPlan = this.progressPlanManager.createPlan(
-        taskId,
-        originalPrompt,
-        'simple',
-        [{ goal: 'Complete the task', description }]
-      );
-      this.setTaskId(taskId);
-      console.log(`[AssumptionsManager] Created default plan with taskId: ${taskId}`);
+      const createdPlan = this.createOrUpdatePlan('', originalPrompt);
+      if (createdPlan) {
+        progressPlan = createdPlan;
+      }
     }
 
     // Create summary

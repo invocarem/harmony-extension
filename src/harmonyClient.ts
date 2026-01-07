@@ -26,6 +26,7 @@ import {
   WorkflowStage,
   ChatManager,
   AssumptionsManager,
+  ImplementationManager,
 } from "./harmony";
 
 // Re-export WorkflowStage for backward compatibility
@@ -70,6 +71,7 @@ export class HarmonyClient {
   private contextManager: ConversationContextManager;
   private chatManager: ChatManager;
   private assumptionsManager: AssumptionsManager;
+  private implementationManager: ImplementationManager;
   private stageDetector: StageDetector;
   private promptBuilder: PromptBuilder;
   private toolExecutor: ToolExecutor;
@@ -87,15 +89,21 @@ export class HarmonyClient {
     private rulesManager?: RulesManager,
     private nativeToolsManager?: NativeToolsManager
   ) {
+    // Set verbose logging for tool extraction based on config
+    const { Logger } = require('./utils/logger');
+    Logger.setVerboseToolExtraction(config.verboseToolExtraction || false);
+    
     this.harmonyProcessor = new HarmonyProcessor(config.harmonyMode);
     this.stageStateMachine = new StageStateMachine();
     this.progressPlanManager = new ProgressPlanManager();
-    this.stageHandlerRegistry = new StageHandlerRegistry();
 
     // Initialize modular components
     this.contextManager = new ConversationContextManager();
     this.chatManager = new ChatManager();
-    this.assumptionsManager = new AssumptionsManager(this.progressPlanManager);
+    this.autoTransitionManager = new AutoTransitionManager(this.progressPlanManager);
+    this.assumptionsManager = new AssumptionsManager(this.progressPlanManager, this.autoTransitionManager);
+    this.implementationManager = new ImplementationManager(this.progressPlanManager);
+    this.stageHandlerRegistry = new StageHandlerRegistry(this.implementationManager);
     this.stageDetector = new StageDetector(this.stageStateMachine);
     this.promptBuilder = new PromptBuilder(
       config,
@@ -112,7 +120,6 @@ export class HarmonyClient {
     );
     this.responseValidator = new ResponseValidator();
     this.continuationManager = new ContinuationManager();
-    this.autoTransitionManager = new AutoTransitionManager(this.progressPlanManager);
   }
 
   async callServer(
@@ -334,10 +341,17 @@ export class HarmonyClient {
                 this.chatManager.clear();
               }
               
-              // When transitioning from assumptions to implementation, save assumptions data
+              // When transitioning from assumptions to implementation, save assumptions data and initialize implementation manager
               if (previousStage === 'assumptions' && detectedStage === 'implementation') {
                 // Also check for code contexts that were created in assumptions stage
                 const context = this.contextManager.getContext();
+                
+                // Initialize implementation manager when entering implementation stage
+                const taskId = context?.progressPlan?.taskId;
+                if (taskId) {
+                  this.implementationManager.initialize(taskId);
+                  console.log(`[Harmony] Initialized ImplementationManager for task: ${taskId}`);
+                }
                 if (context?.codeContexts) {
                   for (const [fileName, versions] of context.codeContexts.entries()) {
                     const activeVersion = versions.find(v => v.isActive);
@@ -690,43 +704,33 @@ export class HarmonyClient {
           }
           
           // If we created any files, update progressPlan before returning early
+          // Note: If files were created from CodeContext in stageHandlers, step completion is already handled there
+          // This block is for files created from code blocks in the response
           if (createdFiles.length > 0) {
             // Update progressPlan if it exists
             if (context?.progressPlan) {
               const plan = context.progressPlan;
-              const fileModificationTools = ['create_file', 'replace_file', 'write_file', 'update_file'];
               
-              // Count successful file modification tool executions
-              const successfulFileMods = toolCalls.filter(tc => 
-                fileModificationTools.includes(tc.name) && !tc.result?.isError
-              );
-
-              if (successfulFileMods.length > 0) {
-                // Find the first pending or in_progress step to mark as completed
-                const stepToComplete = plan.steps.find(step => 
-                  step.status === 'pending' || step.status === 'in_progress'
-                );
-
-                if (stepToComplete) {
-                  // Mark step as completed
-                  const updated = this.progressPlanManager.updateStepStatus(
-                    plan.taskId,
-                    stepToComplete.stepNumber,
-                    'completed'
+              // Ensure ImplementationManager is initialized
+              if (!this.implementationManager.getTaskId()) {
+                this.implementationManager.initialize(plan.taskId);
+              }
+              
+              // Get current step and mark it as completed using ImplementationManager
+              const currentStep = this.implementationManager.getCurrentStep();
+              if (currentStep) {
+                const updated = this.implementationManager.completeStep(currentStep.stepNumber);
+                if (updated) {
+                  console.log(
+                    `[Harmony] ProgressPlan: Marked step ${currentStep.stepNumber} (${currentStep.goal}) as completed after creating files from CodeContext`
                   );
 
-                  if (updated) {
+                  // Check if plan is now complete
+                  const updatedPlan = this.implementationManager.getProgressPlan();
+                  if (updatedPlan?.completedAt) {
                     console.log(
-                      `[Harmony] ProgressPlan: Marked step ${stepToComplete.stepNumber} (${stepToComplete.goal}) as completed after creating files from CodeContext`
+                      `[Harmony] ProgressPlan: All steps completed! Plan "${plan.taskId}" is now complete.`
                     );
-
-                    // Check if plan is now complete
-                    const updatedPlan = this.progressPlanManager.getPlan(plan.taskId);
-                    if (updatedPlan?.completedAt) {
-                      console.log(
-                        `[Harmony] ProgressPlan: All steps completed! Plan "${plan.taskId}" is now complete.`
-                      );
-                    }
                   }
                 }
               }
@@ -1068,112 +1072,30 @@ export class HarmonyClient {
             console.log(`[Harmony] Assumptions stage: No code blocks found in content - CodeContext extraction returned 0 blocks`);
           }
           
-          // Check if we should create a ProgressPlan for complex tasks
-          // This happens when entering assumptions stage and the response indicates a multi-step task
+          // Create or update plan in assumptions stage
+          // Delegated to AssumptionsManager for centralized handling
           if (currentStage === 'assumptions' && context && content && !context.progressPlan) {
             try {
-              const complexity = this.autoTransitionManager.detectTaskComplexity(
-                content,
-                parsed.reasoning,
-                toolCalls,
-                context.originalPrompt
-              );
-              
-              // Create ProgressPlan for all tasks (simple and hard)
-              // This provides a unified execution model for implementation stage
-              const taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
               const originalPrompt = context.originalPrompt || prompt;
-              
-              let steps: Array<{ goal: string; description?: string; tools?: string[] }> = [];
-              
-              if (complexity === 'hard') {
-                // Extract steps from content for hard tasks (3+ steps)
-                const stepMatches = content.match(/(?:^|\n)(?:\d+\.|\*\s+|-\s+|Step\s+\d+[:.]?\s*)(.+?)(?=\n(?:\d+\.|\*\s+|-\s+|Step\s+\d+[:.]?|$))/gi);
-                if (stepMatches && stepMatches.length >= 3) {
-                  stepMatches.forEach((match) => {
-                    const goal = match.replace(/^(?:\d+\.|\*\s+|-\s+|Step\s+\d+[:.]?\s*)/i, '').trim();
-                    if (goal) {
-                      steps.push({ goal, description: goal });
-                    }
-                  });
-                } else {
-                  // Fallback: create generic steps based on detected complexity
-                  // Count how many steps were detected
-                  const stepPatterns = [
-                    /\b(step\s+1|first|second|third|fourth|fifth|then|next|after that|subsequently)\b/gi,
-                    /\b(1\.|2\.|3\.|4\.|5\.)/g,
-                  ];
-                  let stepCount = 0;
-                  for (const pattern of stepPatterns) {
-                    const matches = content.match(pattern);
-                    if (matches) {
-                      stepCount = Math.max(stepCount, matches.length);
-                    }
-                  }
-                  
-                  // Look for explicit step numbers
-                  const numberedSteps = content.match(/\b(?:step|stage)\s*(\d+)\b/gi);
-                  if (numberedSteps) {
-                    const maxStepNumber = Math.max(...numberedSteps.map(s => {
-                      const match = s.match(/\d+/);
-                      return match ? parseInt(match[0]) : 0;
-                    }));
-                    stepCount = Math.max(stepCount, maxStepNumber);
-                  }
-                  
-                  // Create steps (minimum 3 for 'hard' complexity)
-                  const numSteps = Math.max(3, stepCount || 3);
-                  for (let i = 1; i <= numSteps; i++) {
-                    steps.push({ 
-                      goal: `Step ${i}: Complete part ${i} of the task`, 
-                      description: `Execute step ${i} of the implementation plan` 
-                    });
-                  }
+              if (originalPrompt) {
+                // Ensure AssumptionsManager is initialized
+                if (!this.assumptionsManager.getState()) {
+                  this.assumptionsManager.initialize();
                 }
                 
-                // Default fallback for hard tasks
-                if (steps.length === 0) {
-                  steps = [
-                    { goal: 'Step 1: Analyze requirements', description: 'Understand the task requirements' },
-                    { goal: 'Step 2: Design solution', description: 'Plan the implementation approach' },
-                    { goal: 'Step 3: Implement solution', description: 'Execute the implementation' }
-                  ];
-                }
-              } else {
-                // Simple task (1-2 steps): create default plan
-                // Extract steps if available, otherwise use single-step default
-                const stepMatches = content.match(/(?:^|\n)(?:\d+\.|\*\s+|-\s+|Step\s+\d+[:.]?\s*)(.+?)(?=\n(?:\d+\.|\*\s+|-\s+|Step\s+\d+[:.]?|$))/gi);
+                // Use AssumptionsManager to create/update plan (centralized logic)
+                const plan = this.assumptionsManager.createOrUpdatePlan(
+                  content,
+                  originalPrompt,
+                  parsed.reasoning,
+                  toolCalls
+                );
                 
-                if (stepMatches && stepMatches.length >= 1 && stepMatches.length <= 2) {
-                  stepMatches.forEach((match) => {
-                    const goal = match.replace(/^(?:\d+\.|\*\s+|-\s+|Step\s+\d+[:.]?\s*)/i, '').trim();
-                    if (goal) {
-                      steps.push({ goal, description: goal });
-                    }
-                  });
-                } else {
-                  // Default: single step for simple tasks
-                  steps = [
-                    { goal: 'Complete the task', description: 'Execute the task implementation' }
-                  ];
+                if (plan) {
+                  this.contextManager.setProgressPlan(plan);
+                  console.log(`[Harmony] Assumptions stage: Created ProgressPlan with ${plan.totalSteps} step(s) (complexity: ${plan.complexity}), taskId: ${plan.taskId}`);
                 }
               }
-              
-              const plan = this.progressPlanManager.createPlan(
-                taskId,
-                originalPrompt,
-                complexity || 'simple',
-                steps
-              );
-              
-              this.contextManager.setProgressPlan(plan);
-              // Set taskId in AssumptionsManager when plan is created
-              // Ensure AssumptionsManager is initialized before setting taskId
-              if (!this.assumptionsManager.getState()) {
-                this.assumptionsManager.initialize();
-              }
-              this.assumptionsManager.setTaskId(plan.taskId);
-              console.log(`[Harmony] Assumptions stage: Created ProgressPlan with ${plan.totalSteps} step(s) (complexity: ${plan.complexity}), taskId: ${plan.taskId}`);
             } catch (error) {
               // Don't let plan creation break the main flow
               console.warn(`[Harmony] Error during plan creation:`, error);
@@ -1315,10 +1237,16 @@ export class HarmonyClient {
         }
 
         // Update progressPlan if it exists and we're in implementation stage
+        // Use ImplementationManager to ensure consistent step tracking
         const contextForPlan = this.contextManager.getContext();
         if (contextForPlan?.progressPlan && currentStage === 'implementation' && executedToolCalls?.length > 0) {
           const plan = contextForPlan.progressPlan;
           const fileModificationTools = ['create_file', 'replace_file', 'write_file', 'update_file'];
+          
+          // Ensure ImplementationManager is initialized
+          if (!this.implementationManager.getTaskId()) {
+            this.implementationManager.initialize(plan.taskId);
+          }
           
           // Count successful file modification tool executions
           const successfulFileMods = executedToolCalls.filter(tc => 
@@ -1326,37 +1254,17 @@ export class HarmonyClient {
           );
 
           if (successfulFileMods.length > 0) {
-            // Find the first pending or in_progress step to mark as completed
-            // This assumes steps are completed sequentially
-            const stepToComplete = plan.steps.find(step => 
-              step.status === 'pending' || step.status === 'in_progress'
-            );
-
-            if (stepToComplete) {
-              // Mark step as completed
-              const updated = this.progressPlanManager.updateStepStatus(
-                plan.taskId,
-                stepToComplete.stepNumber,
-                'completed'
-              );
-
-              if (updated) {
+            // Delegate to ImplementationManager to process file creations and complete steps
+            const completedStepNumber = this.implementationManager.processFileCreations(executedToolCalls);
+            
+            if (completedStepNumber) {
+              // Check if plan is now complete
+              const updatedPlan = this.implementationManager.getProgressPlan();
+              if (updatedPlan?.completedAt) {
                 console.log(
-                  `[Harmony] ProgressPlan: Marked step ${stepToComplete.stepNumber} (${stepToComplete.goal}) as completed after successful file modifications`
+                  `[Harmony] ProgressPlan: All steps completed! Plan "${plan.taskId}" is now complete.`
                 );
-
-                // Check if plan is now complete (updateStepStatus already checks internally)
-                const updatedPlan = this.progressPlanManager.getPlan(plan.taskId);
-                if (updatedPlan?.completedAt) {
-                  console.log(
-                    `[Harmony] ProgressPlan: All steps completed! Plan "${plan.taskId}" is now complete.`
-                  );
-                }
               }
-            } else {
-              console.log(
-                `[Harmony] ProgressPlan: File modifications executed but all steps are already completed or in unknown state`
-              );
             }
           }
         }

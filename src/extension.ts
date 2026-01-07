@@ -382,7 +382,7 @@ export class HarmonyAssistant {
             };
           }
         }
-      } else if (fileContexts.length > 0) {
+      } else if (fileContexts.length > 1) {
         // For non-chat stages, still track explicit files
         fileExtractionResult = {
           explicitFiles: fileContexts

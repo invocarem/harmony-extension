@@ -3,8 +3,9 @@ import { ConversationContext } from "./conversationContext";
 import { CodeContext } from "./codeContext";
 import { NativeToolsManager } from "../nativeToolManager";
 import { ConversationContextManager } from "./conversationContext";
-import { ProgressPlanManager } from "../progressPlanManager";
+import { ProgressPlanManager, PlanStep } from "../progressPlanManager";
 import { AutoTransitionManager } from "./autoTransitionManager";
+import { ImplementationManager } from "./implementationManager";
 import { HarmonyParseResult } from "../harmonyProcessor";
 import { MCPToolCall } from "../mcpClient";
 
@@ -44,6 +45,89 @@ export interface StageHandler {
  * Implementation stage handler
  */
 class ImplementationStageHandler implements StageHandler {
+  private implementationManager?: ImplementationManager;
+
+  constructor(implementationManager?: ImplementationManager) {
+    this.implementationManager = implementationManager;
+  }
+
+  /**
+   * Filter code contexts to match the current step
+   * Matches based on filename mentioned in step goal/description
+   * Delegates to ImplementationManager if available, otherwise uses local implementation
+   */
+  private filterCodeContextsForStep(codeContexts: CodeContext[], step: PlanStep): CodeContext[] {
+    if (this.implementationManager) {
+      return this.implementationManager.filterCodeContextsForStep(codeContexts, step);
+    }
+    
+    // Fallback to local implementation if manager not available
+    return this.filterCodeContextsForStepLocal(codeContexts, step);
+  }
+
+  private filterCodeContextsForStepLocal(codeContexts: CodeContext[], step: PlanStep): CodeContext[] {
+    if (!codeContexts || codeContexts.length === 0) {
+      return [];
+    }
+
+    // Extract potential filenames from step goal and description
+    const stepText = `${step.goal} ${step.description || ''}`.toLowerCase();
+    
+    // Find code contexts whose filename is mentioned in the step
+    const matchedContexts = codeContexts.filter(codeContext => {
+      const fileName = codeContext.name.toLowerCase();
+      const baseName = fileName.split('.')[0]; // e.g., "hello" from "hello.py"
+      const fullFileName = fileName; // e.g., "hello.py"
+      
+      // Check if the filename or base name is mentioned in the step
+      // Support patterns like "hello.py", "hello.test.py", "hello.md"
+      const fileNamePattern = new RegExp(`\\b${this.escapeRegex(fileName)}\\b`, 'i');
+      const baseNamePattern = new RegExp(`\\b${this.escapeRegex(baseName)}\\.(?:test\\.)?py\\b`, 'i');
+      
+      // Also check for variations like "create hello.test.py" or "write hello.md"
+      return fileNamePattern.test(stepText) || 
+             (stepText.includes(baseName) && this.isFileTypeMatch(fileName, stepText));
+    });
+
+    // If we found matches, return them. Otherwise, if there's only one context, use it.
+    // This handles cases where the step doesn't explicitly mention the filename
+    if (matchedContexts.length > 0) {
+      return matchedContexts;
+    }
+    
+    // Fallback: if only one code context remains, use it
+    const remainingContexts = codeContexts.filter(cc => cc.waitForCreate);
+    if (remainingContexts.length === 1) {
+      return remainingContexts;
+    }
+
+    // If multiple contexts remain and none match, return empty to let LLM decide
+    return [];
+  }
+
+  /**
+   * Check if file type matches step description
+   */
+  private isFileTypeMatch(fileName: string, stepText: string): boolean {
+    if (fileName.endsWith('.test.py') || fileName.endsWith('_test.py')) {
+      return stepText.includes('test') || stepText.includes('test.');
+    }
+    if (fileName.endsWith('.md')) {
+      return stepText.includes('document') || stepText.includes('doc') || stepText.includes('.md');
+    }
+    if (fileName.endsWith('.py')) {
+      return stepText.includes('.py') || (!stepText.includes('test') && !stepText.includes('document') && !stepText.includes('.md'));
+    }
+    return false;
+  }
+
+  /**
+   * Escape special regex characters in a string
+   */
+  private escapeRegex(str: string): string {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
   async handlePreProcessing(
     context: ConversationContext | null,
     prompt: string,
@@ -51,8 +135,15 @@ class ImplementationStageHandler implements StageHandler {
     contextManager?: ConversationContextManager,
     progressPlanManager?: ProgressPlanManager
   ): Promise<{ shouldSkipLLM: boolean; response?: any }> {
-    if (!context || !nativeToolsManager) {
+    if (!context || !nativeToolsManager || !progressPlanManager || !this.implementationManager) {
       return { shouldSkipLLM: false };
+    }
+
+    // Ensure ImplementationManager is initialized with taskId if we have a plan
+    const updatedContext = contextManager?.getContext() || context;
+    const plan = updatedContext.progressPlan;
+    if (plan && !this.implementationManager.getTaskId()) {
+      this.implementationManager.initialize(plan.taskId);
     }
 
     // Check for @cmd:next_step command (processed earlier, but prompt might be empty or contain other text)
@@ -62,48 +153,22 @@ class ImplementationStageHandler implements StageHandler {
     const isNextStepRequest = promptTrimmed.length === 0 || 
                               /^\s*(next\s+step|continue|proceed|advance)\s*$/i.test(promptTrimmed);
     
-    // Follow ProgressPlan/PlanStep to determine action, not hardcode it
-    // Refresh context to get the newly created plan if it was just created
-    const updatedContext = contextManager?.getContext() || context;
-    const plan = updatedContext.progressPlan;
     const codeContexts = contextManager?.getCodeContexts() || [];
     let shouldUseCodeContext = false;
     let shouldCallLLM = false;
 
-    // Handle next_step command if detected
-    if (isNextStepRequest && plan && progressPlanManager) {
-      // Find current step (in_progress or pending)
-      const currentStep = plan.steps.find(step => 
-        step.status === 'pending' || step.status === 'in_progress'
-      );
-
+    // Handle next_step command if detected - delegate to ImplementationManager
+    if (isNextStepRequest && plan) {
+      const currentStep = this.implementationManager.getCurrentStep();
       if (currentStep) {
-        // Mark current step as completed
-        progressPlanManager.updateStepStatus(
-          plan.taskId,
-          currentStep.stepNumber,
-          'completed'
-        );
+        this.implementationManager.completeStep(currentStep.stepNumber);
         console.log(`[StageHandler:Implementation] @cmd:next_step - Marked step ${currentStep.stepNumber} (${currentStep.goal}) as completed`);
       }
 
-      // Find next pending step
-      const nextStep = plan.steps.find(step => step.status === 'pending');
-      
-      if (nextStep) {
-        // Mark next step as in_progress
-        progressPlanManager.updateStepStatus(
-          plan.taskId,
-          nextStep.stepNumber,
-          'in_progress'
-        );
-        console.log(`[StageHandler:Implementation] @cmd:next_step - Advanced to step ${nextStep.stepNumber}: ${nextStep.goal}`);
-        
-        // Continue with step processing logic below
-        // The next step will be processed using existing logic
-      } else {
+      const nextStep = this.implementationManager.advanceToNextStep();
+      if (!nextStep) {
         // No more steps - all completed
-        const updatedPlan = progressPlanManager.getPlan(plan.taskId);
+        const updatedPlan = this.implementationManager.getProgressPlan();
         if (updatedPlan?.completedAt) {
           return {
             shouldSkipLLM: true,
@@ -113,16 +178,16 @@ class ImplementationStageHandler implements StageHandler {
             }
           };
         }
+      } else {
+        console.log(`[StageHandler:Implementation] @cmd:next_step - Advanced to step ${nextStep.stepNumber}: ${nextStep.goal}`);
       }
     }
 
     // All tasks should have a ProgressPlan (created in assumptions stage)
     // If plan doesn't exist, treat as error case and call LLM
-    if (plan && progressPlanManager) {
-      // Get current step (pending or in_progress)
-      const currentStep = plan.steps.find(step => 
-        step.status === 'pending' || step.status === 'in_progress'
-      );
+    if (plan) {
+      // Get current step using ImplementationManager
+      const currentStep = this.implementationManager.getCurrentStep();
 
       if (currentStep) {
         // Check if step needs file creation tools
@@ -175,17 +240,30 @@ class ImplementationStageHandler implements StageHandler {
       }
     }
 
+    // Filter code contexts to match the current step using ImplementationManager
+    let filteredCodeContexts = codeContexts;
+    const currentStepForFilter = this.implementationManager.getCurrentStep();
+    
+    if (currentStepForFilter) {
+      // Match CodeContexts to the current step based on filename mentioned in step goal/description
+      filteredCodeContexts = this.implementationManager.filterCodeContextsForStep(codeContexts, currentStepForFilter);
+      console.log(`[StageHandler:Implementation] Filtered ${codeContexts.length} code context(s) to ${filteredCodeContexts.length} matching step ${currentStepForFilter.stepNumber}`);
+    }
+
     // Execute action based on plan decision
-    if (shouldUseCodeContext) {
-      console.log(`[StageHandler:Implementation] Found ${codeContexts.length} code context(s), creating files from CodeContext...`);
-      const createdFiles: string[] = [];
+    // IMPORTANT: Only use CodeContext if we have matching contexts for the current step
+    // If shouldUseCodeContext is true but filteredCodeContexts is empty, we need to call LLM instead
+    let createdFiles: string[] = [];
+    if (shouldUseCodeContext && filteredCodeContexts.length > 0) {
+      console.log(`[StageHandler:Implementation] Found ${filteredCodeContexts.length} code context(s) for current step, creating files from CodeContext...`);
+      createdFiles = [];
       const toolCalls: Array<{
         name: string;
         arguments: Record<string, any>;
         result?: any;
       }> = [];
 
-      for (const codeContext of codeContexts) {
+      for (const codeContext of filteredCodeContexts) {
         if (codeContext.waitForCreate && codeContext.content && codeContext.content.length > 0) {
           try {
             const filePath = codeContext.name;
@@ -200,8 +278,13 @@ class ImplementationStageHandler implements StageHandler {
               content: content
             });
 
+            const currentStep = this.implementationManager.getCurrentStep();
+            const stepNumber = currentStep?.stepNumber || 0;
+            
             if (!createResult.isError) {
               createdFiles.push(filePath);
+              // Record file creation in ImplementationManager
+              this.implementationManager.recordFileCreated(filePath, stepNumber, 'created');
               if (contextManager) {
                 contextManager.markCodeContextCreated(filePath);
               }
@@ -218,6 +301,8 @@ class ImplementationStageHandler implements StageHandler {
               });
               if (!replaceResult.isError) {
                 createdFiles.push(filePath);
+                // Record file replacement in ImplementationManager
+                this.implementationManager.recordFileCreated(filePath, stepNumber, 'replaced');
                 if (contextManager) {
                   contextManager.markCodeContextCreated(filePath);
                 }
@@ -226,7 +311,13 @@ class ImplementationStageHandler implements StageHandler {
                   arguments: { file_path: filePath, content: content },
                   result: replaceResult
                 });
+              } else {
+                // Record error in ImplementationManager
+                this.implementationManager.recordFileCreated(filePath, stepNumber, 'error', replaceResult.content?.[0]?.text || 'Unknown error');
               }
+            } else {
+              // Record error in ImplementationManager
+              this.implementationManager.recordFileCreated(filePath, stepNumber, 'error', createResult.content?.[0]?.text || 'Unknown error');
             }
           } catch (error: any) {
             console.warn(`[StageHandler:Implementation] Error creating file ${codeContext.name}:`, error);
@@ -235,19 +326,11 @@ class ImplementationStageHandler implements StageHandler {
       }
 
       if (createdFiles.length > 0) {
-        // Update progressPlan if it exists
-        if (plan && progressPlanManager) {
-          const stepToComplete = plan.steps.find(step => 
-            step.status === 'pending' || step.status === 'in_progress'
-          );
-          if (stepToComplete) {
-            progressPlanManager.updateStepStatus(
-              plan.taskId,
-              stepToComplete.stepNumber,
-              'completed'
-            );
-            console.log(`[StageHandler:Implementation] ProgressPlan: Marked step ${stepToComplete.stepNumber} (${stepToComplete.goal}) as completed after creating files from CodeContext`);
-          }
+        // Mark step as completed using ImplementationManager
+        const stepToComplete = this.implementationManager.getCurrentStep();
+        if (stepToComplete) {
+          this.implementationManager.completeStep(stepToComplete.stepNumber);
+          console.log(`[StageHandler:Implementation] ProgressPlan: Marked step ${stepToComplete.stepNumber} (${stepToComplete.goal}) as completed after creating files from CodeContext`);
         }
 
         const verboseInfo = {
@@ -269,12 +352,19 @@ class ImplementationStageHandler implements StageHandler {
             verboseInfo: verboseInfo
           }
         };
+      } else {
+        // We had code contexts but couldn't create files - need to call LLM
+        console.log(`[StageHandler:Implementation] CodeContexts available but no files were created - calling LLM to generate tool calls`);
+        return { shouldSkipLLM: false };
       }
     }
 
-    // If shouldCallLLM is true or shouldUseCodeContext but no files were created, call LLM
-    if (shouldCallLLM || (shouldUseCodeContext && codeContexts.length === 0)) {
-      console.log(`[StageHandler:Implementation] ProgressPlan determined: LLM call needed`);
+    // If shouldCallLLM is true, or shouldUseCodeContext but no matching contexts found, call LLM
+    if (shouldCallLLM || (shouldUseCodeContext && filteredCodeContexts.length === 0)) {
+      const reason = shouldCallLLM 
+        ? 'step requires LLM call' 
+        : 'no matching code contexts for current step';
+      console.log(`[StageHandler:Implementation] ProgressPlan determined: LLM call needed (${reason})`);
       return { shouldSkipLLM: false };
     }
 
@@ -333,108 +423,8 @@ class AssumptionsStageHandler implements StageHandler {
         console.log(`[StageHandler:Assumptions] Added ${codeBlockCount} code context(s)`);
       }
 
-      // Create or update ProgressPlan for all tasks (simple and hard)
-      // This provides a unified execution model for implementation stage
-      try {
-        const complexity = autoTransitionManager.detectTaskComplexity(
-          content,
-          parsed.reasoning,
-          toolCalls,
-          context.originalPrompt
-        );
-        
-        let steps: Array<{ goal: string; description?: string; tools?: string[] }> = [];
-        
-        // Extract steps from content based on complexity
-        if (complexity === 'hard') {
-          // Extract steps from content for hard tasks (3+ steps)
-          const stepMatches = content.match(/(?:^|\n)(?:\d+\.|\*\s+|-\s+|Step\s+\d+[:.]?\s*)(.+?)(?=\n(?:\d+\.|\*\s+|-\s+|Step\s+\d+[:.]?|$))/gi);
-          
-          if (stepMatches && stepMatches.length >= 3) {
-            stepMatches.forEach((match) => {
-              const goal = match.replace(/^(?:\d+\.|\*\s+|-\s+|Step\s+\d+[:.]?\s*)/i, '').trim();
-              if (goal) {
-                steps.push({ goal, description: goal });
-              }
-            });
-          } else {
-            // Fallback: create generic steps for hard tasks
-            for (let i = 1; i <= 3; i++) {
-              steps.push({ 
-                goal: `Step ${i}: Complete part ${i} of the task`, 
-                description: `Execute step ${i} of the implementation plan` 
-              });
-            }
-          }
-          
-          // Default fallback for hard tasks
-          if (steps.length === 0) {
-            steps = [
-              { goal: 'Step 1: Analyze requirements', description: 'Understand the task requirements' },
-              { goal: 'Step 2: Design solution', description: 'Plan the implementation approach' },
-              { goal: 'Step 3: Implement solution', description: 'Execute the implementation' }
-            ];
-          }
-        } else {
-          // Simple task (1-2 steps): create default plan
-          // Extract steps if available, otherwise use single-step default
-          const stepMatches = content.match(/(?:^|\n)(?:\d+\.|\*\s+|-\s+|Step\s+\d+[:.]?\s*)(.+?)(?=\n(?:\d+\.|\*\s+|-\s+|Step\s+\d+[:.]?|$))/gi);
-          
-          if (stepMatches && stepMatches.length >= 1 && stepMatches.length <= 2) {
-            stepMatches.forEach((match) => {
-              const goal = match.replace(/^(?:\d+\.|\*\s+|-\s+|Step\s+\d+[:.]?\s*)/i, '').trim();
-              if (goal) {
-                steps.push({ goal, description: goal });
-              }
-            });
-          } else {
-            // Default: single step for simple tasks - use originalPrompt for better description
-            const originalPrompt = context.originalPrompt || '';
-            const description = originalPrompt 
-              ? `Execute the task: ${originalPrompt.substring(0, 100)}${originalPrompt.length > 100 ? '...' : ''}`
-              : 'Execute the task implementation';
-            steps = [
-              { goal: 'Complete the task', description }
-            ];
-          }
-        }
-        
-        // If plan exists, update it; otherwise create a new one
-        if (context.progressPlan) {
-          // Update existing plan with new steps (preserve status of existing steps)
-          const updated = progressPlanManager.updatePlanSteps(
-            context.progressPlan.taskId,
-            steps,
-            true // preserveStatus: keep current status of steps
-          );
-          
-          if (updated) {
-            const updatedPlan = progressPlanManager.getPlan(context.progressPlan.taskId);
-            if (updatedPlan) {
-              contextManager.setProgressPlan(updatedPlan);
-              console.log(`[StageHandler:Assumptions] Updated ProgressPlan with ${updatedPlan.totalSteps} step(s) (complexity: ${updatedPlan.complexity})`);
-            }
-          } else {
-            console.warn(`[StageHandler:Assumptions] Failed to update existing plan`);
-          }
-        } else {
-          // Create new plan
-          const taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-          const originalPrompt = context.originalPrompt;
-          
-          const plan = progressPlanManager.createPlan(
-            taskId,
-            originalPrompt,
-            complexity || 'simple',
-            steps
-          );
-          
-          contextManager.setProgressPlan(plan);
-          console.log(`[StageHandler:Assumptions] Created ProgressPlan with ${plan.totalSteps} step(s) (complexity: ${plan.complexity})`);
-        }
-      } catch (error) {
-        console.warn(`[StageHandler:Assumptions] Error creating/updating plan:`, error);
-      }
+      // Plan creation/update is now handled by AssumptionsManager in harmonyClient.ts
+      // This handler only processes code context extraction (handled above)
     }
   }
 }
@@ -460,12 +450,12 @@ class InitStageHandler implements StageHandler {
 export class StageHandlerRegistry {
   private handlers: Map<WorkflowStage, StageHandler> = new Map();
 
-  constructor() {
+  constructor(implementationManager?: ImplementationManager) {
     // Register handlers
     this.handlers.set('init', new InitStageHandler());
     this.handlers.set('chat', new ChatStageHandler());
     this.handlers.set('assumptions', new AssumptionsStageHandler());
-    this.handlers.set('implementation', new ImplementationStageHandler());
+    this.handlers.set('implementation', new ImplementationStageHandler(implementationManager));
   }
 
   /**
@@ -475,4 +465,3 @@ export class StageHandlerRegistry {
     return this.handlers.get(stage) || new InitStageHandler();
   }
 }
-

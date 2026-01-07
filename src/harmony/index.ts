@@ -22,6 +22,8 @@ export { ChatManager } from './chatManager';
 export type { ChatState, ChatQuery } from './chatManager';
 export { AssumptionsManager } from './assumptionsManager';
 export type { AssumptionState, AssumptionCodeSnippet } from './assumptionsManager';
+export { ImplementationManager } from './implementationManager';
+export type { ImplementationState, ImplementationFile } from './implementationManager';
 export { ConfirmationManager } from './confirmationManager';
 export type { PendingConfirmation } from './confirmationManager';
 

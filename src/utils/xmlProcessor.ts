@@ -1,5 +1,6 @@
 // xmlProcessor.ts
 import { HtmlEntityDecoder } from './htmlEntityDecoder';
+import { Logger } from './logger';
 
 export interface XmlToolCall {
     name: string;
@@ -14,7 +15,7 @@ export class XmlProcessor {
     static extractToolCalls(text: string): XmlToolCall[] {
         const results: XmlToolCall[] = [];
         
-        console.log(`[XmlProcessor] extractToolCalls called with text (${text.length} chars): "${text.substring(0, 200)}${text.length > 200 ? '...' : ''}"`);
+        Logger.logVerbose('XmlProcessor', `extractToolCalls called with text (${text.length} chars): "${text.substring(0, 200)}${text.length > 200 ? '...' : ''}"`);
         
         // Track all processed positions to avoid duplicate extraction
         const processedPositions: Array<{ start: number; end: number }> = [];
@@ -38,16 +39,16 @@ export class XmlProcessor {
                     if (attributesMatch) {
                         const attributes = attributesMatch[1];
                         
-                        console.log(`[XmlProcessor] Found self-closing tool call, attributes: "${attributes.substring(0, 200)}${attributes.length > 200 ? '...' : ''}", raw: "${raw.substring(0, 200)}${raw.length > 200 ? '...' : ''}"`);
+                        Logger.logVerbose('XmlProcessor', `Found self-closing tool call, attributes: "${attributes.substring(0, 200)}${attributes.length > 200 ? '...' : ''}", raw: "${raw.substring(0, 200)}${raw.length > 200 ? '...' : ''}"`);
                         
                         const parsed = this.parseAttributes(attributes, raw);
                         if (parsed) {
-                            console.log(`[XmlProcessor] Successfully parsed tool call: ${parsed.name}`);
+                            Logger.logVerbose('XmlProcessor', `Successfully parsed tool call: ${parsed.name}`);
                             results.push(parsed);
                             // Track this processed position
                             processedPositions.push({ start: startPos, end: tagEnd });
                         } else {
-                            console.warn(`[XmlProcessor] Failed to parse attributes from: "${attributes.substring(0, 100)}"`);
+                            Logger.logWarn('XmlProcessor', `Failed to parse attributes from: "${attributes.substring(0, 100)}"`);
                         }
                     }
                 }
@@ -237,7 +238,7 @@ export class XmlProcessor {
                 const attributesMatch = raw.match(/<(?:tool_call|MCP_CALL)\s+([^>]*?)(?:\s*$|(?=\s|>))/);
                 const attributes = attributesMatch ? attributesMatch[1] : incompleteMatch[1];
                 
-                console.log(`[XmlProcessor] Found incomplete tool call, attempting to extract: "${raw.substring(0, 200)}"`);
+                Logger.logVerbose('XmlProcessor', `Found incomplete tool call, attempting to extract: "${raw.substring(0, 200)}"`);
                 
                 // For incomplete tool calls, try to extract from the full raw string
                 // since the JSON might extend beyond what was captured in attributes
@@ -259,7 +260,7 @@ export class XmlProcessor {
                         // If brace matching failed (JSON is incomplete), try to extract from raw string directly
                         // This handles cases where the JSON is truncated but we can still extract key fields
                         if (!jsonMatch) {
-                            console.log(`[XmlProcessor] Brace matching failed, extracting fields directly from raw string for incomplete tool call...`);
+                            Logger.logVerbose('XmlProcessor', `Brace matching failed, extracting fields directly from raw string for incomplete tool call...`);
                             // Extract fields directly from raw string instead of trying to reconstruct JSON
                             const filePathMatch = raw.match(/"file_path"\s*:\s*"([^"]+)"/);
                             const filePath = filePathMatch ? filePathMatch[1] : null;
@@ -325,7 +326,7 @@ export class XmlProcessor {
                                 if (filePath) extractedFields.file_path = filePath;
                                 if (content) extractedFields.content = content;
                                 jsonMatch = JSON.stringify(extractedFields);
-                                console.log(`[XmlProcessor] Extracted fields from incomplete tool call: file_path=${filePath || 'N/A'}, content length=${content.length}`);
+                                Logger.logVerbose('XmlProcessor', `Extracted fields from incomplete tool call: file_path=${filePath || 'N/A'}, content length=${content.length}`);
                             }
                         }
                         
@@ -336,7 +337,7 @@ export class XmlProcessor {
                                 const name = nameMatch[2];
                                 try {
                                     const args = JSON.parse(jsonMatch);
-                                    console.log(`[XmlProcessor] Successfully extracted from incomplete tool call using raw string: ${name}`);
+                                    Logger.logVerbose('XmlProcessor', `Successfully extracted from incomplete tool call using raw string: ${name}`);
                                     parsed = {
                                         raw,
                                         name,
@@ -345,7 +346,7 @@ export class XmlProcessor {
                                 } catch (error) {
                                     // If JSON parsing still fails, try to extract partial information using regex
                                     // This handles cases where JSON is truncated mid-string
-                                    console.log(`[XmlProcessor] JSON parse failed, attempting partial extraction from incomplete tool call...`);
+                                    Logger.logVerbose('XmlProcessor', `JSON parse failed, attempting partial extraction from incomplete tool call...`);
                                     
                                     // Extract file_path if present (for file operations)
                                     const filePathMatch = jsonMatch.match(/"file_path"\s*:\s*"([^"]+)"/);
@@ -394,7 +395,7 @@ export class XmlProcessor {
                                     }
                                     
                                     if (filePath || content) {
-                                        console.log(`[XmlProcessor] Extracted partial args from incomplete tool call: file_path=${filePath || 'N/A'}, content length=${content.length}`);
+                                        Logger.logVerbose('XmlProcessor', `Extracted partial args from incomplete tool call: file_path=${filePath || 'N/A'}, content length=${content.length}`);
                                         parsed = {
                                             raw,
                                             name,
@@ -404,7 +405,7 @@ export class XmlProcessor {
                                             }
                                         };
                                     } else {
-                                        console.warn(`[XmlProcessor] Failed to parse JSON and couldn't extract any useful info from incomplete tool call: ${jsonMatch.substring(0, 100)}`, error);
+                                        Logger.logWarn('XmlProcessor', `Failed to parse JSON and couldn't extract any useful info from incomplete tool call: ${jsonMatch.substring(0, 100)}`, error);
                                     }
                                 }
                             }
@@ -413,10 +414,10 @@ export class XmlProcessor {
                 }
                 
                 if (parsed) {
-                    console.log(`[XmlProcessor] Successfully extracted from incomplete tool call: ${parsed.name}`);
+                    Logger.logVerbose('XmlProcessor', `Successfully extracted from incomplete tool call: ${parsed.name}`);
                     results.push(parsed);
                 } else {
-                    console.warn(`[XmlProcessor] Could not extract from incomplete tool call: "${raw.substring(0, 100)}"`);
+                    Logger.logWarn('XmlProcessor', `Could not extract from incomplete tool call: "${raw.substring(0, 100)}"`);
                 }
             }
         }
@@ -430,16 +431,16 @@ export class XmlProcessor {
      * @param allowIncomplete If true, be more lenient when parsing incomplete/truncated tool calls
      */
     private static parseAttributes(attributes: string, raw: string, allowIncomplete: boolean = false): XmlToolCall | null {
-        console.log(`[XmlProcessor] parseAttributes called with attributes: "${attributes}"`);
+        Logger.logVerbose('XmlProcessor', `parseAttributes called with attributes: "${attributes}"`);
         
         // Extract name
         const nameMatch = attributes.match(/name=["']([^"']+)["']/);
         if (!nameMatch) {
-            console.warn(`[XmlProcessor] No name in tool call: ${raw.substring(0, 100)}`);
+            Logger.logWarn('XmlProcessor', `No name in tool call: ${raw.substring(0, 100)}`);
             return null;
         }
         
-        console.log(`[XmlProcessor] Extracted name: "${nameMatch[1]}"`);
+        Logger.logVerbose('XmlProcessor', `Extracted name: "${nameMatch[1]}"`);
         
         // Extract args - handle both single and double quotes, escaped quotes, and HTML entities
         let argsStr: string | null = null;
@@ -449,14 +450,14 @@ export class XmlProcessor {
         const argsDoubleQuoteMatch = attributes.match(/args\s*=\s*"/);
         const argsSingleQuoteMatch = attributes.match(/args\s*=\s*'/);
         
-        console.log(`[XmlProcessor] argsDoubleQuoteMatch: ${argsDoubleQuoteMatch ? 'found' : 'not found'}, argsSingleQuoteMatch: ${argsSingleQuoteMatch ? 'found' : 'not found'}`);
+        Logger.logVerbose('XmlProcessor', `argsDoubleQuoteMatch: ${argsDoubleQuoteMatch ? 'found' : 'not found'}, argsSingleQuoteMatch: ${argsSingleQuoteMatch ? 'found' : 'not found'}`);
         
         if (argsDoubleQuoteMatch || argsSingleQuoteMatch) {
             const quoteChar = argsDoubleQuoteMatch ? '"' : "'";
             const startPos = (argsDoubleQuoteMatch?.index ?? argsSingleQuoteMatch!.index)! + (argsDoubleQuoteMatch?.[0].length ?? argsSingleQuoteMatch![0].length);
             let endPos = startPos;
             
-            console.log(`[XmlProcessor] Looking for closing ${quoteChar} starting at position ${startPos}`);
+            Logger.logVerbose('XmlProcessor', `Looking for closing ${quoteChar} starting at position ${startPos}`);
             
             // Find the matching closing quote, accounting for HTML entities and escaped quotes
             while (endPos < attributes.length) {
@@ -478,7 +479,7 @@ export class XmlProcessor {
                 
                 // Check for closing quote
                 if (attributes[endPos] === quoteChar) {
-                    console.log(`[XmlProcessor] Found closing ${quoteChar} at position ${endPos}`);
+                    Logger.logVerbose('XmlProcessor', `Found closing ${quoteChar} at position ${endPos}`);
                     break;
                 }
                 
@@ -487,7 +488,7 @@ export class XmlProcessor {
             
             if (endPos < attributes.length) {
                 argsStr = attributes.substring(startPos, endPos);
-                console.log(`[XmlProcessor] Extracted args string (${argsStr.length} chars): "${argsStr}"`);
+                Logger.logVerbose('XmlProcessor', `Extracted args string (${argsStr.length} chars): "${argsStr}"`);
                 // Handle escaped quotes
                 if (quoteChar === '"') {
                     argsStr = argsStr.replace(/\\"/g, '"').replace(/\\\\/g, '\\');
@@ -498,39 +499,39 @@ export class XmlProcessor {
                 // If we didn't find a closing quote and allowIncomplete is true, try brace matching
                 // This handles cases where the XML is truncated but the JSON might still be complete
                 if (allowIncomplete) {
-                    console.log(`[XmlProcessor] No closing quote found, but allowIncomplete=true, trying brace matching...`);
+                    Logger.logVerbose('XmlProcessor', `No closing quote found, but allowIncomplete=true, trying brace matching...`);
                     argsStr = this.extractArgsUsingBraceMatching(attributes);
                     if (argsStr) {
-                        console.log(`[XmlProcessor] Successfully extracted args using brace matching for incomplete tool call`);
+                        Logger.logVerbose('XmlProcessor', `Successfully extracted args using brace matching for incomplete tool call`);
                     }
                 } else {
-                    console.warn(`[XmlProcessor] Could not find closing ${quoteChar} for args attribute`);
+                    Logger.logWarn('XmlProcessor', `Could not find closing ${quoteChar} for args attribute`);
                 }
             }
         }
         
         // If quote-based extraction failed, try brace matching as fallback
         if (!argsStr) {
-            console.log(`[XmlProcessor] Quote-based extraction failed, trying brace matching fallback...`);
+            Logger.logVerbose('XmlProcessor', `Quote-based extraction failed, trying brace matching fallback...`);
             argsStr = this.extractArgsUsingBraceMatching(attributes);
         }
         
         if (!argsStr) {
-            console.warn(`[XmlProcessor] No args in tool call: ${raw.substring(0, 100)}`);
+            Logger.logWarn('XmlProcessor', `No args in tool call: ${raw.substring(0, 100)}`);
             return null;
         }
         
-        console.log(`[XmlProcessor] Extracted args string (${argsStr.length} chars): "${argsStr.substring(0, 200)}${argsStr.length > 200 ? '...' : ''}"`);
+        Logger.logVerbose('XmlProcessor', `Extracted args string (${argsStr.length} chars): "${argsStr.substring(0, 200)}${argsStr.length > 200 ? '...' : ''}"`);
         
         // Decode HTML entities (e.g., &quot; -> ", &amp; -> &, &lt; -> <, &gt; -> >)
         let decodedArgsStr = HtmlEntityDecoder.decode(argsStr);
-        console.log(`[XmlProcessor] After HTML entity decoding (${decodedArgsStr.length} chars): "${decodedArgsStr.substring(0, 200)}${decodedArgsStr.length > 200 ? '...' : ''}"`);
+        Logger.logVerbose('XmlProcessor', `After HTML entity decoding (${decodedArgsStr.length} chars): "${decodedArgsStr.substring(0, 200)}${decodedArgsStr.length > 200 ? '...' : ''}"`);
         
         // Check for placeholder/example patterns (e.g., "{...}", "{ ... }", etc.)
         // These are commonly used in documentation/example tool calls and should be skipped
         const trimmedArgs = decodedArgsStr.trim();
         if (trimmedArgs === '{...}' || trimmedArgs === '{ ... }' || trimmedArgs.match(/^\{\s*\.{3}\s*\}$/)) {
-            console.warn(`[XmlProcessor] Detected placeholder/example pattern in args: "${decodedArgsStr}", skipping tool call`);
+            Logger.logWarn('XmlProcessor', `Detected placeholder/example pattern in args: "${decodedArgsStr}", skipping tool call`);
             return null;
         }
         
@@ -540,19 +541,19 @@ export class XmlProcessor {
             args = JSON.parse(decodedArgsStr);
         } catch (error) {
             // If parsing fails, try brace matching as fallback (in case quote extraction got wrong boundaries)
-            console.log(`[XmlProcessor] JSON parse failed with quote-based extraction, trying brace matching fallback...`);
+            Logger.logVerbose('XmlProcessor', `JSON parse failed with quote-based extraction, trying brace matching fallback...`);
             const braceMatchStr = this.extractArgsUsingBraceMatching(attributes);
             if (braceMatchStr && braceMatchStr !== argsStr) {
                 decodedArgsStr = HtmlEntityDecoder.decode(braceMatchStr);
                 // Check for placeholder patterns in brace-matched result too
                 const trimmedBraceArgs = decodedArgsStr.trim();
                 if (trimmedBraceArgs === '{...}' || trimmedBraceArgs === '{ ... }' || trimmedBraceArgs.match(/^\{\s*\.{3}\s*\}$/)) {
-                    console.warn(`[XmlProcessor] Detected placeholder/example pattern in brace-matched args: "${decodedArgsStr}", skipping tool call`);
+                    Logger.logWarn('XmlProcessor', `Detected placeholder/example pattern in brace-matched args: "${decodedArgsStr}", skipping tool call`);
                     return null;
                 }
                 try {
                     args = JSON.parse(decodedArgsStr);
-                    console.log(`[XmlProcessor] Successfully parsed JSON using brace matching fallback`);
+                    Logger.logVerbose('XmlProcessor', `Successfully parsed JSON using brace matching fallback`);
                 } catch (braceError) {
                     console.error(`[XmlProcessor] Failed to parse JSON args even with brace matching: ${decodedArgsStr.substring(0, 200)}`, braceError);
                     return null;
@@ -563,7 +564,7 @@ export class XmlProcessor {
             }
         }
         
-        console.log(`[XmlProcessor] Successfully parsed tool: ${nameMatch[1]}`, args);
+        Logger.logVerbose('XmlProcessor', `Successfully parsed tool: ${nameMatch[1]}`, args);
         
         return {
             raw,
@@ -626,7 +627,7 @@ export class XmlProcessor {
                 if (braceCount === 0) {
                     // Found the matching closing brace
                     const jsonStr = text.substring(braceStartPos, pos + 1);
-                    console.log(`[XmlProcessor] extractJsonFromPosition: Extracted JSON (${jsonStr.length} chars)`);
+                    Logger.logVerbose('XmlProcessor', `extractJsonFromPosition: Extracted JSON (${jsonStr.length} chars)`);
                     return jsonStr;
                 }
             }
@@ -634,7 +635,7 @@ export class XmlProcessor {
             pos++;
         }
         
-        console.warn(`[XmlProcessor] extractJsonFromPosition: Could not find matching closing brace`);
+        Logger.logWarn('XmlProcessor', `extractJsonFromPosition: Could not find matching closing brace`);
         return null;
     }
     
@@ -655,7 +656,7 @@ export class XmlProcessor {
         const quoteChar = match[1];
         const jsonStartPos = match.index! + match[0].length - 1; // Position of the {
         
-        console.log(`[XmlProcessor] Brace matching: Found JSON start at position ${jsonStartPos} (quote: ${quoteChar})`);
+        Logger.logVerbose('XmlProcessor', `Brace matching: Found JSON start at position ${jsonStartPos} (quote: ${quoteChar})`);
         
         // Use brace matching to find the closing brace
         // We need to properly handle strings, escaped characters, and HTML entities
@@ -715,7 +716,7 @@ export class XmlProcessor {
                 if (braceCount === 0) {
                     // Found the matching closing brace
                     const jsonStr = attributes.substring(jsonStartPos, pos + 1);
-                    console.log(`[XmlProcessor] Brace matching: Extracted JSON (${jsonStr.length} chars)`);
+                    Logger.logVerbose('XmlProcessor', `Brace matching: Extracted JSON (${jsonStr.length} chars)`);
                     return jsonStr;
                 }
             }
@@ -723,7 +724,7 @@ export class XmlProcessor {
             pos++;
         }
         
-        console.warn(`[XmlProcessor] Brace matching: Could not find matching closing brace for JSON in args attribute`);
+        Logger.logWarn('XmlProcessor', `Brace matching: Could not find matching closing brace for JSON in args attribute`);
         return null;
     }
     

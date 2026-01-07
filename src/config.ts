@@ -16,6 +16,7 @@ export interface LlamaConfig {
   rulesPaths: RuleConfig[];
   harmonyMode: boolean;
   verbose: boolean;
+  verboseToolExtraction?: boolean; // Control XmlProcessor and ToolCallExtractor logging
 }
 
 /**
@@ -104,6 +105,7 @@ export function loadConfig(): LlamaConfig {
     rulesPaths,
     harmonyMode: config.get("harmonyMode", true),
     verbose: config.get("verbose", false),
+    verboseToolExtraction: config.get("verboseToolExtraction", false), // Control XmlProcessor and ToolCallExtractor logging
   };
 }
 

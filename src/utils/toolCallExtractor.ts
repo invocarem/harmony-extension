@@ -10,6 +10,7 @@ import { MCPToolCall } from "../mcpClient";
 import { HtmlEntityDecoder } from "./htmlEntityDecoder";
 import { JsonProcessor } from './jsonProcessor';
 import { XmlProcessor } from './xmlProcessor';
+import { Logger } from './logger';
 
 export interface ExtractedToolCall {
   raw: string;
@@ -48,7 +49,7 @@ export class ToolCallExtractor {
   static extractFromText(text: string): ExtractedToolCall[] {
     const results: ExtractedToolCall[] = [];
     
-    console.log(`[ToolCallExtractor] extractFromText called with text (${text.length} chars): "${text.substring(0, 300)}${text.length > 300 ? '...' : ''}"`);
+    Logger.logVerbose('ToolCallExtractor', `extractFromText called with text (${text.length} chars): "${text.substring(0, 300)}${text.length > 300 ? '...' : ''}"`);
     
     // Track ranges of full elements that have been processed to avoid duplicate JSON extraction
     const matchedFullElementRanges: Array<{ start: number; end: number }> = [];
@@ -90,7 +91,7 @@ export class ToolCallExtractor {
       }
     }
     
-    console.log(`[ToolCallExtractor] Found ${results.length} tool calls`);
+    Logger.logVerbose('ToolCallExtractor', `Found ${results.length} tool calls`);
     return results;
   }
 
@@ -102,7 +103,7 @@ export class ToolCallExtractor {
     // Extract name
     const nameMatch = attributes.match(/name=["']([^"']+)["']/);
     if (!nameMatch) {
-      console.warn(`[ToolCallExtractor] No name in tool call: ${raw.substring(0, 100)}`);
+      Logger.logWarn('ToolCallExtractor', `No name in tool call: ${raw.substring(0, 100)}`);
       return null;
     }
     
@@ -157,15 +158,15 @@ export class ToolCallExtractor {
     }
     
     if (!argsStr) {
-      console.warn(`[ToolCallExtractor] No args in tool call: ${raw.substring(0, 100)}`);
+      Logger.logWarn('ToolCallExtractor', `No args in tool call: ${raw.substring(0, 100)}`);
       return null;
     }
     
-    console.log(`[ToolCallExtractor] Extracted args string (${argsStr.length} chars): "${argsStr.substring(0, 200)}${argsStr.length > 200 ? '...' : ''}"`);
+    Logger.logVerbose('ToolCallExtractor', `Extracted args string (${argsStr.length} chars): "${argsStr.substring(0, 200)}${argsStr.length > 200 ? '...' : ''}"`);
     
     // Decode HTML entities (e.g., &quot; -> ", &amp; -> &, &lt; -> <, &gt; -> >)
     const decodedArgsStr = HtmlEntityDecoder.decode(argsStr);
-    console.log(`[ToolCallExtractor] After HTML entity decoding (${decodedArgsStr.length} chars): "${decodedArgsStr.substring(0, 200)}${decodedArgsStr.length > 200 ? '...' : ''}"`);
+    Logger.logVerbose('ToolCallExtractor', `After HTML entity decoding (${decodedArgsStr.length} chars): "${decodedArgsStr.substring(0, 200)}${decodedArgsStr.length > 200 ? '...' : ''}"`);
     
     // Parse JSON arguments
     let args: any;
@@ -176,7 +177,7 @@ export class ToolCallExtractor {
       return null;
     }
     
-    console.log(`[ToolCallExtractor] Successfully parsed tool: ${nameMatch[1]}`, args);
+    Logger.logVerbose('ToolCallExtractor', `Successfully parsed tool: ${nameMatch[1]}`, args);
     
     return {
       raw,
@@ -195,21 +196,21 @@ export class ToolCallExtractor {
   static extractToolCalls(rawToolCalls: string[]): MCPToolCall[] {
     const toolCalls: MCPToolCall[] = [];
     
-    console.log(`[ToolCallExtractor] extractToolCalls called with ${rawToolCalls.length} raw calls`);
+    Logger.logVerbose('ToolCallExtractor', `extractToolCalls called with ${rawToolCalls.length} raw calls`);
     
     try {
       for (const raw of rawToolCalls) {
         // Log the raw tool call string for debugging
-        console.log(`[ToolCallExtractor] Processing raw tool call (${raw.length} chars): "${raw.substring(0, 200)}${raw.length > 200 ? '...' : ''}"`);
+        Logger.logVerbose('ToolCallExtractor', `Processing raw tool call (${raw.length} chars): "${raw.substring(0, 200)}${raw.length > 200 ? '...' : ''}"`);
         
         let extracted: ExtractedToolCall[] = [];
         try {
           // First try to extract as <tool_call> pattern using extractFromText
-          console.log(`[ToolCallExtractor] Calling extractFromText...`);
+          Logger.logVerbose('ToolCallExtractor', `Calling extractFromText...`);
           extracted = this.extractFromText(raw);
-          console.log(`[ToolCallExtractor] extractFromText found ${extracted.length} tool call(s)`);
+          Logger.logVerbose('ToolCallExtractor', `extractFromText found ${extracted.length} tool call(s)`);
           extracted.forEach((item, idx) => {
-            console.log(`[ToolCallExtractor] Extracted tool call ${idx}: name="${item.name}", args keys: ${Object.keys(item.args || {}).join(', ')}`);
+            Logger.logVerbose('ToolCallExtractor', `Extracted tool call ${idx}: name="${item.name}", args keys: ${Object.keys(item.args || {}).join(', ')}`);
             toolCalls.push({
               name: item.name,
               arguments: item.args || {}
@@ -232,7 +233,7 @@ export class ToolCallExtractor {
               name: mcpMatch[1],
               arguments: args
             });
-            console.log(`[ToolCallExtractor] Extracted from MCP format: ${mcpMatch[1]}`);
+            Logger.logVerbose('ToolCallExtractor', `Extracted from MCP format: ${mcpMatch[1]}`);
             continue;
           } catch (error) {
             console.error(`[ToolCallExtractor] Failed to parse JSON in MCP format: ${mcpMatch[2].substring(0, 100)}`, error);
@@ -250,7 +251,7 @@ export class ToolCallExtractor {
                 name: simpleMcpMatch[1],
                 arguments: args
               });
-              console.log(`[ToolCallExtractor] Extracted from simple MCP format: ${simpleMcpMatch[1]}`);
+              Logger.logVerbose('ToolCallExtractor', `Extracted from simple MCP format: ${simpleMcpMatch[1]}`);
             } catch (error) {
               console.error(`[ToolCallExtractor] Failed to parse JSON in simple MCP format: ${jsonMatch[0].substring(0, 100)}`, error);
             }
@@ -264,13 +265,13 @@ export class ToolCallExtractor {
             name: jsonToolCall.name,
             arguments: jsonToolCall.arguments
           });
-          console.log(`[ToolCallExtractor] Extracted from JSON format: ${jsonToolCall.name}`);
+          Logger.logVerbose('ToolCallExtractor', `Extracted from JSON format: ${jsonToolCall.name}`);
           continue;
         }
         
           // If still nothing found, only warn if it looked like it should be a tool call
           if (toolCalls.length === 0 && this.looksLikeToolCall(raw)) {
-            console.warn(`[ToolCallExtractor] Could not extract tool call from raw string that looked like a tool call. Raw content: "${raw.substring(0, 500)}"`);
+            Logger.logWarn('ToolCallExtractor', `Could not extract tool call from raw string that looked like a tool call. Raw content: "${raw.substring(0, 500)}"`);
           }
         }
       }
@@ -279,7 +280,7 @@ export class ToolCallExtractor {
       console.error(`[ToolCallExtractor] Stack:`, error.stack);
     }
     
-    console.log(`[ToolCallExtractor] Returning ${toolCalls.length} tool calls`);
+    Logger.logVerbose('ToolCallExtractor', `Returning ${toolCalls.length} tool calls`);
     return toolCalls;
   }
 }

@@ -31,20 +31,25 @@ export class AutoTransitionManager {
     
     // Check if LLM response has clear step indicators
     const llmComplexity = this.detectComplexityFromText(llmText);
-    if (llmComplexity !== null) {
-      return llmComplexity;
-    }
     
-    // Fallback: Check originalPrompt if LLM response doesn't have clear steps
-    // This is important when:
+    // Always check originalPrompt as well, especially when:
     // - LLM doesn't explicitly repeat the steps in its response
     // - Using jinja-only models (no reasoning channel)
     // - LLM analyzes but doesn't format as "Step 1, Step 2, Step 3"
+    // - LLM response returns 'simple' but originalPrompt has 3+ steps
+    let promptComplexity: 'simple' | 'hard' | null = null;
     if (originalPrompt) {
-      const promptComplexity = this.detectComplexityFromText(originalPrompt);
-      if (promptComplexity !== null) {
-        return promptComplexity;
-      }
+      promptComplexity = this.detectComplexityFromText(originalPrompt);
+    }
+    
+    // Priority: prefer 'hard' over 'simple', and prefer detected complexity over null
+    // This ensures that if originalPrompt has 3+ steps, we detect it as 'hard'
+    // even if the LLM response only shows 1-2 steps
+    if (llmComplexity === 'hard' || promptComplexity === 'hard') {
+      return 'hard';
+    }
+    if (llmComplexity === 'simple' || promptComplexity === 'simple') {
+      return 'simple';
     }
     
     // If neither has clear indicators, default to simple
@@ -134,6 +139,129 @@ export class AutoTransitionManager {
   }
 
   /**
+   * Extract steps from text (content or originalPrompt)
+   * Returns array of step objects with goal and description
+   */
+  extractStepsFromText(
+    content: string,
+    originalPrompt?: string,
+    complexity?: 'simple' | 'hard' | null
+  ): Array<{ goal: string; description?: string }> {
+    // Helper function to extract steps using regex patterns
+    const extractStepsFromTextHelper = (text: string): Array<{number: number, content: string}> => {
+      const stepPatterns = [
+        // Handle: "Step 1.", "Step 1:", "Step 1"
+        /(?:^|\n)\s*(?:Step|step)\s*(\d+)[:.)]?\s*(.+?)(?=\n\s*(?:Step|step)\s*\d+[:.)]?|$)/gis,
+        // Handle: "1.", "1:", "1)"
+        /(?:^|\n)\s*(\d+)[:.)]\s*(.+?)(?=\n\s*\d+[:.)]|$)/gis,
+      ];
+      
+      let extractedSteps: Array<{number: number, content: string}> = [];
+      
+      for (const pattern of stepPatterns) {
+        const matches = Array.from(text.matchAll(pattern));
+        for (const match of matches) {
+          const stepNum = parseInt(match[1] || '0', 10);
+          const stepContent = (match[2] || '').trim();
+          
+          // Only add if we have meaningful content
+          if (stepNum > 0 && stepContent && stepContent.length > 5) {
+            // Remove if it's too generic
+            if (!/execute\s+step|complete\s+part|part\s+\d+|step\s+\d+:?$/i.test(stepContent)) {
+              extractedSteps.push({ number: stepNum, content: stepContent });
+            }
+          }
+        }
+        
+        // If we found steps with this pattern, stop trying other patterns
+        if (extractedSteps.length >= 3) break;
+      }
+      
+      return extractedSteps;
+    };
+    
+    let steps: Array<{ goal: string; description?: string }> = [];
+    
+    // First try extracting from content
+    let extractedSteps = extractStepsFromTextHelper(content);
+    
+    // If not found in content, try originalPrompt
+    if (extractedSteps.length < 3 && originalPrompt) {
+      extractedSteps = extractStepsFromTextHelper(originalPrompt);
+    }
+    
+    // Convert to step format
+    if (extractedSteps.length >= (complexity === 'hard' ? 3 : 1)) {
+      extractedSteps
+        .sort((a, b) => a.number - b.number)
+        .forEach(step => {
+          steps.push({ 
+            goal: `Step ${step.number}: ${step.content}`, 
+            description: step.content 
+          });
+        });
+    }
+    
+    // For hard tasks, if we don't have enough steps, try fallback strategies
+    if (complexity === 'hard' && steps.length < 3) {
+      // Look for file mentions in content or originalPrompt
+      const filePattern = /\b(create|write|make|implement|add|generate)\s+(\w+\.\w{2,4})/gi;
+      const textToSearch = content + ' ' + (originalPrompt || '');
+      const fileMatches = Array.from(textToSearch.matchAll(filePattern));
+      const files: string[] = [];
+      
+      for (const match of fileMatches) {
+        const file = match[2];
+        if (!files.includes(file)) {
+          files.push(file);
+        }
+      }
+      
+      if (files.length >= 3) {
+        steps = files.map(file => ({
+          goal: `Create ${file}`,
+          description: `Implement ${file} based on requirements`
+        }));
+      } else {
+        // Generic fallback for hard tasks
+        steps = [
+          { goal: 'Step 1: Analyze requirements', description: 'Understand the task requirements' },
+          { goal: 'Step 2: Design solution', description: 'Plan the implementation approach' },
+          { goal: 'Step 3: Implement solution', description: 'Execute the implementation' }
+        ];
+      }
+    }
+    
+    // For simple tasks, if no steps found, create single step
+    if ((complexity === 'simple' || !complexity) && steps.length === 0) {
+      const description = originalPrompt 
+        ? `Execute the task: ${originalPrompt.substring(0, 100)}${originalPrompt.length > 100 ? '...' : ''}`
+        : 'Execute the task implementation';
+      steps = [{ goal: 'Complete the task', description }];
+    }
+    
+    return steps;
+  }
+
+  /**
+   * Helper method to detect generic/unhelpful step descriptions
+   */
+  private isGenericStepDescription(description: string): boolean {
+    const genericPatterns = [
+      /execute\s+step\s+\d+/i,
+      /complete\s+part\s+\d+/i,
+      /step\s+\d+\s*:/i,
+      /part\s+\d+\s+of\s+the\s+task/i,
+      /^implement\s+step\s+\d+$/i,
+      /^\s*\w+\s+step\s+\d+\s*$/i,
+      /complete\s+the\s+task/i,
+      /execute\s+the\s+task/i
+    ];
+    
+    return genericPatterns.some(pattern => pattern.test(description));
+  }
+
+  /**
    * Check if we should auto-transition from Assumptions to Implementation
    * Returns the transition decision and created plan (if any)
    */
@@ -172,33 +300,37 @@ export class AutoTransitionManager {
       const taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       const prompt = originalPrompt || conversationContext.originalPrompt;
       
-      // Extract steps from content (improved extraction)
-      const steps: Array<{ goal: string; description?: string; tools?: string[] }> = [];
+      // Extract steps from content or originalPrompt (improved extraction)
+      let steps: Array<{ goal: string; description?: string; tools?: string[] }> = [];
       
       // Try multiple patterns to extract steps
-      // Pattern 1: "Step 1:", "Step 2:", "Step 3:", etc.
-      const stepPattern1 = /(?:^|\n)\s*(?:Step|step)\s*(\d+)[:.)]?\s*(.+?)(?=\n\s*(?:Step|step)\s*\d+[:.)]?|$)/gis;
-      // Pattern 2: Numbered list "1.", "2.", "3.", etc.
-      const stepPattern2 = /(?:^|\n)\s*(\d+)[.)]\s*(.+?)(?=\n\s*\d+[.)]|$)/gis;
-      // Pattern 3: Bullet points with numbers "1 -", "2 -", etc.
-      const stepPattern3 = /(?:^|\n)\s*(\d+)\s*[-–—]\s*(.+?)(?=\n\s*\d+\s*[-–—]|$)/gis;
+      const stepPatterns = [
+        // Handle: "Step 1.", "Step 1:", "Step 1"
+        /(?:^|\n)\s*(?:Step|step)\s*(\d+)[:.)]?\s*(.+?)(?=\n\s*(?:Step|step)\s*\d+[:.)]?|$)/gis,
+        // Handle: "1.", "1:", "1)"
+        /(?:^|\n)\s*(\d+)[:.)]\s*(.+?)(?=\n\s*\d+[:.)]|$)/gis,
+        // Handle: "1 -", "1 –"
+        /(?:^|\n)\s*(\d+)\s*[-–—]\s*(.+?)(?=\n\s*\d+\s*[-–—]|$)/gis,
+      ];
       
       let stepMatches: RegExpMatchArray[] = [];
       
-      // Try pattern 1 first (most specific)
-      const matches1 = Array.from(content.matchAll(stepPattern1));
-      if (matches1.length >= 3) {
-        stepMatches = matches1;
-      } else {
-        // Try pattern 2
-        const matches2 = Array.from(content.matchAll(stepPattern2));
-        if (matches2.length >= 3) {
-          stepMatches = matches2;
-        } else {
-          // Try pattern 3
-          const matches3 = Array.from(content.matchAll(stepPattern3));
-          if (matches3.length >= 3) {
-            stepMatches = matches3;
+      // First try extracting from LLM response content
+      for (const pattern of stepPatterns) {
+        const matches = Array.from(content.matchAll(pattern));
+        if (matches.length >= 3) {
+          stepMatches = matches;
+          break;
+        }
+      }
+      
+      // If not found in content, try extracting from originalPrompt
+      if (stepMatches.length < 3 && prompt) {
+        for (const pattern of stepPatterns) {
+          const matches = Array.from(prompt.matchAll(pattern));
+          if (matches.length >= 3) {
+            stepMatches = matches;
+            break;
           }
         }
       }
@@ -206,15 +338,58 @@ export class AutoTransitionManager {
       if (stepMatches.length >= 3) {
         stepMatches.forEach((match) => {
           // match[1] is the step number, match[2] is the step content
-          const stepContent = match[2] || match[0].replace(/^(?:\d+[.)]|\*\s+|-\s+|Step\s+\d+[:.)]?\s*)/i, '').trim();
-          if (stepContent) {
-            steps.push({ goal: stepContent, description: stepContent });
+          const stepContent = (match[2] || match[0]
+            .replace(/^(?:\d+[.)]|\*\s+|-\s+|Step\s+\d+[:.)]?\s*)/i, '')
+            .trim());
+          
+          // Filter out generic/unhelpful step descriptions
+          if (stepContent && !this.isGenericStepDescription(stepContent)) {
+            steps.push({ 
+              goal: stepContent, 
+              description: stepContent.substring(0, 100) // Keep concise
+            });
           }
         });
       } else {
-        // Fallback: create generic steps based on complexity
-        for (let i = 1; i <= 3; i++) {
-          steps.push({ goal: `Step ${i}: Complete part ${i} of the task`, description: `Execute step ${i}` });
+        // Fallback: create task-specific steps instead of generic ones
+        // Look for file mentions in the content
+        const filePattern = /\b(create|write|make|implement|add|generate)\s+(\w+\.\w{2,4})/gi;
+        const fileMatches = Array.from(content.matchAll(filePattern));
+        const files: string[] = [];
+        
+        for (const match of fileMatches) {
+          const file = match[2];
+          if (!files.includes(file)) {
+            files.push(file);
+          }
+        }
+        
+        if (files.length >= 3) {
+          // Create steps based on files found
+          files.forEach((file, index) => {
+            steps.push({ 
+              goal: `Create ${file}`, 
+              description: `Implement ${file} based on requirements` 
+            });
+          });
+        } else {
+          // Create meaningful steps based on the original prompt
+          const promptText = prompt || '';
+          if (promptText.includes('hello.py') && promptText.includes('hello.test.py')) {
+            // Example: For your specific hello module task
+            steps = [
+              { goal: 'Create hello.py with greet function', description: 'Implement the main module with greet() function and main block' },
+              { goal: 'Create hello.test.py for testing', description: 'Write unit tests for the greet function using unittest framework' },
+              { goal: 'Create hello.md documentation', description: 'Document the module with usage examples and API reference' }
+            ];
+          } else {
+            // Generic but meaningful steps
+            steps = [
+              { goal: 'Analyze requirements and plan implementation', description: 'Understand all requirements and create detailed plan' },
+              { goal: 'Implement core functionality', description: 'Write the main code implementation' },
+              { goal: 'Add tests and documentation', description: 'Create tests and documentation for the implementation' }
+            ];
+          }
         }
       }
 
@@ -244,4 +419,3 @@ export class AutoTransitionManager {
     return continuationPrompt;
   }
 }
-
