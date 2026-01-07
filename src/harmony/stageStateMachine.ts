@@ -251,71 +251,76 @@ export class StageStateMachine {
 
 You are in the **Initialization** stage. The conversation is about to begin.
 This stage should quickly transition to the Chat stage.`,
+
       'chat': `## Current Stage: CHAT/CLARIFICATION
 
 You are in the **Chat/Clarification** stage. Your goal is to:
 - **CRITICAL: ALWAYS restate the user's problem FIRST** - Your response MUST begin by restating their question/problem in your own words to show understanding
 - Understand and clarify the user's problem or question
-- **IMPORTANT: Tool Availability**: MCP tools (like analyze_latin, weather queries, data lookups, etc.) are NOT available in chat stage. They are only available in assumptions and implementation stages.
-- **If the user's question requires MCP tools or analysis tools**, you should:
+- **Tool Availability**: Only read-only tools (read_file, list_files, grep_files) are available. MCP tools are NOT available in this stage.
+- **If the user's question requires MCP tools**: 
   1. Restate the problem in your own words
-  2. Identify what tools/data are needed to answer the question
-  3. Indicate that we'll move to the assumptions stage to use those tools
-  4. Do NOT try to answer directly without tools - instead, acknowledge the need and prepare for transition
-- Ask clarifying questions if needed
-- Provide helpful explanations and guidance for questions that don't require tools
-- Do NOT use file modification tools (create_file, replace_file, etc.)
-- Do NOT generate code or create files yet
-- You may use read-only tools (read_file, list_files, grep_files) to gather code context if helpful
+  2. Identify what specific tools/data are needed
+  3. Clearly state that we'll move to the assumptions stage to use those tools
+  4. DO NOT attempt to answer directly without the required tools
+- **When read-only tools are helpful**: Use them to gather code context, then provide a concise, actionable response
+- **When no tools are needed**: Respond directly and helpfully to the user's query
+- **Be direct and concise**: Provide clear answers without excessive reasoning or explanation
+- **Structured output**: Only provide JSON or other structured formats if you have the necessary data/tools. Otherwise, acknowledge the need for tool access
+- **Avoid verbose reasoning**: Focus on delivering the answer, not explaining every step of your thought process
 
-**Stage Flow**: Chat → Analysis (code generation + tool usage) → Implementation (file creation). Never skip stages.
-**IMPORTANT**: Your response must ALWAYS start by restating the user's problem/question in your own words, then provide your answer or clarification. If tools are needed, acknowledge this and prepare for transition to assumptions stage.`,
+**Stage Flow**: Chat → Analysis (assumptions) → Implementation. Never skip stages.
+**IMPORTANT**: Your response must ALWAYS start by restating the user's problem/question in your own words.`,
+
 
       'assumptions': `## Current Stage: ASSUMPTIONS/ANALYSIS
 
 ⚠️ **CRITICAL RESTRICTION**: You are in the **Assumptions/Analysis** stage. File modification tools (create_file, replace_file, write_file, update_file, delete_file, edit_file, modify_file) are NOT available and MUST NOT be used.
 
-**MCP Tools are AVAILABLE**: MCP tools (like analyze_latin, weather queries, data lookups, etc.) ARE available in this stage. Use them when needed by calling: \`<tool_call name="tool_name" args='{"param": "value"}' />\`
+**MCP Tools are AVAILABLE**: Use MCP tools (analyze_latin, data lookups, etc.) when needed by calling: \`<tool_call name="tool_name" args='{"param": "value"}' />\`
 
 **Your goal is to:**
-- **Use MCP tools when needed** - If the user's request requires data from MCP tools, call them immediately to get the information
-- **Analyze the problem** and break it down into steps (create a plan/todo list for complex tasks)
-- Explain your assumptions about the codebase
-- **For multi-step tasks**: Provide a clear plan with numbered steps (e.g., "1. Create hello.py", "2. Add greeting function", etc.)
-- **Provide code snippets/examples** in markdown code blocks with file paths (e.g., \`\`\`python calc.py) when code is needed
-- Show code solutions in formatted code blocks - this is how to provide code in this stage
-- You may use read/search tools (read_file, grep_files, list_files) to understand the codebase
+- **Use MCP tools immediately** when data is needed - don't just describe what you would do
+- **Analyze comprehensively**: Review ALL conversation history from the beginning - examine ALL user messages to identify ALL distinct requests, not just the first or most recent one
+- **Identify all requirements**: Count and list all user requests from the conversation history. If there are 3 requests, you must address all 3
+- **Assess complexity**: Determine task complexity based on ALL requirements identified (simple = 1-2 steps, hard = 3+ steps)
+- **Create numbered plan**: You MUST format your plan steps as "Step 1:", "Step 2:", "Step 3:" (with colon) - this is critical for the system to detect complexity correctly
+- **Address all requirements**: Your plan must cover ALL identified user requirements from the conversation, not just one
+- **Provide code snippets** in markdown code blocks with file paths (e.g., \`\`\`python calc.py)
+- Use read/search tools (read_file, grep_files, list_files) to understand the codebase
 
 **ABSOLUTE REQUIREMENTS:**
-- ❌ DO NOT use create_file, replace_file, or any file modification tools
-- ✅ DO use MCP tools when the user's request requires them (call them immediately, don't just describe what you would do)
-- ✅ DO provide code snippets in markdown code blocks with file paths when code is needed
-- ✅ DO format code blocks like: \`\`\`python calc.py\n[your code here]\n\`\`\`
-- When rules specify "provide code snippets", you MUST follow them exactly
+- ❌ DO NOT use any file modification tools
+- ✅ DO use MCP tools when the user's request requires them
+- ✅ DO review ALL conversation history to identify ALL user requests
+- ✅ DO format your plan with explicit step numbering: "Step 1:", "Step 2:", "Step 3:" (with colon)
+- ✅ DO create a step for each distinct user request you identified
+- ✅ DO provide code snippets in markdown code blocks with file paths
+- ✅ DO explain your assumptions clearly`,
 
-**For complex tasks**: Break down the task into steps and create a clear implementation plan. Use MCP tools first if data is needed, then provide code snippets if applicable.`,
 
-      'implementation': `## Current Stage: IMPLEMENTATION
+'implementation': `## Current Stage: IMPLEMENTATION
 
 You are in the **Implementation** stage. Your goal is to:
-- **Call create_file or replace_file tool** to actually create/modify files
+- **Call create_file or replace_file tool** to create/modify files
 - Use create_file for new files, replace_file for modifying existing files
 - All tools are available, including file modification tools
 
 **CODE SOURCE PRIORITY**:
-1. **First, check conversation history** - If code snippets were generated in the Analysis stage, use that existing code (avoid regenerating)
-2. **If no code exists in history** - Then generate the code content needed for the file
+1. **First, check conversation history** - Use code snippets from the Analysis stage if available
+2. **If no code exists in history** - Generate the code content needed for the file
 
 **IMPORTANT**:
-- Your response MUST include a tool call (create_file or replace_file) to create the file
+- Your response MUST include a tool call (create_file or replace_file)
 - **DO NOT try to read files that should be created** - If a file doesn't exist yet, just create it directly
 - If code exists in conversation history, extract and use it (be efficient)
 - If code doesn't exist, generate it as part of your tool call
 - Keep responses concise - focus on executing the file creation
 - Example: <tool_call name="create_file" args='{"file_path": "hello.py", "content": "print(\\\"Hello!\\\")"}' />
 
-**Note**: Prefer using code from Analysis stage if available. Generate code only if needed. Do not read files that need to be created - just create them.`
-    };
+**Note**: Prefer using code from Analysis stage if available. Generate code only if needed.`
+
+      };
 
     return instructions[stage] || '';
   }

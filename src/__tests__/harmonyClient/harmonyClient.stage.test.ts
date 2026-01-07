@@ -521,7 +521,8 @@ describe('HarmonyClient - Stage Control', () => {
 
       expect(prompt).toContain('CHAT/CLARIFICATION');
       expect(prompt).toContain('Understand and clarify');
-      expect(prompt).toContain('Do NOT use file modification tools');
+      // Chat stage restricts to read-only tools, which implies file modification tools are not available
+      expect(prompt).toContain('read-only tools');
     });
 
     it('should include assumptions stage instructions', async () => {
@@ -533,7 +534,7 @@ describe('HarmonyClient - Stage Control', () => {
 
       expect(prompt).toContain('ASSUMPTIONS/ANALYSIS');
       expect(prompt).toContain('code snippets');
-      expect(prompt).toContain('DO NOT use create_file, replace_file, or any file modification tools');
+      expect(prompt).toMatch(/DO NOT.*file modification tools|file modification.*NOT available.*MUST NOT/i);
     });
 
     it('should include implementation stage instructions', async () => {

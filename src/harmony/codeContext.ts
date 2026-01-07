@@ -40,20 +40,33 @@ export class CodeContext {
       let fileName = filePath;
       let version: string | undefined;
       
+      // Helper function to validate if a string looks like a valid filename
+      const isValidFileName = (name: string): boolean => {
+        if (!name || name.trim().length === 0) return false;
+        const trimmed = name.trim();
+        // Must have a file extension (at least 2 chars after dot)
+        if (!/\.\w{2,4}$/.test(trimmed)) return false;
+        // Must not be just common words like "File", "file", "Code", etc.
+        const commonWords = /^(file|File|code|Code|script|Script|text|Text|data|Data)$/i;
+        if (commonWords.test(trimmed.split('.')[0])) return false;
+        // Must look like a valid file path (alphanumeric, dots, slashes, hyphens, underscores)
+        return /^[\w\/\.\-]+\.\w{2,4}$/.test(trimmed);
+      };
+      
       // Check for version tag in first line: file.ts v2 or file.ts@v2
       const versionMatch = firstLine.match(/\s+(v\d+(?:\.\d+)?|@v\d+(?:\.\d+)?)$/i) ||
                           firstLine.match(/@(v\d+(?:\.\d+)?)$/i);
       if (versionMatch) {
         version = versionMatch[1].replace('@', '');
         const firstLineWithoutVersion = firstLine.replace(/\s+(v\d+(?:\.\d+)?|@v\d+(?:\.\d+)?)$/i, '').trim();
-        if (/^[\w\/\.\-]+\.\w{2,4}$/.test(firstLineWithoutVersion) && altContent.split('\n').length > 1) {
+        if (isValidFileName(firstLineWithoutVersion) && altContent.split('\n').length > 1) {
           // First line is file path with version, rest is code
           const lines = altContent.split('\n');
           const contentLines = lines.slice(1);
           fileName = fileName || firstLineWithoutVersion;
           return new CodeContext(fileName, contentLines, true, version || 'v1');
         }
-      } else if (/^[\w\/\.\-]+\.\w{2,4}$/.test(firstLine.trim()) && altContent.split('\n').length > 1) {
+      } else if (isValidFileName(firstLine.trim()) && altContent.split('\n').length > 1) {
         // First line is file path without version, rest is code
         const lines = altContent.split('\n');
         const contentLines = lines.slice(1);
@@ -62,7 +75,8 @@ export class CodeContext {
       } else {
         // All content is code
         const contentLines = altContent.split('\n');
-        fileName = fileName || 'file';
+        // Default to 'file.txt' instead of 'file' to ensure it has an extension
+        fileName = fileName || 'file.txt';
         return new CodeContext(fileName, contentLines, true);
       }
     }
@@ -89,6 +103,19 @@ export class CodeContext {
     let fileName = filePath;
     let version: string | undefined;
     
+    // Helper function to validate if a string looks like a valid filename
+    const isValidFileName = (name: string): boolean => {
+      if (!name || name.trim().length === 0) return false;
+      const trimmed = name.trim();
+      // Must have a file extension (at least 2 chars after dot)
+      if (!/\.\w{2,4}$/.test(trimmed)) return false;
+      // Must not be just common words like "File", "file", "Code", etc.
+      const commonWords = /^(file|File|code|Code|script|Script|text|Text|data|Data)$/i;
+      if (commonWords.test(trimmed.split('.')[0])) return false;
+      // Must look like a valid file path (alphanumeric, dots, slashes, hyphens, underscores)
+      return /^[\w\/\.\-]+\.\w{2,4}$/.test(trimmed);
+    };
+    
     // Try to extract from code block header: ```language file_path v2 or ```language file_path@v2
     const headerMatch = codeBlock.match(/```(?:\w+)?\s+([^\n]+)/);
     if (headerMatch) {
@@ -100,12 +127,12 @@ export class CodeContext {
         version = versionMatch[1].replace('@', ''); // Remove @ if present
         // Remove version from header to get file path
         const headerWithoutVersion = headerContent.replace(/\s+(v\d+(?:\.\d+)?|@v\d+(?:\.\d+)?)$/i, '').trim();
-        if (headerWithoutVersion && !fileName) {
+        if (headerWithoutVersion && isValidFileName(headerWithoutVersion) && !fileName) {
           fileName = headerWithoutVersion;
         }
       } else if (!fileName) {
-        // No version tag, use entire header as file path if it looks like one
-        if (/^[\w\/\.\-]+\.\w{2,4}$/.test(headerContent)) {
+        // No version tag, use entire header as file path if it looks like a valid filename
+        if (isValidFileName(headerContent)) {
           fileName = headerContent;
         }
       }
@@ -125,12 +152,17 @@ export class CodeContext {
       const codeBlockWithPath = codeContent.match(/^#\s*(?:file|path)[:\s]+([^\n]+\.\w{2,4})/i) ||
                                 codeContent.match(/\/\/\s*(?:file|path)[:\s]+([^\n]+\.\w{2,4})/i);
       
-      fileName = filePathMatch?.[1] || codeBlockWithPath?.[1];
+      const extractedName = filePathMatch?.[1] || codeBlockWithPath?.[1];
+      // Only use extracted name if it's valid
+      if (extractedName && isValidFileName(extractedName)) {
+        fileName = extractedName;
+      }
     }
 
-    // If still no file name, use a default
+    // If still no file name, use a default with extension
+    // This ensures the file has a valid extension and won't be just "file"
     if (!fileName) {
-      fileName = 'file';
+      fileName = 'file.txt';
     }
 
     // Create CodeContext with optional version (defaults to v1 if not specified)

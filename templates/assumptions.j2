@@ -2,14 +2,24 @@
 
 ## Additional Context
 
-**IMPORTANT: Reference Conversation History**
-- **Look at the conversation history above** - The original user query and previous context are in the conversation history before this message
-- **If you transitioned from chat stage**: The original user request is in the conversation history. Review it to understand what the user actually needs
-- **Use the conversation history** to understand the full context of the request, not just the current prompt
+**IMPORTANT: Comprehensive Analysis**
+- **Review ALL conversation history above** - Examine ALL user messages and assistant responses from the beginning. Do not focus only on the first or most recent message
+- **Identify ALL user requests** - Count and list all distinct user requests/queries from the conversation history. The user may have made multiple separate requests
+- **Analyze the current prompt below** - Consider both the conversation history and the current prompt together
+- **Assess actual complexity** - Determine the complexity based on ALL requirements identified, not just the first one
+- **Create a comprehensive plan** - Your plan must address ALL identified user requirements, not just one
+
+**Creating Your Plan:**
+- **Format steps clearly** - You MUST format your plan steps as "Step 1:", "Step 2:", "Step 3:" (with colon) so the system can detect complexity correctly
+- **One step per requirement** - If you identified 3 distinct user requests, create at least 3 steps (one for each requirement)
+- **Number your steps** - Always use explicit numbering: "Step 1:", "Step 2:", "Step 3:" - this is critical for the system to detect task complexity
+- **Don't combine unrelated requests** - Each distinct user request should have its own step unless they're truly part of one task
 
 **Workflow:**
 - **Brief my code** - Briefly mention any assumptions you are making about my code context
-- **Proceed to solution** - Provide the code solution or analysis
+- **Analyze comprehensively** - Review ALL conversation history to identify ALL user requests
+- **Create numbered plan** - Format your plan with clear step numbering: "Step 1:", "Step 2:", "Step 3:"
+- **Proceed to solution** - Provide the code solution or analysis with your numbered plan
 
 {{rules}}
 
