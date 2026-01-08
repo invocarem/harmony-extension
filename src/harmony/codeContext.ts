@@ -23,7 +23,14 @@ export class CodeContext {
     // Extract code content from markdown code block
     // Pattern: ```language optional_file_path optional_version\ncode``` or ```language\ncode```
     // Version can be: v1, v2, v1.0, etc. or @v1, @v2
-    const codeBlockMatch = codeBlock.match(/```(?:\w+)?(?:\s+[^\n]+)?\n([\s\S]*?)```/);
+    // Pattern: ```language optional_file_path optional_version\ncode``` or ```language\ncode```
+    // The pattern should capture code content after the newline following the language/filepath
+    // First try pattern with newline after language: ```python\ncode```
+    let codeBlockMatch = codeBlock.match(/```(?:\w+)?\s*\n([\s\S]*?)```/);
+    // If that doesn't match, try pattern with optional filepath: ```python file.py\ncode```
+    if (!codeBlockMatch) {
+      codeBlockMatch = codeBlock.match(/```(?:\w+)?\s+[^\n]+\n([\s\S]*?)```/);
+    }
     if (!codeBlockMatch) {
       // Try alternative pattern without newline after language
       const altMatch = codeBlock.match(/```(?:\w+)?\s*([\s\S]*?)```/);
@@ -87,7 +94,18 @@ export class CodeContext {
       return null;
     }
 
-    const codeContent = codeBlockMatch[1].trim();
+    // Get code content before trimming (to check for filename patterns in first line)
+    const rawCodeContent = codeBlockMatch[1];
+    if (!rawCodeContent || rawCodeContent.length < 10) {
+      return null;
+    }
+    
+    // Check first line for filename pattern before trimming
+    const firstLineMatch = rawCodeContent.match(/^([^\n\r]+)/);
+    const firstLine = firstLineMatch ? firstLineMatch[1] : '';
+    
+    // Now trim for processing
+    const codeContent = rawCodeContent.trim();
     if (!codeContent || codeContent.length < 10) {
       return null;
     }
@@ -154,17 +172,59 @@ export class CodeContext {
       // Also check if file path is mentioned in the code block itself
       // Support formats like: "# File path: hello.py", "# file path: hello.py", "# File: hello.py", "# hello.py", "// file path: hello.py"
       // Try matching at the start of any line (not just the first line), in case there's leading whitespace
-      const codeBlockWithPath = codeContent.match(/^#\s*(?:file\s+path|file|path)[:\s]+([^\n]+\.\w{2,4})/im) ||
+      // IMPORTANT: Check for simple "# filename.ext" pattern FIRST (most common case)
+      // This pattern matches "# hello.py" at the start of a code block
+      // Check the first line (before trimming) and the trimmed content
+      // Pattern: # followed by optional space, then filename, then space/newline/end/quote
+      // Trim first line to handle any trailing whitespace
+      const firstLineTrimmed = firstLine.trim();
+      // Pattern for first line: # followed by optional space, filename, then space or end
+      const simpleFilenameMatchFirstLine = firstLineTrimmed.match(/^#\s*([a-zA-Z][\w\.-]*\.\w{2,4})(?:\s|$)/);
+      // Pattern for trimmed content: # followed by optional space, filename, then space/newline/end/quote
+      const simpleFilenameMatch = codeContent.match(/^#\s*([a-zA-Z][\w\.-]*\.\w{2,4})(?:\s|$|\n|")/m);
+      
+      // Also try matching with required space after # (more common format: "# hello.py")
+      const simpleFilenameMatchWithSpaceFirstLine = firstLineTrimmed.match(/^#\s+([a-zA-Z][\w\.-]*\.\w{2,4})(?:\s|$)/);
+      const simpleFilenameMatchWithSpace = codeContent.match(/^#\s+([a-zA-Z][\w\.-]*\.\w{2,4})(?:\s|$|\n|")/m);
+      
+      // Debug: log if we have a first line with # but no match
+      if (firstLineTrimmed.startsWith('#') && !simpleFilenameMatchFirstLine && !simpleFilenameMatchWithSpaceFirstLine) {
+        console.log(`[CodeContext] First line starts with # but no match: "${firstLineTrimmed.substring(0, 30)}"`);
+      }
+      
+      const codeBlockWithPath = simpleFilenameMatch || simpleFilenameMatchWithSpace ||
+                                codeContent.match(/^#\s*(?:file\s+path|file|path)[:\s]+([^\n]+\.\w{2,4})/im) ||
                                 codeContent.match(/^\/\/\s*(?:file\s+path|file|path)[:\s]+([^\n]+\.\w{2,4})/im) ||
-                                // Match simple "# filename.ext" pattern (must be first or second line, to avoid false matches)
+                                // Match "# filename.ext" pattern (must be first or second line, to avoid false matches)
                                 codeContent.match(/^(?:[^\n]*\n)?#\s+([a-zA-Z][\w\.-]*\.\w{2,4})\s*(?:\n|$)/im);
       
-      const extractedName = filePathMatch?.[1] || codeBlockWithPath?.[1];
+      // Extract filename from matches, prioritizing simple filename patterns
+      // Check first line patterns first (most reliable) - these are checked before trimming
+      let extractedName = null;
+      if (simpleFilenameMatchFirstLine && simpleFilenameMatchFirstLine[1]) {
+        extractedName = simpleFilenameMatchFirstLine[1];
+      } else if (simpleFilenameMatchWithSpaceFirstLine && simpleFilenameMatchWithSpaceFirstLine[1]) {
+        extractedName = simpleFilenameMatchWithSpaceFirstLine[1];
+      } else if (simpleFilenameMatch && simpleFilenameMatch[1]) {
+        extractedName = simpleFilenameMatch[1];
+      } else if (simpleFilenameMatchWithSpace && simpleFilenameMatchWithSpace[1]) {
+        extractedName = simpleFilenameMatchWithSpace[1];
+      } else if (filePathMatch && filePathMatch[1]) {
+        extractedName = filePathMatch[1];
+      } else if (codeBlockWithPath && typeof codeBlockWithPath === 'object' && codeBlockWithPath[1]) {
+        extractedName = codeBlockWithPath[1];
+      }
+      
       // Only use extracted name if it's valid (trim whitespace first)
       if (extractedName) {
         const trimmedName = extractedName.trim();
         if (isValidFileName(trimmedName)) {
           fileName = trimmedName;
+        }
+      } else {
+        // Debug: check why extraction failed
+        if (firstLine && firstLine.trim().startsWith('#')) {
+          console.log(`[CodeContext] No filename extracted from firstLine="${firstLine.substring(0, 50)}". Matches: firstLine=${!!simpleFilenameMatchFirstLine}, withSpace=${!!simpleFilenameMatchWithSpaceFirstLine}, content=${!!simpleFilenameMatch}`);
         }
       }
     }

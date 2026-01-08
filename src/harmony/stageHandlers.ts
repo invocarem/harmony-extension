@@ -8,6 +8,11 @@ import { AutoTransitionManager } from "./autoTransitionManager";
 import { ImplementationManager } from "./implementationManager";
 import { HarmonyParseResult } from "../harmonyProcessor";
 import { MCPToolCall } from "../mcpClient";
+import { ChatManager } from "./chatManager";
+import { ChatMessage } from "../conversationManager";
+import * as fs from "fs";
+import * as path from "path";
+import * as vscode from "vscode";
 
 /**
  * Stage handler interface
@@ -26,6 +31,17 @@ export interface StageHandler {
   ): Promise<{ shouldSkipLLM: boolean; response?: any }>;
 
   /**
+   * Filter tool calls before execution (after extraction, before execution)
+   * Returns filtered tool calls and any that were blocked
+   */
+  filterToolCalls?(
+    toolCalls: MCPToolCall[],
+    context: ConversationContext | null,
+    conversationHistory?: readonly ChatMessage[],
+    nativeToolsManager?: NativeToolsManager
+  ): Promise<{ filtered: MCPToolCall[]; blocked: MCPToolCall[] }>;
+
+  /**
    * Handle post-LLM processing (after response parsing)
    */
   handlePostProcessing?(
@@ -37,7 +53,8 @@ export interface StageHandler {
     contextManager: ConversationContextManager,
     progressPlanManager: ProgressPlanManager,
     autoTransitionManager: AutoTransitionManager,
-    nativeToolsManager?: NativeToolsManager
+    nativeToolsManager?: NativeToolsManager,
+    conversationHistory?: readonly ChatMessage[]
   ): Promise<void>;
 }
 
@@ -460,10 +477,192 @@ class AssumptionsStageHandler implements StageHandler {
 }
 
 /**
- * Chat stage handler (minimal - mostly pass-through)
+ * Chat stage handler
+ * Handles chat stage logic: validates tool calls, tracks queries, extracts problem summaries
  */
 class ChatStageHandler implements StageHandler {
-  // Chat stage doesn't need special processing
+  private chatManager: ChatManager;
+
+  constructor(chatManager: ChatManager) {
+    this.chatManager = chatManager;
+  }
+
+  /**
+   * Filter tool calls in chat stage
+   * Prevents reading files that don't exist and were mentioned in conversation as files to create
+   */
+  async filterToolCalls(
+    toolCalls: MCPToolCall[],
+    context: ConversationContext | null,
+    conversationHistory?: readonly ChatMessage[],
+    nativeToolsManager?: NativeToolsManager
+  ): Promise<{ filtered: MCPToolCall[]; blocked: MCPToolCall[] }> {
+    const filtered: MCPToolCall[] = [];
+    const blocked: MCPToolCall[] = [];
+
+    // Extract files mentioned in conversation that should be created
+    const filesToCreate = this.extractFilesToCreate(conversationHistory || []);
+
+    for (const toolCall of toolCalls) {
+      // Check if it's a read_file call
+      if (toolCall.name === 'read_file') {
+        const filePath = toolCall.arguments?.file_path || toolCall.arguments?.filePath;
+        if (filePath) {
+          // Check if this file was mentioned as something to create
+          const isFileToCreate = filesToCreate.some(ftc => 
+            this.pathMatches(filePath, ftc)
+          );
+
+          if (isFileToCreate) {
+            // Check if file exists
+            const fileExists = await this.checkFileExists(filePath, nativeToolsManager);
+            
+            if (!fileExists) {
+              // Block this read_file call - file doesn't exist and was mentioned as file to create
+              console.log(`[StageHandler:Chat] Blocking read_file for ${filePath} - file doesn't exist and was mentioned as file to create`);
+              blocked.push(toolCall);
+              continue;
+            }
+            // If file exists, allow the read (file was created in a previous step)
+          }
+          // If file wasn't mentioned as file to create, allow the read_file call
+          // (it might be reading an existing file, or the LLM is checking if it exists)
+        }
+      }
+
+      // Allow other tool calls
+      filtered.push(toolCall);
+    }
+
+    return { filtered, blocked };
+  }
+
+  /**
+   * Extract files mentioned in conversation that should be created
+   * Looks for patterns like "create hello.py", "write file.py", etc.
+   */
+  private extractFilesToCreate(conversationHistory: readonly ChatMessage[]): string[] {
+    const files: string[] = [];
+    const createPatterns = [
+      /\b(create|write|make|add|generate|build)\s+(?:a\s+)?([\w\-\.\/]+\.\w{2,4})\b/gi,
+      /\b(create|write|make|add|generate|build)\s+(?:the\s+)?file\s+([\w\-\.\/]+\.\w{2,4})\b/gi,
+      /\b([\w\-\.\/]+\.\w{2,4})\s+(?:file\s+)?(?:should\s+)?(?:be\s+)?(?:created|written|made|generated)\b/gi,
+    ];
+
+    for (const message of conversationHistory) {
+      if (message.role === 'user') {
+        const content = message.content.toLowerCase();
+        for (const pattern of createPatterns) {
+          const matches = content.matchAll(pattern);
+          for (const match of matches) {
+            // Extract filename from match (could be in different capture groups)
+            const fileName = match[2] || match[1];
+            if (fileName && fileName.includes('.')) {
+              files.push(fileName);
+            }
+          }
+        }
+      }
+    }
+
+    // Remove duplicates
+    return [...new Set(files)];
+  }
+
+  /**
+   * Check if a file exists
+   */
+  private async checkFileExists(filePath: string, nativeToolsManager?: NativeToolsManager): Promise<boolean> {
+    try {
+      // Resolve path relative to workspace root
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      let resolvedPath: string;
+      
+      if (path.isAbsolute(filePath)) {
+        resolvedPath = filePath;
+      } else if (workspaceFolders && workspaceFolders.length > 0) {
+        resolvedPath = path.resolve(workspaceFolders[0].uri.fsPath, filePath);
+      } else {
+        resolvedPath = path.resolve(filePath);
+      }
+
+      // Check if file exists
+      await fs.promises.access(resolvedPath, fs.constants.F_OK);
+      return true;
+    } catch {
+      // File doesn't exist or is inaccessible
+      return false;
+    }
+  }
+
+  /**
+   * Check if two file paths match (handles relative/absolute, different separators)
+   */
+  private pathMatches(path1: string, path2: string): boolean {
+    const normalize = (p: string) => p.replace(/\\/g, '/').toLowerCase();
+    return normalize(path1) === normalize(path2) || 
+           normalize(path.basename(path1)) === normalize(path.basename(path2));
+  }
+
+  /**
+   * Handle post-processing for chat stage
+   * Tracks queries and extracts problem summaries
+   */
+  async handlePostProcessing(
+    context: ConversationContext | null,
+    content: string,
+    parsed: HarmonyParseResult,
+    toolCalls: MCPToolCall[],
+    executedToolCalls: Array<{ name: string; arguments: Record<string, any>; result?: any }> | undefined,
+    contextManager: ConversationContextManager,
+    progressPlanManager: ProgressPlanManager,
+    autoTransitionManager: AutoTransitionManager,
+    nativeToolsManager?: NativeToolsManager,
+    conversationHistory?: readonly ChatMessage[]
+  ): Promise<void> {
+    if (!context) return;
+
+    // Track user queries in chat stage
+    if (conversationHistory && conversationHistory.length > 0) {
+      const lastUserMessage = [...conversationHistory].reverse().find(m => m.role === 'user');
+      if (lastUserMessage) {
+        // Extract file references from the query
+        const filePattern = /\b([\w\-\.\/]+\.\w{2,4})\b/g;
+        const fileMatches = lastUserMessage.content.matchAll(filePattern);
+        const relatedFiles: string[] = [];
+        for (const match of fileMatches) {
+          relatedFiles.push(match[1]);
+        }
+        
+        this.chatManager.addQuery(lastUserMessage.content, relatedFiles);
+      }
+    }
+
+    // Extract problem summary from assistant response (first sentence or first paragraph)
+    if (content) {
+      // Look for restatement patterns: "You want to...", "You're asking...", "The task is..."
+      const restatementPatterns = [
+        /(?:you\s+(?:want|need|are\s+asking|would\s+like|requested)|the\s+task\s+is|the\s+goal\s+is)[^.!?]+[.!?]/i,
+        /(?:i\s+understand\s+that\s+you\s+want|based\s+on\s+your\s+request)[^.!?]+[.!?]/i,
+      ];
+
+      for (const pattern of restatementPatterns) {
+        const match = content.match(pattern);
+        if (match) {
+          this.chatManager.updateProblemSummary(match[0]);
+          break;
+        }
+      }
+
+      // If no explicit restatement found, use first sentence as summary
+      if (!this.chatManager.getProblemSummary()) {
+        const firstSentence = content.split(/[.!?]/)[0].trim();
+        if (firstSentence.length > 20) {
+          this.chatManager.updateProblemSummary(firstSentence);
+        }
+      }
+    }
+  }
 }
 
 /**
@@ -480,10 +679,10 @@ class InitStageHandler implements StageHandler {
 export class StageHandlerRegistry {
   private handlers: Map<WorkflowStage, StageHandler> = new Map();
 
-  constructor(implementationManager?: ImplementationManager) {
+  constructor(implementationManager?: ImplementationManager, chatManager?: ChatManager) {
     // Register handlers
     this.handlers.set('init', new InitStageHandler());
-    this.handlers.set('chat', new ChatStageHandler());
+    this.handlers.set('chat', new ChatStageHandler(chatManager || new ChatManager()));
     this.handlers.set('assumptions', new AssumptionsStageHandler());
     this.handlers.set('implementation', new ImplementationStageHandler(implementationManager));
   }
