@@ -276,18 +276,23 @@ class ImplementationStageHandler implements StageHandler {
         }
       }
     } else {
-      // No plan exists (shouldn't happen in normal flow, but handle gracefully)
-      console.warn(`[StageHandler:Implementation] No ProgressPlan found (unexpected) - falling back to CodeContext check or LLM`);
-      if (codeContexts.length > 0) {
-        shouldUseCodeContext = true;
-        console.log(`[StageHandler:Implementation] Fallback: Using CodeContext (no LLM call needed)`);
-      } else {
-        shouldCallLLM = true;
-        console.log(`[StageHandler:Implementation] Fallback: No CodeContext, calling LLM to generate tool calls`);
-      }
+      // No plan exists - this should not happen as we check before transition
+      // But handle it gracefully by requiring a plan
+      console.error(`[StageHandler:Implementation] ❌ No ProgressPlan found - implementation stage requires a plan!`);
+      return {
+        shouldSkipLLM: true,
+        response: {
+          content: '⚠️ Implementation stage requires a ProgressPlan. Please complete the assumptions/analysis stage first to create a plan, then transition to implementation.',
+          verboseInfo: {
+            stage: 'implementation' as const,
+            error: 'No ProgressPlan found - cannot proceed without a plan'
+          }
+        }
+      };
     }
 
     // Filter code contexts to match the current step using ImplementationManager
+    // Implementation stage always has a plan, so we can safely use ImplementationManager
     let filteredCodeContexts = codeContexts;
     const currentStepForFilter = this.implementationManager.getCurrentStep();
     
@@ -330,7 +335,7 @@ class ImplementationStageHandler implements StageHandler {
             
             if (!createResult.isError) {
               createdFiles.push(filePath);
-              // Record file creation in ImplementationManager
+              // Record file creation in ImplementationManager (plan always exists in implementation stage)
               this.implementationManager.recordFileCreated(filePath, stepNumber, 'created');
               if (contextManager) {
                 contextManager.markCodeContextCreated(filePath);
@@ -348,7 +353,7 @@ class ImplementationStageHandler implements StageHandler {
               });
               if (!replaceResult.isError) {
                 createdFiles.push(filePath);
-                // Record file replacement in ImplementationManager
+                // Record file replacement in ImplementationManager (plan always exists in implementation stage)
                 this.implementationManager.recordFileCreated(filePath, stepNumber, 'replaced');
                 if (contextManager) {
                   contextManager.markCodeContextCreated(filePath);
@@ -359,11 +364,11 @@ class ImplementationStageHandler implements StageHandler {
                   result: replaceResult
                 });
               } else {
-                // Record error in ImplementationManager
+                // Record error in ImplementationManager (plan always exists in implementation stage)
                 this.implementationManager.recordFileCreated(filePath, stepNumber, 'error', replaceResult.content?.[0]?.text || 'Unknown error');
               }
             } else {
-              // Record error in ImplementationManager
+              // Record error in ImplementationManager (plan always exists in implementation stage)
               this.implementationManager.recordFileCreated(filePath, stepNumber, 'error', createResult.content?.[0]?.text || 'Unknown error');
             }
           } catch (error: any) {

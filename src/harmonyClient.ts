@@ -386,6 +386,29 @@ export class HarmonyClient {
                 this.assumptionsManager.clear();
               }
               
+              // Before transitioning to implementation, ensure we have a plan
+              if (detectedStage === 'implementation') {
+                const currentContext = this.contextManager.getContext();
+                if (!currentContext?.progressPlan) {
+                  console.warn(`[Harmony] ⚠️ Attempting to transition to implementation stage without a ProgressPlan. This should not happen - plan should be created in assumptions stage.`);
+                  // Try to get plan from assumptions manager as fallback
+                  const assumptionsExport = this.assumptionsManager.exportForTransition();
+                  if (assumptionsExport.progressPlan) {
+                    console.log(`[Harmony] Found plan in assumptions manager, setting it before transition`);
+                    this.contextManager.setProgressPlan(assumptionsExport.progressPlan);
+                  } else {
+                    console.error(`[Harmony] ❌ Cannot transition to implementation stage: No ProgressPlan found. Please ensure you've completed the assumptions stage first.`);
+                    // Don't transition - stay in current stage
+                    return {
+                      content: '⚠️ Cannot transition to implementation stage: No plan found. Please complete the assumptions/analysis stage first to create a plan.',
+                      verboseInfo: VerboseInfoBuilder.forAssumptionStage(currentContext || null, undefined, conversationHistory),
+                    };
+                  }
+                } else {
+                  console.log(`[Harmony] ✅ ProgressPlan found - proceeding with transition to implementation stage`);
+                }
+              }
+              
               // Perform the transition first
               this.contextManager.updateStage(detectedStage, prompt);
               // VerboseInfo will be included in the final response, no need to send it separately
