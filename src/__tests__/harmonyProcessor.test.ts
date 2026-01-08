@@ -831,54 +831,50 @@ This is not a file update.<|end|>`;
       processorDisabled = new HarmonyProcessor(false);
     });
 
-    it("should remove 'user' and 'final' keywords when filtering Harmony tokens", () => {
+    it("should not filter Harmony tokens when harmony mode is disabled", () => {
+      // When harmony mode is disabled, we don't filter Harmony tokens to preserve content
       // This simulates the actual template structure: <|start|>user<|channel|>final<|message|>
-      // When harmony mode is disabled, these should be filtered out
+      // When harmony mode is disabled, content is returned as-is (only trimmed)
       const response = "<|start|>user<|channel|>final<|message|>Hello world<|end|>";
       const result = processorDisabled.parseResponse(response);
 
-      // The filtered content should not contain "user" or "final" keywords
-      expect(result.content).not.toContain("user");
-      expect(result.content).not.toContain("final");
+      // Content should be returned as-is (trimmed), without filtering
+      // Since we're not using Harmony protocol, responses shouldn't have tokens anyway
       expect(result.content).toContain("Hello world");
+      // Note: If tokens are present, they remain (but shouldn't be in practice)
     });
 
-    it("should remove all Harmony protocol keywords when filtering", () => {
+    it("should not filter Harmony protocol keywords when harmony mode is disabled", () => {
+      // When harmony mode is disabled, we don't filter - content is returned as-is
       const response = "<|start|>assistant<|channel|>analysis<|message|>Some reasoning<|end|>";
       const result = processorDisabled.parseResponse(response);
 
-      // Should remove all Harmony keywords: user, assistant, final, analysis, commentary, etc.
-      expect(result.content).not.toContain("assistant");
-      expect(result.content).not.toContain("analysis");
+      // Content should be returned as-is (trimmed), without filtering
       expect(result.content).toContain("Some reasoning");
+      // Note: If tokens are present, they remain (but shouldn't be in practice)
     });
 
-    it("should handle response with multiple Harmony keywords", () => {
+    it("should handle response with multiple Harmony keywords without filtering", () => {
+      // When harmony mode is disabled, we don't filter - content is returned as-is
       const response = "<|start|>user<|channel|>final<|message|>Content here<|end|><|start|>assistant<|channel|>final<|message|>Response here<|end|>";
       const result = processorDisabled.parseResponse(response);
 
-      // All Harmony keywords should be removed
-      expect(result.content).not.toContain("user");
-      expect(result.content).not.toContain("assistant");
-      expect(result.content).not.toContain("final");
+      // Content should be returned as-is (trimmed), without filtering
       expect(result.content).toContain("Content here");
       expect(result.content).toContain("Response here");
+      // Note: If tokens are present, they remain (but shouldn't be in practice)
     });
 
-    it("should preserve actual content words that happen to match Harmony keywords", () => {
-      // This tests that we only remove standalone keywords, not words that are part of actual content
-      // For example, "final" in "final exam" should be preserved if it's actual content
-      // However, in practice, when harmony mode is disabled, the template structure means
-      // these keywords appear between tokens, so they should be removed
+    it("should preserve content as-is when harmony mode is disabled", () => {
+      // When harmony mode is disabled, we don't filter - content is returned as-is (trimmed)
+      // This preserves all content, including words that happen to match Harmony keywords
       const response = "<|start|>user<|channel|>final<|message|>This is the final answer<|end|>";
       const result = processorDisabled.parseResponse(response);
 
-      // "final" between tokens should be removed, but "final" in "final answer" should be preserved
-      // The filter uses word boundaries, so "final" in "final answer" should be preserved
+      // Content should contain the actual message content
       expect(result.content).toContain("final answer");
-      // But we shouldn't see standalone "final" from the channel type
-      // The content should be "This is the final answer" without the channel keyword
-      expect(result.content).toBe("This is the final answer");
+      // Note: If tokens are present, they remain (but shouldn't be in practice)
+      // The content will be trimmed but not filtered
     });
 
     it("should handle plain jinja response without Harmony tokens", () => {
@@ -890,36 +886,34 @@ This is not a file update.<|end|>`;
       expect(result.rawToolCalls).toEqual([]);
     });
 
-    it("should filter <|start|>assistant| pattern correctly", () => {
-      // This tests the case where template ends with <|start|>assistant|
-      // which should be filtered to empty string when harmony mode is disabled
+    it("should not filter <|start|>assistant| pattern when harmony mode is disabled", () => {
+      // When harmony mode is disabled, we don't filter - content is returned as-is (trimmed)
       const response = "<|start|>assistant|Hello! How can I assist you today?";
       const result = processorDisabled.parseResponse(response);
 
-      // Should remove <|start|> token and assistant| keyword
-      expect(result.content).not.toContain("assistant");
-      expect(result.content).not.toContain("<|start|>");
-      expect(result.content).toBe("Hello! How can I assist you today?");
+      // Content should be returned as-is (trimmed), without filtering
+      expect(result.content).toContain("Hello! How can I assist you today?");
+      // Note: If tokens are present, they remain (but shouldn't be in practice)
     });
 
-    it("should filter assistant|assistant pattern from model response", () => {
-      // This tests the case where model echoes assistant|assistant pattern
+    it("should not filter assistant|assistant pattern when harmony mode is disabled", () => {
+      // When harmony mode is disabled, we don't filter - content is returned as-is (trimmed)
       const response = "assistant|assistant Hello! How can I assist you today?";
       const result = processorDisabled.parseResponse(response);
 
-      // Should remove all assistant keywords
-      expect(result.content).not.toContain("assistant");
-      expect(result.content).toBe("Hello! How can I assist you today?");
+      // Content should be returned as-is (trimmed), without filtering
+      expect(result.content).toContain("Hello! How can I assist you today?");
+      // Note: If tokens are present, they remain (but shouldn't be in practice)
     });
 
-    it("should filter |assistant pattern from response", () => {
-      // This tests the case where response starts with |assistant
+    it("should not filter |assistant pattern when harmony mode is disabled", () => {
+      // When harmony mode is disabled, we don't filter - content is returned as-is (trimmed)
       const response = "|assistant Hello! How can I assist you today?";
       const result = processorDisabled.parseResponse(response);
 
-      // Should remove |assistant pattern
-      expect(result.content).not.toContain("assistant");
-      expect(result.content).toBe("Hello! How can I assist you today?");
+      // Content should be returned as-is (trimmed), without filtering
+      expect(result.content).toContain("Hello! How can I assist you today?");
+      // Note: If tokens are present, they remain (but shouldn't be in practice)
     });
 
     it("should extract file update from plain jinja response with file description", () => {
@@ -1046,8 +1040,9 @@ class Psalm105ATests: XCTestCase {
         expect(toolCalls[0].arguments.content).toContain("@testable import LatinService");
       }
       
-      // Content should be cleared since it was extracted as a tool call
-      expect(result.content).toBe("");
+      // Content before the code block should be preserved (AI's explanation/restatement)
+      // This allows the AI's text to be displayed even when file tools are blocked
+      expect(result.content).toBe("**File:** `Tests/LatinService/Psalm105ATests.swift`");
     });
 
     it("should normalize file paths with leading slash to be relative to workspace", () => {

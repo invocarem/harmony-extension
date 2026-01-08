@@ -314,27 +314,17 @@ export class HarmonyClient {
                   // Get related files from ChatManager
                   const relatedFiles = this.chatManager.getAllRelatedFiles();
                   
-                  // Create JSON structure for aggregated_prompt
-                  const aggregatedPromptData = {
-                    queries: queries,
-                    assistantResponses: assistantResponses,
-                    relatedFiles: relatedFiles,
-                    summary: `Aggregated user queries from chat stage: ${queries.length} queries, ${assistantResponses.length} assistant responses, ${relatedFiles.length} related files`
-                  };
-                  
-                  // Save aggregatedPrompt as JSON to CodeContext (won't be created as file yet)
-                  const promptJson = JSON.stringify(aggregatedPromptData, null, 2);
-                  const promptLines = promptJson.split('\n');
-                  const promptContext = new CodeContext(
-                    'aggregated_prompt.json',
-                    promptLines,
-                    false, // waitForCreate: false - just store, don't create file yet
-                    'v1',
-                    Date.now(),
-                    'Aggregated user queries and assistant responses from chat stage'
+                  // Generate aggregated_prompt.json using AssumptionsManager
+                  await this.assumptionsManager.generateAggregatedPromptFile(
+                    {
+                      queries: queries,
+                      assistantResponses: assistantResponses,
+                      relatedFiles: relatedFiles
+                    },
+                    conversationHistory,
+                    this.nativeToolsManager,
+                    this.contextManager
                   );
-                  this.contextManager.addCodeContext(promptContext);
-                  console.log(`[Harmony] Saved aggregatedPrompt to CodeContext (${queries.length} queries, ${assistantResponses.length} assistant responses, ${relatedFiles.length} related files)`);
                 }
                 
                 // Clear chat manager after transition
@@ -385,27 +375,12 @@ export class HarmonyClient {
                   this.contextManager.setProgressPlan(assumptionsExport.progressPlan);
                 }
                 
-                // Create assumption_data.json CodeContext with progressPlan
-                // Note: planSteps is redundant (it's already in progressPlan.steps), so we don't include it
-                const assumptionsData = {
-                  assumptions: assumptionsExport.assumptions,
-                  codeSnippets: assumptionsExport.codeSnippets,
-                  progressPlan: assumptionsExport.progressPlan,
-                  summary: assumptionsExport.summary,
-                };
-                
-                const assumptionDataJson = JSON.stringify(assumptionsData, null, 2);
-                const assumptionDataLines = assumptionDataJson.split('\n');
-                const assumptionDataContext = new CodeContext(
-                  'assumption_data.json',
-                  assumptionDataLines,
-                  false, // waitForCreate: false - just store, don't create file yet
-                  'v1',
-                  Date.now(),
-                  'Assumptions and analysis data from assumptions stage'
+                // Generate assumption_data.json using ImplementationManager
+                await this.implementationManager.generateAssumptionDataFile(
+                  assumptionsExport,
+                  this.nativeToolsManager,
+                  this.contextManager
                 );
-                this.contextManager.addCodeContext(assumptionDataContext);
-                console.log(`[Harmony] Saved assumption_data to CodeContext (${assumptionsExport.assumptions.length} assumptions, ${assumptionsExport.codeSnippets.length} code snippets${assumptionsExport.progressPlan ? `, plan with ${assumptionsExport.progressPlan.totalSteps} step(s)` : ''})`);
                 
                 // Clear assumptions manager after transition
                 this.assumptionsManager.clear();
@@ -420,59 +395,6 @@ export class HarmonyClient {
               if (updatedContext) {
                 if (updatedContext.currentStage === detectedStage) {
                   console.log(`[Harmony] ✅ Stage successfully updated in context: ${updatedContext.currentStage}`);
-                  
-                  // If transitioning to implementation, auto-generate diagnostic files
-                  if (detectedStage === 'implementation' && this.nativeToolsManager && updatedContext.codeContexts) {
-                    console.log(`[Harmony] Implementation stage: Checking for diagnostic CodeContexts to auto-generate...`);
-                    
-                    // Find CodeContexts with waitForCreate: false and special diagnostic names
-                    const diagnosticFiles = ['aggregated_prompt.json', 'assumption_data.json'];
-                    
-                    for (const fileName of diagnosticFiles) {
-                      const versions = updatedContext.codeContexts.get(fileName);
-                      if (versions) {
-                        const activeVersion = versions.find(v => v.isActive);
-                        if (activeVersion && !activeVersion.waitForCreate) {
-                          try {
-                            const content = activeVersion.getContentAsString();
-                            if (content && content.trim().length > 0) {
-                              console.log(`[Harmony] Auto-generating diagnostic file: ${fileName}`);
-                              try {
-                                const createResult = await this.nativeToolsManager.callTool('create_file', {
-                                  file_path: fileName,
-                                  content: content
-                                });
-                                
-                                if (createResult && !createResult.isError) {
-                                  console.log(`[Harmony] ✅ Successfully created diagnostic file: ${fileName}`);
-                                } else if (createResult && createResult.content?.[0]?.text?.includes('already exists')) {
-                                  // File exists, use replace_file
-                                  const replaceResult = await this.nativeToolsManager.callTool('replace_file', {
-                                    file_path: fileName,
-                                    content: content
-                                  });
-                                  if (replaceResult && !replaceResult.isError) {
-                                    console.log(`[Harmony] ✅ Successfully updated diagnostic file: ${fileName}`);
-                                  } else {
-                                    const errorMsg = replaceResult?.content?.[0]?.text || 'Unknown error';
-                                    console.warn(`[Harmony] ⚠️ Failed to update diagnostic file ${fileName}: ${errorMsg}`);
-                                  }
-                                } else {
-                                  const errorMsg = createResult?.content?.[0]?.text || 'Unknown error';
-                                  console.warn(`[Harmony] ⚠️ Failed to create diagnostic file ${fileName}: ${errorMsg}`);
-                                }
-                              } catch (error: any) {
-                                // Silently ignore errors during diagnostic file creation (non-critical)
-                                console.warn(`[Harmony] ⚠️ Error creating diagnostic file ${fileName}:`, error.message || error);
-                              }
-                            }
-                          } catch (error: any) {
-                            console.warn(`[Harmony] ⚠️ Error creating diagnostic file ${fileName}:`, error);
-                          }
-                        }
-                      }
-                    }
-                  }
                   
                   // If transitioning to implementation via "move to implementation" command
                   // The stage handler will determine the action based on ProgressPlan/PlanStep

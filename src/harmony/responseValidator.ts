@@ -75,20 +75,25 @@ export class ResponseValidator {
     }
 
     // Add warning message if not already present
+    // IMPORTANT: Preserve AI's content (restatement) if it exists - only append warning
     if (!parsed.content || !hasContent || !parsed.content.includes('⚠️')) {
       let stageWarning: string;
       
       if (currentStage === 'assumptions') {
         if (hasContent) {
+          // Preserve AI's restatement/content and append warning
           stageWarning = `${parsed.content}\n\n⚠️ **Note**: File modification tools (${blockedToolCalls.map(tc => tc.name).join(', ')}) are not available in the Analysis stage. Please provide code snippets instead. To create files, say "move to implementation" after the code is ready.`;
         } else {
+          // No content from AI - use generic message (AI should have restated per template)
           stageWarning = `I understand you want to create files. In the Analysis stage, I should provide code snippets first.\n\n⚠️ **Note**: File modification tools (${blockedToolCalls.map(tc => tc.name).join(', ')}) are not available in the Analysis stage. Please provide code snippets instead. To create files, say "move to implementation" after the code is ready.`;
         }
       } else {
         // Chat stage
         if (hasContent) {
-          stageWarning = `${parsed.content}\n\n⚠️ **Note**: File modification tools (${blockedToolCalls.map(tc => tc.name).join(', ')}) are not available in the Chat stage. To create files, I'll first analyze and provide code snippets (Analysis stage), then you can move to Implementation stage to create the files.`;
+          // Preserve AI's restatement/content and append warning
+          stageWarning = `${parsed.content}\n\n⚠️ **Note**: File modification tools (${blockedToolCalls.map(tc => tc.name).join(', ')}) are not available in the Chat stage. To create files, say "move to assumption" to analyze and provide code snippets first, then "move to implementation" to create the files.`;
         } else {
+          // No content from AI - use generic message (AI should have restated per template)
           stageWarning = `I understand you want to create files.\n\n⚠️ **Note**: File modification tools (${blockedToolCalls.map(tc => tc.name).join(', ')}) are not available in the Chat stage. To create files, say "move to assumption" to analyze and provide code snippets first, then "move to implementation" to create the files.`;
         }
       }

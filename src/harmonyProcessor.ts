@@ -38,8 +38,11 @@ export class HarmonyProcessor {
     // If harmony mode is disabled, treat as plain jinja output
     if (!this.harmonyMode) {
       console.log(`[HarmonyProcessor] Harmony mode disabled, treating as plain jinja output`);
-      const filtered = filterHarmonyTokens(response);
-      const trimmed = filtered.trim();
+      console.log(`[HarmonyProcessor] Input response length: ${response.length} chars`);
+      // Don't filter Harmony tokens when harmony mode is disabled - response shouldn't have them
+      // and filtering might remove legitimate content that matches token patterns
+      const trimmed = response.trim();
+      console.log(`[HarmonyProcessor] After trim: ${trimmed.length} chars, last 50 chars: "${trimmed.substring(Math.max(0, trimmed.length - 50))}"`);
       
       // Extract tool calls from the response (there might be both content and tool calls)
       const rawToolCalls: string[] = [];
@@ -86,8 +89,17 @@ export class HarmonyProcessor {
       const extractedToolCall = this.extractFileUpdateFromContent(trimmed);
       if (extractedToolCall) {
         console.log(`[HarmonyProcessor] Extracted file update from plain jinja content: ${extractedToolCall.name} for ${extractedToolCall.arguments.file_path}`);
+        // Preserve content BEFORE the code block (AI's explanation/restatement)
+        // Extract code block pattern to find where content should be split
+        const codeBlockPattern = /```(?:\w+)?\s*[\n ]([\s\S]*?)```/;
+        const codeBlockMatch = trimmed.match(codeBlockPattern);
+        let preservedContent = trimmed;
+        if (codeBlockMatch && codeBlockMatch.index !== undefined) {
+          // Keep everything before the code block (including the explanation)
+          preservedContent = trimmed.substring(0, codeBlockMatch.index).trim();
+        }
         return {
-          content: '',
+          content: preservedContent, // Preserve AI's response text before the code block
           rawToolCalls: [extractedToolCall.raw],
           remaining: response
         };
@@ -128,8 +140,16 @@ export class HarmonyProcessor {
       const extractedToolCall = this.extractFileUpdateFromContent(trimmed);
       if (extractedToolCall) {
         console.log(`[HarmonyProcessor] Extracted file update from plain text content: ${extractedToolCall.name} for ${extractedToolCall.arguments.file_path}`);
+        // Preserve content BEFORE the code block (AI's explanation/restatement)
+        const codeBlockPattern = /```(?:\w+)?\s*[\n ]([\s\S]*?)```/;
+        const codeBlockMatch = trimmed.match(codeBlockPattern);
+        let preservedContent = trimmed;
+        if (codeBlockMatch && codeBlockMatch.index !== undefined) {
+          // Keep everything before the code block (including the explanation)
+          preservedContent = trimmed.substring(0, codeBlockMatch.index).trim();
+        }
         return {
-          content: '',
+          content: preservedContent, // Preserve AI's response text before the code block
           rawToolCalls: [extractedToolCall.raw],
           remaining: response
         };
@@ -309,8 +329,18 @@ export class HarmonyProcessor {
       if (extractedToolCall) {
         console.log(`[HarmonyProcessor] Extracted file update from content (with Harmony tokens): ${extractedToolCall.name} for ${extractedToolCall.arguments.file_path}`);
         rawToolCalls.push(extractedToolCall.raw);
-        // Clear content since it's been extracted as a tool call
-        content = '';
+        // Preserve content BEFORE the code block (AI's explanation/restatement)
+        // Extract code block pattern to find where content should be split
+        const codeBlockPattern = /```(?:\w+)?\s*[\n ]([\s\S]*?)```/;
+        const codeBlockMatch = content.match(codeBlockPattern);
+        if (codeBlockMatch && codeBlockMatch.index !== undefined) {
+          // Keep everything before the code block (including the explanation/restatement)
+          content = content.substring(0, codeBlockMatch.index).trim();
+          console.log(`[HarmonyProcessor] Preserved ${content.length} chars of content before code block extraction`);
+        } else {
+          // No code block match found, but we extracted a tool call - clear content as fallback
+          content = '';
+        }
       } else {
         // Check for file operations that should be tool calls
         const extractedFileOps = this.extractFileOperationsFromDescription(content);
@@ -515,6 +545,22 @@ export class HarmonyProcessor {
           if (extractedToolCall) {
             console.log(`[HarmonyProcessor] Extracted file update from content: ${extractedToolCall.name} for ${extractedToolCall.arguments.file_path}`);
             setters.rawToolCalls(extractedToolCall.raw);
+            // Preserve content BEFORE the code block (AI's explanation/restatement)
+            const codeBlockPattern = /```(?:\w+)?\s*[\n ]([\s\S]*?)```/;
+            const codeBlockMatch = trimmed.match(codeBlockPattern);
+            if (codeBlockMatch && codeBlockMatch.index !== undefined) {
+              // Keep everything before the code block (including the explanation/restatement)
+              const preservedContent = trimmed.substring(0, codeBlockMatch.index).trim();
+              console.log(`[HarmonyProcessor] Preserved ${preservedContent.length} chars of content before code block in saveBuffer`);
+              // Save preserved content to final or content field
+              if (setters.final) {
+                setters.final(this.preserveCodeBlocks(preservedContent));
+              } else {
+                setters.content(this.preserveCodeBlocks(preservedContent));
+              }
+            }
+            // Return early since we've extracted the tool call
+            return;
           } else {
             // Check if content describes file operations that should be tool calls
             const extractedFileOps = this.extractFileOperationsFromDescription(trimmed);

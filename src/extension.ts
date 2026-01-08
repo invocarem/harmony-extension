@@ -422,26 +422,8 @@ export class HarmonyAssistant {
           chatManager.initialize();
         }
         
-        // Collect all file paths from fileContexts and fileExtractionResult
-        const allFiles: string[] = [];
-        
-        // Add explicit file contexts
-        fileContexts.forEach(fc => {
-          allFiles.push(fc.path);
-        });
-        
-        // Add detected files
-        if (fileExtractionResult) {
-          if (fileExtractionResult.explicitFiles) {
-            fileExtractionResult.explicitFiles.forEach(f => allFiles.push(f.path));
-          }
-          if (fileExtractionResult.detectedFiles) {
-            fileExtractionResult.detectedFiles.forEach(f => allFiles.push(f.path));
-          }
-        }
-        
-        // Add query to ChatManager
-        chatManager.addQuery(cleanMessage, allFiles);
+        // Add query with file extraction handled by ChatManager
+        chatManager.addQueryWithFiles(cleanMessage, fileContexts, fileExtractionResult);
         console.log(`[ChatManager] Tracked query in ${currentStage || 'init'} stage: "${cleanMessage.substring(0, 50)}..."`);
       }
       
@@ -557,24 +539,9 @@ export class HarmonyAssistant {
         conversationHistory
       );
 
-      // Update problem summary in ChatManager if in chat stage and response looks like a restatement
+      // Update problem summary in ChatManager if in chat stage
       if (currentStage === 'chat' && cleanedContent) {
-        // Extract first paragraph (potential problem summary/restatement)
-        const summaryMatch = cleanedContent.match(/^(.*?)(?:\n\n|$)/);
-        if (summaryMatch) {
-          const potentialSummary = summaryMatch[1].trim();
-          // Heuristic: if it looks like a restatement (contains user's words or "you want", etc.)
-          if (potentialSummary.length > 20 && 
-              (potentialSummary.toLowerCase().includes('you want') || 
-               potentialSummary.toLowerCase().includes('you\'re asking') ||
-               potentialSummary.toLowerCase().includes('you need') ||
-               cleanMessage.toLowerCase().split(' ').some(word => 
-                 word.length > 3 && potentialSummary.toLowerCase().includes(word)
-               ))) {
-            chatManager.updateProblemSummary(potentialSummary);
-            console.log(`[ChatManager] Updated problem summary from response`);
-          }
-        }
+        chatManager.updateProblemSummaryFromResponse(cleanedContent, cleanMessage);
       }
 
       await this.webviewManager.sendMessage(cleanedResponse);

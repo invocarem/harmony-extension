@@ -177,6 +177,33 @@ describe('XmlProcessor', () => {
         expect(result[0].name).toBe('create_file');
         expect(result[0].args.content).toContain('5 > 3');
       });
+
+
+      it('should preserve Python indentation exactly', () => {
+        const pythonCode = `def hello():
+    print("Hello")
+    if True:
+        print("True")
+        for i in range(5):
+            print(i)`;
+    
+        const jsonArgs = JSON.stringify({
+            file_path: 'test.py',
+            content: pythonCode
+        });
+        
+        const text = `<tool_call name="create_file" args='${jsonArgs}' />`;
+        const result = XmlProcessor.extractToolCalls(text);
+        
+        expect(result).toHaveLength(1);
+        expect(result[0].args.content).toBe(pythonCode);  // Exact match
+        
+        // Check specific indentation
+        const lines = result[0].args.content.split('\n');
+        expect(lines[1]).toBe('    print("Hello")');  // 4 spaces
+        expect(lines[2]).toBe('    if True:');        // 4 spaces
+        expect(lines[3]).toBe('        print("True")');  // 8 spaces
+      });
     });
 
     describe('Edge cases', () => {
@@ -225,6 +252,92 @@ describe('XmlProcessor', () => {
         const result = XmlProcessor.extractToolCalls(text);
         
         expect(result).toHaveLength(0);
+      });
+    });
+
+    describe('Streaming chunks with multi-line JSON', () => {
+      it('should parse tool call with multi-line JSON containing escaped newlines and quotes', () => {
+        // This reproduces the issue from the error log where a tool call is split across chunks
+        // The JSON contains escaped newlines (\n) and escaped quotes (\") in the content field
+        // The key issue is that the parser needs to find the closing single quote for args='...'
+        // even when the JSON string contains many escaped characters
+        const pythonCode = `\"\"\"\nA simple calculator module with basic arithmetic operations.\n\"\"\"\n\ndef add(a: float, b: float) -> float:\n    \"\"\"Return the sum of two numbers.\"\"\"\n    return a + b\n\ndef subtract(a: float, b: float) -> float:\n    \"\"\"Return the difference of two numbers.\"\"\"\n    return a - b\n\ndef multiply(a: float, b: float) -> float:\n    \"\"\"Return the product of two numbers.\"\"\"\n    return a * b\n\ndef divide(a: float, b: float) -> float:\n    \"\"\"Return the quotient of two numbers. Raises ValueError if dividing by zero.\"\"\"\n    if b == 0:\n        raise ValueError(\"Cannot divide by zero\")\n    return a / b\n`;
+        const jsonArgs = JSON.stringify({
+          file_path: 'calc.py',
+          content: pythonCode
+        });
+        // Use single quotes for args attribute to match the error log
+        const toolCall = `<tool_call name="create_file" args='${jsonArgs}' />`;
+        
+        const result = XmlProcessor.extractToolCalls(toolCall);
+        
+        expect(result).toHaveLength(1);
+        expect(result[0].name).toBe('create_file');
+        expect(result[0].args.file_path).toBe('calc.py');
+        expect(result[0].args.content).toBeDefined();
+        expect(result[0].args.content).toContain('A simple calculator module');
+        expect(result[0].args.content).toContain('def add(a: float, b: float) -> float:');
+        expect(result[0].args.content).toContain('def divide(a: float, b: float) -> float:');
+        expect(result[0].args.content).toContain('raise ValueError("Cannot divide by zero")');
+      });
+
+      it('should handle tool call where JSON content has many escaped characters', () => {
+        // Test case where the JSON string contains many escaped quotes and newlines
+        const content = 'def example():\n    """Docstring with "quotes" and \'more quotes\'"""\n    print("Hello\\nWorld")\n    return True';
+        const jsonArgs = JSON.stringify({
+          file_path: 'example.py',
+          content: content
+        });
+        const toolCall = `<tool_call name="create_file" args='${jsonArgs}' />`;
+        
+        const result = XmlProcessor.extractToolCalls(toolCall);
+        
+        expect(result).toHaveLength(1);
+        expect(result[0].name).toBe('create_file');
+        expect(result[0].args.file_path).toBe('example.py');
+        expect(result[0].args.content).toBe(content);
+      });
+
+      it('should parse tool call with JSON containing Python triple-quoted strings', () => {
+        // This is the exact case from the error - Python code with triple quotes
+        const pythonCode = `\"\"\"\nA simple calculator module with basic arithmetic operations.\n\"\"\"\n\ndef add(a: float, b: float) -> float:\n    \"\"\"Return the sum of two numbers.\"\"\"\n    return a + b\n\ndef subtract(a: float, b: float) -> float:\n    \"\"\"Return the difference of two numbers.\"\"\"\n    return a - b\n\ndef multiply(a: float, b: float) -> float:\n    \"\"\"Return the product of two numbers.\"\"\"\n    return a * b\n\ndef divide(a: float, b: float) -> float:\n    \"\"\"Return the quotient of two numbers. Raises ValueError if dividing by zero.\"\"\"\n    if b == 0:\n        raise ValueError(\"Cannot divide by zero\")\n    return a / b`;
+        const jsonArgs = JSON.stringify({
+          file_path: 'calc.py',
+          content: pythonCode
+        });
+        const toolCall = `<tool_call name="create_file" args='${jsonArgs}' />`;
+        
+        const result = XmlProcessor.extractToolCalls(toolCall);
+        
+        expect(result).toHaveLength(1);
+        expect(result[0].name).toBe('create_file');
+        expect(result[0].args.file_path).toBe('calc.py');
+        expect(result[0].args.content).toBe(pythonCode);
+        expect(result[0].args.content).toContain('def divide');
+        expect(result[0].args.content).toContain('raise ValueError("Cannot divide by zero")');
+      });
+
+      it('should handle tool call where quote-based extraction fails and brace matching succeeds', () => {
+        // This reproduces the exact error from the logs:
+        // [XmlProcessor] Could not find closing ' for args attribute
+        // [XmlProcessor] Brace matching: Could not find matching closing brace for JSON in args attribute
+        // The issue occurs when the JSON is very long with many escaped characters
+        // and the quote-based extraction fails, but brace matching should still work
+        const longPythonCode = `\"\"\"\nA simple calculator module with basic arithmetic operations.\n\"\"\"\n\ndef add(a: float, b: float) -> float:\n    \"\"\"Return the sum of two numbers.\"\"\"\n    return a + b\n\ndef subtract(a: float, b: float) -> float:\n    \"\"\"Return the difference of two numbers.\"\"\"\n    return a - b\n\ndef multiply(a: float, b: float) -> float:\n    \"\"\"Return the product of two numbers.\"\"\"\n    return a * b\n\ndef divide(a: float, b: float) -> float:\n    \"\"\"Return the quotient of two numbers. Raises ValueError if dividing by zero.\"\"\"\n    if b == 0:\n        raise ValueError(\"Cannot divide by zero\")\n    return a / b\n`;
+        const jsonArgs = JSON.stringify({
+          file_path: 'calc.py',
+          content: longPythonCode
+        });
+        // Use single quotes for args to match the error scenario
+        const toolCall = `<tool_call name="create_file" args='${jsonArgs}' />`;
+        
+        const result = XmlProcessor.extractToolCalls(toolCall);
+        
+        // Should successfully extract using brace matching even if quote matching fails
+        expect(result).toHaveLength(1);
+        expect(result[0].name).toBe('create_file');
+        expect(result[0].args.file_path).toBe('calc.py');
+        expect(result[0].args.content).toBe(longPythonCode);
       });
     });
 

@@ -1,10 +1,29 @@
 import { ChatManager, ChatState } from '../harmony/chatManager';
+import { FileReference } from '../utils/fileContextExtractor';
+import { FileExtractionResult } from '../utils/verboseInfo';
+import * as vscode from 'vscode';
+
+// Mock vscode.workspace.asRelativePath
+jest.mock('vscode', () => ({
+  workspace: {
+    asRelativePath: jest.fn((path: string) => {
+      // Simulate converting absolute paths to relative
+      if (path.includes('C:\\') || path.includes('/')) {
+        // Extract filename or relative path
+        const parts = path.split(/[/\\]/);
+        return parts[parts.length - 1] || path;
+      }
+      return path;
+    }),
+  },
+}));
 
 describe('ChatManager', () => {
   let manager: ChatManager;
 
   beforeEach(() => {
     manager = new ChatManager();
+    jest.clearAllMocks();
   });
 
   afterEach(() => {
@@ -99,6 +118,106 @@ describe('ChatManager', () => {
       manager.updateProblemSummary('test summary');
 
       expect(manager.getProblemSummary()).toBe('test summary');
+    });
+  });
+
+  describe('updateProblemSummaryFromResponse', () => {
+    it('should extract problem summary from valid restatement response', () => {
+      manager.initialize();
+      manager.addQuery('bug fix on @file:calc.py, please fix indentation problem.');
+      
+      const responseContent = 'You want to fix the indentation bug in calc.py. The issue is in the divide function.';
+      manager.updateProblemSummaryFromResponse(responseContent, 'bug fix on @file:calc.py, please fix indentation problem.');
+
+      expect(manager.getProblemSummary()).toBe('You want to fix the indentation bug in calc.py. The issue is in the divide function.');
+    });
+
+    it('should NOT use system warning message as problem summary', () => {
+      manager.initialize();
+      const userQuery = 'bug fix on @file:calc.py, please fix indentation problem.';
+      manager.addQuery(userQuery);
+      
+      // Simulate the system warning message when file modification tools are blocked
+      const warningResponse = 'I understand you want to create files.\n\n⚠️ **Note**: File modification tools (create_file) are not available in the Chat stage. To create files, say "move to assumption" to analyze and provide code snippets first, then "move to implementation" to create the files.';
+      
+      manager.updateProblemSummaryFromResponse(warningResponse, userQuery);
+
+      // Should extract intent from user query instead of using the warning
+      const summary = manager.getProblemSummary();
+      expect(summary).not.toContain('I understand you want to create files');
+      expect(summary).not.toContain('⚠️');
+      expect(summary).toMatch(/fix|indentation|bug/i);
+    });
+
+    it('should extract problem summary from user query when response is system warning', () => {
+      manager.initialize();
+      const userQuery = 'bug fix on @file:calc.py, please fix indentation problem.';
+      manager.addQuery(userQuery);
+      
+      const warningResponse = 'I understand you want to create files.\n\n⚠️ **Note**: File modification tools (create_file) are not available in the Chat stage.';
+      
+      manager.updateProblemSummaryFromResponse(warningResponse, userQuery);
+
+      const summary = manager.getProblemSummary();
+      expect(summary).toBeDefined();
+      expect(summary).not.toBe('');
+      // Should extract meaningful intent about fixing indentation bug
+      expect(summary?.toLowerCase()).toMatch(/fix.*indentation|indentation.*bug|fix.*bug.*calc/i);
+    });
+
+    it('should handle response with actual content followed by warning', () => {
+      manager.initialize();
+      const userQuery = 'bug fix on @file:calc.py, please fix indentation problem.';
+      manager.addQuery(userQuery);
+      
+      // Response has actual content, then warning
+      const responseWithContent = 'I can see the indentation issue in calc.py. The divide function has incorrect indentation.\n\n⚠️ **Note**: File modification tools (create_file) are not available in the Chat stage.';
+      
+      manager.updateProblemSummaryFromResponse(responseWithContent, userQuery);
+
+      // Should use the actual content, not the warning
+      const summary = manager.getProblemSummary();
+      expect(summary).toContain('indentation issue');
+      expect(summary).toContain('calc.py');
+      expect(summary).not.toContain('⚠️');
+    });
+
+    it('should not update summary if response is only generic warning with no user query context', () => {
+      manager.initialize();
+      // No query added
+      
+      const warningResponse = 'I understand you want to create files.\n\n⚠️ **Note**: File modification tools are not available.';
+      
+      manager.updateProblemSummaryFromResponse(warningResponse, '');
+
+      // Should not set a generic warning as problem summary
+      expect(manager.getProblemSummary()).toBeUndefined();
+    });
+
+    it('should handle assumptions stage warning message', () => {
+      manager.initialize();
+      const userQuery = 'bug fix on @file:calc.py, please fix indentation problem.';
+      manager.addQuery(userQuery);
+      
+      const assumptionsWarning = 'I understand you want to create files. In the Analysis stage, I should provide code snippets first.\n\n⚠️ **Note**: File modification tools (create_file) are not available in the Analysis stage.';
+      
+      manager.updateProblemSummaryFromResponse(assumptionsWarning, userQuery);
+
+      const summary = manager.getProblemSummary();
+      expect(summary).not.toContain('I understand you want to create files');
+      expect(summary).toMatch(/fix|indentation|bug/i);
+    });
+
+    it('should extract summary from response that contains user intent', () => {
+      manager.initialize();
+      const userQuery = 'fix indentation bug in calc.py divide function';
+      manager.addQuery(userQuery);
+      
+      const response = 'You need to fix the indentation error in the divide function of calc.py. The raise ValueError statement is not properly indented.';
+      
+      manager.updateProblemSummaryFromResponse(response, userQuery);
+
+      expect(manager.getProblemSummary()).toBe('You need to fix the indentation error in the divide function of calc.py. The raise ValueError statement is not properly indented.');
     });
   });
 
@@ -381,6 +500,297 @@ describe('ChatManager', () => {
       // Clear after transition
       manager.clear();
       expect(manager.hasContent()).toBe(false);
+    });
+  });
+
+  describe('extractRelatedFiles', () => {
+    it('should extract files from fileContexts', () => {
+      manager.initialize();
+
+      const fileContexts: FileReference[] = [
+        { type: 'file', path: 'C:\\workspace\\calc.py', content: 'def add(): pass' },
+        { type: 'file', path: 'C:\\workspace\\utils.py', content: 'def helper(): pass' },
+      ];
+
+      const files = manager.extractRelatedFiles(fileContexts);
+      
+      expect(files).toHaveLength(2);
+      expect(files).toContain('calc.py');
+      expect(files).toContain('utils.py');
+      expect(vscode.workspace.asRelativePath).toHaveBeenCalledTimes(2);
+    });
+
+    it('should extract files from fileExtractionResult', () => {
+      manager.initialize();
+
+      const fileExtractionResult: FileExtractionResult = {
+        explicitFiles: [
+          { path: 'C:\\workspace\\calc.py', type: 'file', extractedAt: Date.now() },
+          { path: 'C:\\workspace\\test.py', type: 'file', extractedAt: Date.now() },
+        ],
+        detectedFiles: [
+          { path: 'C:\\workspace\\helper.py', type: 'file', confidence: 'high', extractedAt: Date.now() },
+        ],
+      };
+
+      const files = manager.extractRelatedFiles([], fileExtractionResult);
+      
+      expect(files).toHaveLength(3);
+      expect(files).toContain('calc.py');
+      expect(files).toContain('test.py');
+      expect(files).toContain('helper.py');
+    });
+
+    it('should combine files from both fileContexts and fileExtractionResult', () => {
+      manager.initialize();
+
+      const fileContexts: FileReference[] = [
+        { type: 'file', path: 'C:\\workspace\\calc.py', content: 'def add(): pass' },
+      ];
+
+      const fileExtractionResult: FileExtractionResult = {
+        explicitFiles: [
+          { path: 'C:\\workspace\\utils.py', type: 'file', extractedAt: Date.now() },
+        ],
+        detectedFiles: [
+          { path: 'C:\\workspace\\helper.py', type: 'file', confidence: 'medium', extractedAt: Date.now() },
+        ],
+      };
+
+      const files = manager.extractRelatedFiles(fileContexts, fileExtractionResult);
+      
+      expect(files).toHaveLength(3);
+      expect(files).toContain('calc.py');
+      expect(files).toContain('utils.py');
+      expect(files).toContain('helper.py');
+    });
+
+    it('should deduplicate files from multiple sources', () => {
+      manager.initialize();
+
+      const fileContexts: FileReference[] = [
+        { type: 'file', path: 'C:\\workspace\\calc.py', content: 'def add(): pass' },
+      ];
+
+      const fileExtractionResult: FileExtractionResult = {
+        explicitFiles: [
+          { path: 'C:\\workspace\\calc.py', type: 'file', extractedAt: Date.now() },
+          { path: 'C:\\workspace\\utils.py', type: 'file', extractedAt: Date.now() },
+        ],
+        detectedFiles: [
+          { path: 'C:\\workspace\\calc.py', type: 'file', confidence: 'high', extractedAt: Date.now() },
+        ],
+      };
+
+      const files = manager.extractRelatedFiles(fileContexts, fileExtractionResult);
+      
+      // calc.py appears in all three sources but should only appear once
+      expect(files).toHaveLength(2);
+      expect(files.filter(f => f === 'calc.py')).toHaveLength(1);
+      expect(files).toContain('calc.py');
+      expect(files).toContain('utils.py');
+    });
+
+    it('should handle relative paths without modification', () => {
+      manager.initialize();
+
+      const fileContexts: FileReference[] = [
+        { type: 'file', path: 'calc.py', content: 'def add(): pass' },
+        { type: 'file', path: 'utils.py', content: 'def helper(): pass' },
+      ];
+
+      const files = manager.extractRelatedFiles(fileContexts);
+      
+      expect(files).toHaveLength(2);
+      expect(files).toContain('calc.py');
+      expect(files).toContain('utils.py');
+    });
+
+    it('should handle asRelativePath failures gracefully', () => {
+      manager.initialize();
+
+      // Mock asRelativePath to throw an error
+      (vscode.workspace.asRelativePath as jest.Mock).mockImplementationOnce(() => {
+        throw new Error('Path conversion failed');
+      });
+
+      const fileContexts: FileReference[] = [
+        { type: 'file', path: 'C:\\workspace\\calc.py', content: 'def add(): pass' },
+      ];
+
+      const files = manager.extractRelatedFiles(fileContexts);
+      
+      // Should fall back to original path
+      expect(files).toHaveLength(1);
+      expect(files[0]).toBe('C:\\workspace\\calc.py');
+    });
+
+    it('should handle empty fileContexts and fileExtractionResult', () => {
+      manager.initialize();
+
+      const files = manager.extractRelatedFiles([], undefined);
+      
+      expect(files).toEqual([]);
+    });
+
+    it('should handle directory references', () => {
+      manager.initialize();
+
+      const fileContexts: FileReference[] = [
+        { type: 'directory', path: 'C:\\workspace\\src', content: 'Directory contents' },
+        { type: 'file', path: 'C:\\workspace\\calc.py', content: 'def add(): pass' },
+      ];
+
+      const files = manager.extractRelatedFiles(fileContexts);
+      
+      expect(files).toHaveLength(2);
+      expect(files).toContain('src');
+      expect(files).toContain('calc.py');
+    });
+
+    it('should handle selection references', () => {
+      manager.initialize();
+
+      const fileContexts: FileReference[] = [
+        { 
+          type: 'selection', 
+          path: 'C:\\workspace\\calc.py', 
+          lineStart: 10, 
+          lineEnd: 15,
+          content: 'def divide(): pass' 
+        },
+      ];
+
+      const files = manager.extractRelatedFiles(fileContexts);
+      
+      expect(files).toHaveLength(1);
+      expect(files).toContain('calc.py');
+    });
+  });
+
+  describe('addQueryWithFiles', () => {
+    it('should add query with files from fileContexts', () => {
+      manager.initialize();
+
+      const fileContexts: FileReference[] = [
+        { type: 'file', path: 'C:\\workspace\\calc.py', content: 'def add(): pass' },
+        { type: 'file', path: 'C:\\workspace\\utils.py', content: 'def helper(): pass' },
+      ];
+
+      manager.addQueryWithFiles('fix bug in calc.py', fileContexts);
+
+      const state = manager.getState();
+      expect(state?.queries).toHaveLength(1);
+      expect(state?.queries[0].query).toBe('fix bug in calc.py');
+      expect(state?.queries[0].relatedFiles).toContain('calc.py');
+      expect(state?.queries[0].relatedFiles).toContain('utils.py');
+      expect(manager.getAllRelatedFiles()).toContain('calc.py');
+      expect(manager.getAllRelatedFiles()).toContain('utils.py');
+    });
+
+    it('should add query with files from fileExtractionResult', () => {
+      manager.initialize();
+
+      const fileExtractionResult: FileExtractionResult = {
+        explicitFiles: [
+          { path: 'C:\\workspace\\calc.py', type: 'file', extractedAt: Date.now() },
+        ],
+        detectedFiles: [
+          { path: 'C:\\workspace\\test.py', type: 'file', confidence: 'high', extractedAt: Date.now() },
+        ],
+      };
+
+      manager.addQueryWithFiles('analyze calculator code', [], fileExtractionResult);
+
+      const state = manager.getState();
+      expect(state?.queries).toHaveLength(1);
+      expect(state?.queries[0].query).toBe('analyze calculator code');
+      expect(state?.queries[0].relatedFiles).toContain('calc.py');
+      expect(state?.queries[0].relatedFiles).toContain('test.py');
+    });
+
+    it('should combine files from both fileContexts and fileExtractionResult', () => {
+      manager.initialize();
+
+      const fileContexts: FileReference[] = [
+        { type: 'file', path: 'C:\\workspace\\calc.py', content: 'def add(): pass' },
+      ];
+
+      const fileExtractionResult: FileExtractionResult = {
+        detectedFiles: [
+          { path: 'C:\\workspace\\utils.py', type: 'file', confidence: 'medium', extractedAt: Date.now() },
+        ],
+      };
+
+      manager.addQueryWithFiles('refactor calculator', fileContexts, fileExtractionResult);
+
+      const state = manager.getState();
+      expect(state?.queries[0].relatedFiles).toContain('calc.py');
+      expect(state?.queries[0].relatedFiles).toContain('utils.py');
+      expect(state?.queries[0].relatedFiles).toHaveLength(2);
+    });
+
+    it('should initialize state automatically if not initialized', () => {
+      // Don't call initialize() first
+
+      const fileContexts: FileReference[] = [
+        { type: 'file', path: 'C:\\workspace\\calc.py', content: 'def add(): pass' },
+      ];
+
+      manager.addQueryWithFiles('fix bug', fileContexts);
+
+      const state = manager.getState();
+      expect(state).toBeDefined();
+      expect(state?.queries).toHaveLength(1);
+      expect(state?.queries[0].relatedFiles).toContain('calc.py');
+    });
+
+    it('should handle query with no files', () => {
+      manager.initialize();
+
+      manager.addQueryWithFiles('simple question', [], undefined);
+
+      const state = manager.getState();
+      expect(state?.queries).toHaveLength(1);
+      expect(state?.queries[0].query).toBe('simple question');
+      expect(state?.queries[0].relatedFiles).toEqual([]);
+    });
+
+    it('should deduplicate files when combining sources', () => {
+      manager.initialize();
+
+      const fileContexts: FileReference[] = [
+        { type: 'file', path: 'C:\\workspace\\calc.py', content: 'def add(): pass' },
+      ];
+
+      const fileExtractionResult: FileExtractionResult = {
+        explicitFiles: [
+          { path: 'C:\\workspace\\calc.py', type: 'file', extractedAt: Date.now() },
+        ],
+        detectedFiles: [
+          { path: 'C:\\workspace\\calc.py', type: 'file', confidence: 'high', extractedAt: Date.now() },
+        ],
+      };
+
+      manager.addQueryWithFiles('fix calc.py', fileContexts, fileExtractionResult);
+
+      const state = manager.getState();
+      // calc.py appears in all sources but should only appear once
+      expect(state?.queries[0].relatedFiles.filter(f => f === 'calc.py')).toHaveLength(1);
+      expect(state?.queries[0].relatedFiles).toContain('calc.py');
+    });
+
+    it('should trim query text', () => {
+      manager.initialize();
+
+      const fileContexts: FileReference[] = [
+        { type: 'file', path: 'calc.py', content: 'def add(): pass' },
+      ];
+
+      manager.addQueryWithFiles('  fix bug  ', fileContexts);
+
+      const state = manager.getState();
+      expect(state?.queries[0].query).toBe('fix bug');
     });
   });
 });

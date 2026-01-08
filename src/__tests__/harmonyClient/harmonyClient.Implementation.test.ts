@@ -27,7 +27,8 @@ async function setupImplementationStage(
   await transitionToAssumptions(client, mockHarmonyProcessor);
   
   // Set up default mock for diagnostic file creation
-  // These files are auto-generated when transitioning to implementation stage
+  // aggregated_prompt.json is auto-generated when transitioning to assumptions stage
+  // assumption_data.json is auto-generated when transitioning to implementation stage
   // Use mockResolvedValue to handle any number of diagnostic file calls
   // Tests can then chain mockResolvedValueOnce for their specific calls
   const defaultDiagnosticMock = {
@@ -182,7 +183,9 @@ describe('HarmonyClient - Implementation Stage', () => {
 
       mockNativeToolsManager.getAvailableTools.mockReturnValue([createFileTool, replaceFileTool]);
 
-      // Note: setupImplementationStage already made 2 calls (aggregated_prompt.json, assumption_data.json)
+      // Note: setupImplementationStage already made 2 calls:
+      // 1. aggregated_prompt.json (generated at assumptions stage)
+      // 2. assumption_data.json (generated at implementation stage)
       // First call to create_file returns error about file existing
       mockNativeToolsManager.callTool
         .mockResolvedValueOnce({
@@ -198,7 +201,7 @@ describe('HarmonyClient - Implementation Stage', () => {
       const result = await client.callServer('now create test.txt with new content');
 
       // Verify create_file was called (after diagnostic file calls from setupImplementationStage)
-      // Note: Only assumption_data.json is created (no aggregated_prompt.json since we didn't go through chat->assumptions)
+      // Note: Both aggregated_prompt.json (at assumptions stage) and assumption_data.json (at implementation stage) are created
       const createFileCall = mockNativeToolsManager.callTool.mock.calls.find(
         (call) => call[0] === 'create_file' && call[1]?.file_path === 'test.txt'
       );
@@ -273,7 +276,9 @@ describe('HarmonyClient - Implementation Stage', () => {
       mockNativeToolsManager.getAvailableTools.mockReturnValue([createFileTool]);
 
       // create_file succeeds (file doesn't exist)
-      // Note: setupImplementationStage already made 2 calls (aggregated_prompt.json, assumption_data.json)
+      // Note: setupImplementationStage already made 2 calls:
+      // 1. aggregated_prompt.json (generated at assumptions stage)
+      // 2. assumption_data.json (generated at implementation stage)
       mockNativeToolsManager.callTool.mockResolvedValueOnce({
         content: [{ type: 'text', text: 'Successfully created file: newfile.txt' }],
         isError: false,
@@ -281,8 +286,8 @@ describe('HarmonyClient - Implementation Stage', () => {
 
       const result = await client.callServer('now create newfile.txt with new content');
 
-      // Verify create_file was called (setupImplementationStage made 1 diagnostic call, then this test made 1)
-      // Note: Only assumption_data.json is created (no aggregated_prompt.json since we didn't go through chat->assumptions)
+      // Verify create_file was called (setupImplementationStage made 2 diagnostic calls, then this test made 1)
+      // Note: Both aggregated_prompt.json (at assumptions stage) and assumption_data.json (at implementation stage) are created
       expect(mockNativeToolsManager.callTool).toHaveBeenCalledTimes(2);
       expect(mockNativeToolsManager.callTool).toHaveBeenCalledWith('create_file', {
         file_path: 'newfile.txt',
@@ -413,13 +418,14 @@ describe('HarmonyClient - Implementation Stage', () => {
       const result = await client.callServer('update test.txt to have new content');
 
       // Should have made API calls: helper assumptions(1) + helper implementation(1) + initial(1) + continuation(1) = 4
-      // But setupImplementationStage makes 2 calls, then the test call makes 1, then continuation makes 1 = 4 total
-      // Actually: setupImplementationStage = assumptions(1) + implementation(1) = 2, then test call = 1, continuation = 1, total = 4
+      // But setupImplementationStage makes 2 calls (aggregated_prompt.json at assumptions + assumption_data.json at implementation), 
+      // then the test call makes 1, then continuation makes 1 = 4 total
+      // Actually: setupImplementationStage = aggregated_prompt.json(1) + assumption_data.json(1) = 2, then test call = 1, continuation = 1, total = 4
       expect(mockedAxios.post).toHaveBeenCalledTimes(4);
       
       // Should have executed only the read_file tool call (plus 2 from setupImplementationStage)
       // The continuation to replace_file is blocked because we're already in a continuation
-      // setupImplementationStage made 1 diagnostic call (assumption_data.json), then this test made 1 = 2 total
+      // setupImplementationStage made 2 diagnostic calls (aggregated_prompt.json at assumptions + assumption_data.json at implementation), then this test made 1 = 3 total
       expect(mockNativeToolsManager.callTool).toHaveBeenCalledTimes(2);
       expect(mockNativeToolsManager.callTool).toHaveBeenNthCalledWith(2, 'read_file', { file_path: 'test.txt' });
       
@@ -581,7 +587,9 @@ describe('HarmonyClient - Implementation Stage', () => {
 
       mockNativeToolsManager.getAvailableTools.mockReturnValue([createFileTool]);
 
-      // Note: setupImplementationStage already made 2 calls (aggregated_prompt.json, assumption_data.json)
+      // Note: setupImplementationStage already made 2 calls:
+      // 1. aggregated_prompt.json (generated at assumptions stage)
+      // 2. assumption_data.json (generated at implementation stage)
       mockNativeToolsManager.callTool
         .mockResolvedValueOnce({
           content: [{ type: 'text', text: 'Successfully created file: file1.txt' }],
@@ -599,7 +607,7 @@ describe('HarmonyClient - Implementation Stage', () => {
       expect(result.toolCalls?.[0].arguments.file_path).toBe('file1.txt');
       expect(result.toolCalls?.[1].name).toBe('create_file');
       expect(result.toolCalls?.[1].arguments.file_path).toBe('file2.txt');
-      // setupImplementationStage made 1 diagnostic call (assumption_data.json), then this test made 2 more = 3 total
+      // setupImplementationStage made 2 diagnostic calls (aggregated_prompt.json at assumptions + assumption_data.json at implementation), then this test made 2 more = 4 total
       expect(mockNativeToolsManager.callTool).toHaveBeenCalledTimes(3);
     });
 

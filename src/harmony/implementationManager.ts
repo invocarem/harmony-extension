@@ -5,6 +5,8 @@
 
 import { ProgressPlanManager, ProgressPlan, PlanStep } from "../progressPlanManager";
 import { CodeContext } from "./codeContext";
+import { ConversationContextManager } from "./conversationContext";
+import { NativeToolsManager } from "../nativeToolManager";
 
 /**
  * Represents a file created during implementation stage
@@ -483,6 +485,100 @@ export class ImplementationManager {
     const createdCount = this.state.createdFiles.length;
 
     return `Implementation progress: ${completedCount}/${totalSteps} step(s) completed, ${createdCount} file(s) created.`;
+  }
+
+  /**
+   * Generate assumption_data.json file when transitioning from assumptions to implementation stage
+   * Creates the CodeContext and generates the diagnostic file
+   * 
+   * @param assumptionsExport - Data exported from assumptions stage
+   * @param nativeToolsManager - Tool manager to create the file
+   * @param contextManager - Context manager to store CodeContext
+   */
+  async generateAssumptionDataFile(
+    assumptionsExport: {
+      assumptions: string[];
+      codeSnippets: Array<{ file: string; description?: string }>;
+      progressPlan?: ProgressPlan;
+      summary: string;
+    },
+    nativeToolsManager?: NativeToolsManager,
+    contextManager?: ConversationContextManager
+  ): Promise<void> {
+    // Create assumption_data.json CodeContext with progressPlan
+    // Note: planSteps is redundant (it's already in progressPlan.steps), so we don't include it
+    const assumptionsData = {
+      assumptions: assumptionsExport.assumptions,
+      codeSnippets: assumptionsExport.codeSnippets,
+      progressPlan: assumptionsExport.progressPlan,
+      summary: assumptionsExport.summary,
+    };
+
+    const assumptionDataJson = JSON.stringify(assumptionsData, null, 2);
+    const assumptionDataLines = assumptionDataJson.split('\n');
+    const assumptionDataContext = new CodeContext(
+      'assumption_data.json',
+      assumptionDataLines,
+      false, // waitForCreate: false - just store, don't create file yet
+      'v1',
+      Date.now(),
+      'Assumptions and analysis data from assumptions stage'
+    );
+
+    // Store in context manager if provided
+    if (contextManager) {
+      contextManager.addCodeContext(assumptionDataContext);
+      console.log(`[ImplementationManager] Saved assumption_data to CodeContext (${assumptionsExport.assumptions.length} assumptions, ${assumptionsExport.codeSnippets.length} code snippets${assumptionsExport.progressPlan ? `, plan with ${assumptionsExport.progressPlan.totalSteps} step(s)` : ''})`);
+    }
+
+    // Generate the file if nativeToolsManager is provided
+    if (nativeToolsManager && contextManager) {
+      const context = contextManager.getContext();
+      if (context?.codeContexts) {
+        const versions = context.codeContexts.get('assumption_data.json');
+        if (versions) {
+          const activeVersion = versions.find(v => v.isActive);
+          if (activeVersion && !activeVersion.waitForCreate) {
+            try {
+              const content = activeVersion.getContentAsString();
+              if (content && content.trim().length > 0) {
+                console.log(`[ImplementationManager] Implementation stage: Auto-generating diagnostic file: assumption_data.json`);
+                try {
+                  const createResult = await nativeToolsManager.callTool('create_file', {
+                    file_path: 'assumption_data.json',
+                    content: content
+                  });
+                  
+                  if (createResult && !createResult.isError) {
+                    console.log(`[ImplementationManager] ✅ Successfully created diagnostic file: assumption_data.json`);
+                  } else if (createResult && createResult.content?.[0]?.text?.includes('already exists')) {
+                    // File exists, use replace_file
+                    const replaceResult = await nativeToolsManager.callTool('replace_file', {
+                      file_path: 'assumption_data.json',
+                      content: content
+                    });
+                    if (replaceResult && !replaceResult.isError) {
+                      console.log(`[ImplementationManager] ✅ Successfully updated diagnostic file: assumption_data.json`);
+                    } else {
+                      const errorMsg = replaceResult?.content?.[0]?.text || 'Unknown error';
+                      console.warn(`[ImplementationManager] ⚠️ Failed to update diagnostic file assumption_data.json: ${errorMsg}`);
+                    }
+                  } else {
+                    const errorMsg = createResult?.content?.[0]?.text || 'Unknown error';
+                    console.warn(`[ImplementationManager] ⚠️ Failed to create diagnostic file assumption_data.json: ${errorMsg}`);
+                  }
+                } catch (error: any) {
+                  // Silently ignore errors during diagnostic file creation (non-critical)
+                  console.warn(`[ImplementationManager] ⚠️ Error creating diagnostic file assumption_data.json:`, error.message || error);
+                }
+              }
+            } catch (error: any) {
+              console.warn(`[ImplementationManager] ⚠️ Error creating diagnostic file assumption_data.json:`, error);
+            }
+          }
+        }
+      }
+    }
   }
 }
 

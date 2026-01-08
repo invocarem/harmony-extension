@@ -2,7 +2,7 @@
   "name": "harmony-extension",
   "displayName": "Harmony Extension",
   "description": "AI code assistant powered by GPT-OSS-120B with Harmony protocol",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "publisher": "dashtotherock",
   "repository": {
     "type": "git",

@@ -252,5 +252,228 @@ describe('HarmonyClient - Assumptions Stage', () => {
       expect(updatedContext?.progressPlan?.taskId).toBe(plan?.taskId);
     });
   });
+
+  describe('aggregated_prompt.json Generation', () => {
+    it('should generate aggregated_prompt.json file when transitioning from chat to assumptions stage', async () => {
+      // Set up NativeToolsManager with create_file tool
+      const createFileTool: NativeTool = {
+        name: 'create_file',
+        description: 'Create a new file',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            file_path: { type: 'string', description: 'Path to the file' },
+            content: { type: 'string', description: 'Content to write' },
+          },
+          required: ['file_path', 'content'],
+        },
+      } as any;
+
+      mockNativeToolsManager.getAvailableTools.mockReturnValue([createFileTool]);
+      
+      // Mock successful file creation
+      mockNativeToolsManager.callTool.mockResolvedValue({
+        content: [{ type: 'text', text: 'Successfully created file: aggregated_prompt.json' }],
+        isError: false,
+      });
+
+      // Set up conversation history with user queries and assistant responses
+      const conversationHistory = [
+        { role: 'user' as const, content: 'create hello.py with greet function' },
+        { role: 'assistant' as const, content: 'I will help you create hello.py with a greet function.' },
+        { role: 'user' as const, content: 'write unit test for it' },
+        { role: 'assistant' as const, content: 'I will write unit tests for the greet function.' },
+        { role: 'user' as const, content: 'create README' },
+        { role: 'assistant' as const, content: 'I will create a README file.' },
+        { role: 'user' as const, content: 'move to assumptions' }, // Transition command
+      ];
+
+      // Initialize context in chat stage
+      const contextManager = (client as any).contextManager;
+      contextManager.initialize('create hello.py with greet function', 'chat');
+
+      // Set up ChatManager with queries
+      const chatManager = client.getChatManager();
+      chatManager.initialize();
+      chatManager.addQuery('create hello.py with greet function');
+      chatManager.addQuery('write unit test for it');
+      chatManager.addQuery('create README');
+
+      // Mock response for transition to assumptions
+      const mockResponse = {
+        status: 200,
+        data: {
+          choices: [{ text: '<|channel|>final<|message|>Moving to assumptions stage<|end|>' }],
+        },
+      };
+
+      mockedAxios.post.mockResolvedValueOnce(mockResponse);
+
+      mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
+        content: 'Moving to assumptions stage',
+        rawToolCalls: [],
+      });
+
+      mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
+
+      // Transition to assumptions with conversation history
+      await client.callServer(
+        'move to assumptions',
+        'assumptions',
+        undefined,
+        false,
+        conversationHistory
+      );
+
+      // Verify aggregated_prompt.json file was generated
+      expect(mockNativeToolsManager.callTool).toHaveBeenCalledWith(
+        'create_file',
+        expect.objectContaining({
+          file_path: 'aggregated_prompt.json',
+          content: expect.stringContaining('"queries"'),
+        })
+      );
+
+      // Verify the file content has correct structure
+      const createFileCall = mockNativeToolsManager.callTool.mock.calls.find(
+        (call) => call[0] === 'create_file' && call[1]?.file_path === 'aggregated_prompt.json'
+      );
+      expect(createFileCall).toBeDefined();
+
+      if (createFileCall) {
+        const fileContent = createFileCall[1]?.content as string;
+        const promptData = JSON.parse(fileContent);
+
+        // Verify JSON structure
+        expect(promptData).toHaveProperty('queries');
+        expect(promptData).toHaveProperty('assistantResponses');
+        expect(promptData).toHaveProperty('relatedFiles');
+        expect(promptData).toHaveProperty('summary');
+
+        // Verify queries are included (excluding transition command)
+        expect(promptData.queries).toBeInstanceOf(Array);
+        expect(promptData.queries).toContain('create hello.py with greet function');
+        expect(promptData.queries).toContain('write unit test for it');
+        expect(promptData.queries).toContain('create README');
+        expect(promptData.queries).not.toContain('move to assumptions');
+        expect(promptData.queries.length).toBe(3);
+
+        // Verify assistant responses are included
+        expect(promptData.assistantResponses).toBeInstanceOf(Array);
+        expect(promptData.assistantResponses.length).toBe(3);
+        expect(promptData.assistantResponses[0].content).toContain('help you create hello.py');
+        expect(promptData.assistantResponses[1].content).toContain('write unit tests');
+        expect(promptData.assistantResponses[2].content).toContain('create a README');
+
+        // Verify summary
+        expect(promptData.summary).toContain('3 queries');
+        expect(promptData.summary).toContain('3 assistant responses');
+      }
+
+      // Verify stage transitioned to assumptions
+      expect(client.getCurrentStage()).toBe('assumptions');
+    });
+
+    it('should update existing aggregated_prompt.json file if it already exists', async () => {
+      // Set up NativeToolsManager with both create_file and replace_file tools
+      const createFileTool: NativeTool = {
+        name: 'create_file',
+        description: 'Create a new file',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            file_path: { type: 'string', description: 'Path to the file' },
+            content: { type: 'string', description: 'Content to write' },
+          },
+          required: ['file_path', 'content'],
+        },
+      } as any;
+
+      const replaceFileTool: NativeTool = {
+        name: 'replace_file',
+        description: 'Replace file contents',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            file_path: { type: 'string', description: 'Path to the file' },
+            content: { type: 'string', description: 'Content to write' },
+          },
+          required: ['file_path', 'content'],
+        },
+      } as any;
+
+      mockNativeToolsManager.getAvailableTools.mockReturnValue([createFileTool, replaceFileTool]);
+
+      // First call to create_file returns error (file exists), second call to replace_file succeeds
+      mockNativeToolsManager.callTool
+        .mockResolvedValueOnce({
+          content: [{ type: 'text', text: 'Error: File aggregated_prompt.json already exists. Use replace_file to overwrite it.' }],
+          isError: true,
+        })
+        .mockResolvedValueOnce({
+          content: [{ type: 'text', text: 'Successfully replaced file: aggregated_prompt.json' }],
+          isError: false,
+        });
+
+      // Set up conversation history
+      const conversationHistory = [
+        { role: 'user' as const, content: 'analyze the codebase' },
+        { role: 'assistant' as const, content: 'I will analyze the codebase.' },
+        { role: 'user' as const, content: 'move to assumptions' },
+      ];
+
+      // Initialize context in chat stage
+      const contextManager = (client as any).contextManager;
+      contextManager.initialize('analyze the codebase', 'chat');
+
+      const chatManager = client.getChatManager();
+      chatManager.initialize();
+      chatManager.addQuery('analyze the codebase');
+
+      // Mock response for transition
+      const mockResponse = {
+        status: 200,
+        data: {
+          choices: [{ text: '<|channel|>final<|message|>Moving to assumptions stage<|end|>' }],
+        },
+      };
+
+      mockedAxios.post.mockResolvedValueOnce(mockResponse);
+      mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
+        content: 'Moving to assumptions stage',
+        rawToolCalls: [],
+      });
+      mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
+
+      // Transition to assumptions
+      await client.callServer(
+        'move to assumptions',
+        'assumptions',
+        undefined,
+        false,
+        conversationHistory
+      );
+
+      // Verify create_file was called first (file exists error)
+      const createFileCall = mockNativeToolsManager.callTool.mock.calls.find(
+        (call) => call[0] === 'create_file' && call[1]?.file_path === 'aggregated_prompt.json'
+      );
+      expect(createFileCall).toBeDefined();
+
+      // Verify replace_file was called second (update existing file)
+      const replaceFileCall = mockNativeToolsManager.callTool.mock.calls.find(
+        (call) => call[0] === 'replace_file' && call[1]?.file_path === 'aggregated_prompt.json'
+      );
+      expect(replaceFileCall).toBeDefined();
+
+      // Verify the file content in replace call
+      if (replaceFileCall) {
+        const fileContent = replaceFileCall[1]?.content as string;
+        const promptData = JSON.parse(fileContent);
+        expect(promptData.queries).toContain('analyze the codebase');
+        expect(promptData.queries).not.toContain('move to assumptions');
+      }
+    });
+  });
 });
 

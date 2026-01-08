@@ -142,8 +142,11 @@ describe('HarmonyAssistant', () => {
     // Setup HarmonyClient mock
     const mockChatManager = {
       addQuery: jest.fn(),
+      addQueryWithFiles: jest.fn(),
+      extractRelatedFiles: jest.fn().mockReturnValue([]),
       getAggregatedPrompt: jest.fn().mockReturnValue(''),
       updateProblemSummary: jest.fn(),
+      updateProblemSummaryFromResponse: jest.fn(),
       hasContent: jest.fn().mockReturnValue(false),
       getAllQueries: jest.fn().mockReturnValue([]),
       getMeaningfulQueries: jest.fn().mockReturnValue([]),
@@ -495,12 +498,19 @@ describe('HarmonyAssistant', () => {
         { fsPath: '/workspace/test.ts' },
         { fsPath: '/workspace/hello.py' },
       ]);
-      (vscode.workspace.asRelativePath as jest.Mock).mockImplementation((path: string) => {
-        // Return just the filename for simplicity
+      (vscode.workspace.asRelativePath as jest.Mock).mockImplementation((path: string | any) => {
+        // Handle both string and Uri-like objects (with fsPath property)
+        let pathString: string;
         if (typeof path === 'string') {
-          return path.split('/').pop() || path;
+          pathString = path;
+        } else if (path && typeof path === 'object' && path.fsPath) {
+          pathString = path.fsPath;
+        } else {
+          // Fallback: return as string if possible
+          pathString = String(path);
         }
-        return path;
+        // Return just the filename for simplicity
+        return pathString.split('/').pop() || pathString;
       });
     });
 

@@ -15,7 +15,7 @@ describe('AutoTransitionManager', () => {
     it('should detect "hard" complexity for exact user prompt format with Step 1., Step 2., Step 3.', () => {
       const originalPrompt = `help me to create a hello module
 Step 1. create hello.py which greet function and main block
-Step 2. create hello.test.py to test greet
+Step 2. create test_hello.py to test greet
 Step 3. write hello.md to document hello module`;
 
       // Test that it detects from originalPrompt when LLM response doesn't have steps

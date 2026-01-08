@@ -5,6 +5,10 @@
 
 import { ProgressPlanManager, ProgressPlan, PlanStep } from "../progressPlanManager";
 import { AutoTransitionManager } from "./autoTransitionManager";
+import { NativeToolsManager } from "../nativeToolManager";
+import { ConversationContextManager } from "./conversationContext";
+import { CodeContext } from "./codeContext";
+import { ChatMessage } from "../conversationManager";
 
 /**
  * Represents a code snippet extracted during assumptions stage
@@ -305,6 +309,106 @@ export class AssumptionsManager {
       this.state.assumptions.length > 0 || 
       this.state.codeSnippets.length > 0
     );
+  }
+
+  /**
+   * Generate aggregated_prompt.json file when transitioning from chat to assumptions stage
+   * Creates the CodeContext and generates the diagnostic file
+   * 
+   * @param chatData - Data from chat stage (queries, assistant responses, related files)
+   * @param conversationHistory - Full conversation history to extract chat stage messages
+   * @param nativeToolsManager - Tool manager to create the file
+   * @param contextManager - Context manager to store CodeContext
+   */
+  async generateAggregatedPromptFile(
+    chatData: {
+      queries: string[];
+      assistantResponses: Array<{ content: string; reasoning?: string }>;
+      relatedFiles: string[];
+    },
+    conversationHistory: readonly ChatMessage[] | undefined,
+    nativeToolsManager?: NativeToolsManager,
+    contextManager?: ConversationContextManager
+  ): Promise<void> {
+    if (!chatData.queries || chatData.queries.length === 0) {
+      console.log(`[AssumptionsManager] No chat queries to aggregate, skipping aggregated_prompt.json generation`);
+      return;
+    }
+
+    // Create JSON structure for aggregated_prompt
+    const aggregatedPromptData = {
+      queries: chatData.queries,
+      assistantResponses: chatData.assistantResponses || [],
+      relatedFiles: chatData.relatedFiles || [],
+      summary: `Aggregated user queries from chat stage: ${chatData.queries.length} queries, ${chatData.assistantResponses.length || 0} assistant responses, ${chatData.relatedFiles.length || 0} related files`
+    };
+
+    // Save aggregatedPrompt as JSON to CodeContext
+    const promptJson = JSON.stringify(aggregatedPromptData, null, 2);
+    const promptLines = promptJson.split('\n');
+    const promptContext = new CodeContext(
+      'aggregated_prompt.json',
+      promptLines,
+      false, // waitForCreate: false - just store, don't create file yet
+      'v1',
+      Date.now(),
+      'Aggregated user queries and assistant responses from chat stage'
+    );
+
+    // Store in context manager if provided
+    if (contextManager) {
+      contextManager.addCodeContext(promptContext);
+      console.log(`[AssumptionsManager] Saved aggregatedPrompt to CodeContext (${chatData.queries.length} queries, ${chatData.assistantResponses.length || 0} assistant responses, ${chatData.relatedFiles.length || 0} related files)`);
+    }
+
+    // Generate the file if nativeToolsManager is provided
+    if (nativeToolsManager && contextManager) {
+      const context = contextManager.getContext();
+      if (context?.codeContexts) {
+        const versions = context.codeContexts.get('aggregated_prompt.json');
+        if (versions) {
+          const activeVersion = versions.find(v => v.isActive);
+          if (activeVersion && !activeVersion.waitForCreate) {
+            try {
+              const content = activeVersion.getContentAsString();
+              if (content && content.trim().length > 0) {
+                console.log(`[AssumptionsManager] Assumptions stage: Auto-generating diagnostic file: aggregated_prompt.json`);
+                try {
+                  const createResult = await nativeToolsManager.callTool('create_file', {
+                    file_path: 'aggregated_prompt.json',
+                    content: content
+                  });
+                  
+                  if (createResult && !createResult.isError) {
+                    console.log(`[AssumptionsManager] ✅ Successfully created diagnostic file: aggregated_prompt.json`);
+                  } else if (createResult && createResult.content?.[0]?.text?.includes('already exists')) {
+                    // File exists, use replace_file
+                    const replaceResult = await nativeToolsManager.callTool('replace_file', {
+                      file_path: 'aggregated_prompt.json',
+                      content: content
+                    });
+                    if (replaceResult && !replaceResult.isError) {
+                      console.log(`[AssumptionsManager] ✅ Successfully updated diagnostic file: aggregated_prompt.json`);
+                    } else {
+                      const errorMsg = replaceResult?.content?.[0]?.text || 'Unknown error';
+                      console.warn(`[AssumptionsManager] ⚠️ Failed to update diagnostic file aggregated_prompt.json: ${errorMsg}`);
+                    }
+                  } else {
+                    const errorMsg = createResult?.content?.[0]?.text || 'Unknown error';
+                    console.warn(`[AssumptionsManager] ⚠️ Failed to create diagnostic file aggregated_prompt.json: ${errorMsg}`);
+                  }
+                } catch (error: any) {
+                  // Silently ignore errors during diagnostic file creation (non-critical)
+                  console.warn(`[AssumptionsManager] ⚠️ Error creating diagnostic file aggregated_prompt.json:`, error.message || error);
+                }
+              }
+            } catch (error: any) {
+              console.warn(`[AssumptionsManager] ⚠️ Error creating diagnostic file aggregated_prompt.json:`, error);
+            }
+          }
+        }
+      }
+    }
   }
 }
 
