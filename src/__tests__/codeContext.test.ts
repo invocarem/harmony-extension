@@ -130,6 +130,28 @@ describe('CodeContext', () => {
       expect(result?.version).toBe('v2');
       expect(result?.content).toContain('print("Hello")');
     });
+
+    it('should extract filename from # hello.py comment at start of code block', () => {
+      const codeBlock = `\`\`\`python
+# hello.py
+"""
+Simple greeting application.
+"""
+
+def main() -> None:
+    print("Hello, World!")
+
+if __name__ == "__main__":
+    main()
+\`\`\``;
+      const result = CodeContext.fromCodeBlock(codeBlock);
+      
+      expect(result).not.toBeNull();
+      expect(result?.name).toBe('hello.py');
+      expect(result?.content.length).toBeGreaterThan(0);
+      // content is an array, so check if any line contains 'def main()'
+      expect(result?.content.some(line => line.includes('def main()'))).toBe(true);
+    });
   });
 });
 

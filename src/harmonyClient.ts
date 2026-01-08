@@ -103,7 +103,7 @@ export class HarmonyClient {
     this.autoTransitionManager = new AutoTransitionManager(this.progressPlanManager);
     this.assumptionsManager = new AssumptionsManager(this.progressPlanManager, this.autoTransitionManager);
     this.implementationManager = new ImplementationManager(this.progressPlanManager);
-    this.stageHandlerRegistry = new StageHandlerRegistry(this.implementationManager);
+    this.stageHandlerRegistry = new StageHandlerRegistry(this.implementationManager, this.chatManager);
     this.stageDetector = new StageDetector(this.stageStateMachine);
     this.promptBuilder = new PromptBuilder(
       config,
@@ -1030,6 +1030,35 @@ export class HarmonyClient {
 
       toolCalls = validation.allowedToolCalls;
 
+      // Use stage handler to filter tool calls (e.g., chat stage prevents reading non-existent files)
+      const stageHandler = this.stageHandlerRegistry.getHandler(currentStage);
+      if (stageHandler.filterToolCalls) {
+        const filterResult = await stageHandler.filterToolCalls(
+          toolCalls,
+          context,
+          conversationHistory,
+          this.nativeToolsManager
+        );
+        
+        if (filterResult.blocked.length > 0) {
+          console.log(
+            `[Harmony] Stage handler filtered out ${filterResult.blocked.length} tool call(s) in ${currentStage} stage: ${filterResult.blocked.map((tc) => tc.name).join(", ")}`
+          );
+          // Update content to explain why tool calls were blocked
+          if (currentStage === 'chat' && filterResult.blocked.some(tc => tc.name === 'read_file')) {
+            const blockedFiles = filterResult.blocked
+              .filter(tc => tc.name === 'read_file')
+              .map(tc => tc.arguments?.file_path || tc.arguments?.filePath)
+              .filter(Boolean);
+            if (blockedFiles.length > 0) {
+              content = `${content}\n\nNote: I cannot read ${blockedFiles.join(', ')} as ${blockedFiles.length === 1 ? 'it doesn\'t exist yet' : 'they don\'t exist yet'}. ${blockedFiles.length === 1 ? 'This file' : 'These files'} will be created in the implementation stage.`;
+            }
+          }
+        }
+        
+        toolCalls = filterResult.filtered;
+      }
+
       // Legacy assumptions stage code (to be removed after handler is fully tested)
       try {
         const hasToolCalls = parsed.rawToolCalls && parsed.rawToolCalls.length > 0;
@@ -1139,7 +1168,8 @@ export class HarmonyClient {
             this.contextManager,
             this.progressPlanManager,
             this.autoTransitionManager,
-            this.nativeToolsManager
+            this.nativeToolsManager,
+            conversationHistory
           );
         }
 
