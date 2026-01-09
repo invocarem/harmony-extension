@@ -252,5 +252,15 @@ export function updateStageIndicator(stage?: 'init' | 'chat' | 'assumptions' | '
             arrowAssumptionsToImplementation.classList.add('disabled');
         }
     }
+    
+    const buttonNextStep = document.getElementById('button-next-step') as HTMLButtonElement;
+    if (buttonNextStep) {
+        // Enable if we're in implementation stage
+        if (stage === 'implementation') {
+            buttonNextStep.classList.remove('disabled');
+        } else {
+            buttonNextStep.classList.add('disabled');
+        }
+    }
 }
 

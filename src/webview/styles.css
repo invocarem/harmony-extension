@@ -685,4 +685,7 @@ tr:nth-child(even) {
     background: transparent;
     color: var(--vscode-descriptionForeground);
 }
+#button-next-step {
+    margin-left: -10px;
+}
 

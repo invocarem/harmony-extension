@@ -111,6 +111,7 @@ fileButton.addEventListener('click', () => {
 // Stage transition arrows
 const arrowChatToAssumptions = document.getElementById('arrow-chat-to-assumptions');
 const arrowAssumptionsToImplementation = document.getElementById('arrow-assumptions-to-implementation');
+const buttonNextStep = document.getElementById('button-next-step');
 
 if (arrowChatToAssumptions) {
     arrowChatToAssumptions.addEventListener('click', () => {
@@ -148,6 +149,24 @@ if (arrowAssumptionsToImplementation) {
     });
 }
 
+if (buttonNextStep) {
+    buttonNextStep.addEventListener('click', () => {
+        // Don't allow action if button is disabled
+        if (buttonNextStep.classList.contains('disabled')) {
+            return;
+        }
+        // Send @cmd:next_step command
+        const message = '@cmd:next_step';
+        addMessage(message, true, undefined, undefined);
+        addTypingIndicator();
+        vscode.postMessage({
+            command: 'sendMessage',
+            text: message
+        });
+        messageInput.focus();
+    });
+}
+
 // Listen for messages from extension
 window.addEventListener('message', (event) => {
     handleExtensionMessage(event.data);
@@ -166,6 +185,9 @@ if (arrowChatToAssumptions) {
 }
 if (arrowAssumptionsToImplementation) {
     arrowAssumptionsToImplementation.classList.add('disabled');
+}
+if (buttonNextStep) {
+    buttonNextStep.classList.add('disabled');
 }
 
 // Show/hide shortcut hint
