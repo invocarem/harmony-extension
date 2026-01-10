@@ -46,9 +46,9 @@ describe('StageStateMachine', () => {
       expect(instructions).toContain('create_file');
       expect(instructions).toContain('replace_file');
       expect(instructions).toContain('All tools are available');
-      expect(instructions).toContain('conversation history');
-      expect(instructions).toContain('If code exists in conversation history');
-      expect(instructions).toContain('If code doesn\'t exist');
+      expect(instructions).toContain('Follow the plan');
+      expect(instructions).toContain('based on the plan');
+      expect(instructions).toContain('Assumptions stage provides the plan');
     });
 
     it('should return empty string for invalid stage', () => {
