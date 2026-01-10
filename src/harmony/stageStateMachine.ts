@@ -279,46 +279,51 @@ You are in the **Chat/Clarification** stage. Your goal is to:
 
 **MCP Tools are AVAILABLE**: Use MCP tools (analyze_latin, data lookups, etc.) when needed by calling: \`<tool_call name="tool_name" args='{"param": "value"}' />\`
 
-**Your goal is to:**
+**Your goal in Assumptions stage:**
 - **Use MCP tools immediately** when data is needed - don't just describe what you would do
 - **Analyze comprehensively**: Review ALL conversation history from the beginning - examine ALL user messages to identify ALL distinct requests, not just the first or most recent one
 - **Identify all requirements**: Count and list all user requests from the conversation history. If there are 3 requests, you must address all 3
 - **Assess complexity**: Determine task complexity based on ALL requirements identified (simple = 1-2 steps, hard = 3+ steps)
 - **Create numbered plan**: You MUST format your plan steps as "Step 1:", "Step 2:", "Step 3:" (with colon) - this is critical for the system to detect complexity correctly
 - **Address all requirements**: Your plan must cover ALL identified user requirements from the conversation, not just one
-- **Provide code snippets** in markdown code blocks with file paths (e.g., \`\`\`python calc.py)
+- **List assumptions and edge cases**: Clearly state what assumptions you're making and what edge cases to consider
 - Use read/search tools (read_file, grep_files, list_files) to understand the codebase
+- **DO NOT generate actual code** - that's for the Implementation stage
 
 **ABSOLUTE REQUIREMENTS:**
 - ❌ DO NOT use any file modification tools
+- ❌ DO NOT provide code snippets or code blocks - that's for Implementation stage
 - ✅ DO use MCP tools when the user's request requires them
 - ✅ DO review ALL conversation history to identify ALL user requests
 - ✅ DO format your plan with explicit step numbering: "Step 1:", "Step 2:", "Step 3:" (with colon)
 - ✅ DO create a step for each distinct user request you identified
-- ✅ DO provide code snippets in markdown code blocks with file paths
-- ✅ DO explain your assumptions clearly`,
+- ✅ DO explain your assumptions and edge cases clearly
+- ✅ DO describe what needs to be done (not how to implement it in code)`,
 
 
 'implementation': `## Current Stage: IMPLEMENTATION
 
 You are in the **Implementation** stage. Your goal is to:
+- **Follow the plan** created in the Assumptions/Analysis stage
+- **Generate code snippets** - Create the actual code content for each file
 - **Call create_file or replace_file tool** to create/modify files
 - Use create_file for new files, replace_file for modifying existing files
 - All tools are available, including file modification tools
 
-**CODE SOURCE PRIORITY**:
-1. **First, check conversation history** - Use code snippets from the Analysis stage if available
-2. **If no code exists in history** - Generate the code content needed for the file
+**Implementation stage will:**
+- Follow your plan from the Assumptions stage
+- Generate code snippets with actual implementation
+- Create/update files using tool calls
 
 **IMPORTANT**:
 - Your response MUST include a tool call (create_file or replace_file)
+- **Generate the code content** needed for each file based on the plan
 - **DO NOT try to read files that should be created** - If a file doesn't exist yet, just create it directly
-- If code exists in conversation history, extract and use it (be efficient)
-- If code doesn't exist, generate it as part of your tool call
+- Follow the numbered steps from the plan created in Assumptions stage
 - Keep responses concise - focus on executing the file creation
 - Example: <tool_call name="create_file" args='{"file_path": "hello.py", "content": "print(\\\"Hello!\\\")"}' />
 
-**Note**: Prefer using code from Analysis stage if available. Generate code only if needed.`
+**Note**: The Assumptions stage provides the plan and analysis. Your job is to implement it by generating actual code and creating files.`
 
       };
 

@@ -442,42 +442,20 @@ class AssumptionsStageHandler implements StageHandler {
   ): Promise<void> {
     if (!context) return;
 
-    const hasToolCalls = parsed.rawToolCalls && parsed.rawToolCalls.length > 0;
+    // Assumptions stage should NOT extract code snippets
+    // The goal is analysis, planning, and listing assumptions - NOT code generation
+    // Code generation happens in Implementation stage
     
-    // Extract code snippets and create CodeContext objects
-    if (content && !hasToolCalls && toolCalls.length === 0) {
-      console.log(`[StageHandler:Assumptions] Extracting code snippets from content...`);
-      const codeBlockPattern = /```(?:\w+)?\s*[\n ]([\s\S]*?)```/g;
-      const matches = content.matchAll(codeBlockPattern);
-      let codeBlockCount = 0;
-      
-      for (const match of matches) {
-        try {
-          const codeBlock = match[0];
-          const codeContext = CodeContext.fromCodeBlock(codeBlock);
-          
-          if (codeContext) {
-            // Get the current user prompt from context for description extraction
-            // Use the most recent prompt from stage history, or fall back to originalPrompt
-            const recentPrompt = context.stageHistory.length > 0 
-              ? context.stageHistory[context.stageHistory.length - 1].prompt 
-              : context.originalPrompt;
-            contextManager.addCodeContext(codeContext, recentPrompt, content);
-            codeBlockCount++;
-            console.log(`[StageHandler:Assumptions] Extracted code context for file: ${codeContext.name} (version: ${codeContext.version})`);
-          }
-        } catch (error) {
-          console.warn(`[StageHandler:Assumptions] Failed to extract code context:`, error);
-        }
-      }
-      
-      if (codeBlockCount > 0) {
-        console.log(`[StageHandler:Assumptions] Added ${codeBlockCount} code context(s)`);
-      }
-
-      // Plan creation/update is now handled by AssumptionsManager in harmonyClient.ts
-      // This handler only processes code context extraction (handled above)
+    // Check if model mistakenly generated code snippets (should not happen with proper instructions)
+    const hasCodeSnippets = /```[\s\S]*?```/.test(content);
+    if (hasCodeSnippets) {
+      console.warn(`[StageHandler:Assumptions] ⚠️ Code snippets detected in assumptions stage (unexpected). Assumptions stage should focus on analysis and planning, not code generation. Code should be generated in Implementation stage.`);
+      // We still won't extract them - let Implementation stage handle code generation
     }
+
+    // Plan creation/update is handled by AssumptionsManager in harmonyClient.ts
+    // This handler doesn't need to do anything else for assumptions stage
+    console.log(`[StageHandler:Assumptions] Assumptions stage post-processing complete. Plan creation handled by AssumptionsManager.`);
   }
 }
 

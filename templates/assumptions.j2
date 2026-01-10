@@ -16,10 +16,23 @@
 - **Don't combine unrelated requests** - Each distinct user request should have its own step unless they're truly part of one task
 
 **Workflow:**
-- **Brief my code** - Briefly mention any assumptions you are making about my code context
 - **Analyze comprehensively** - Review ALL conversation history to identify ALL user requests
+- **List assumptions** - Clearly state any assumptions you're making about the codebase, requirements, or context
+- **List edge cases** - Identify edge cases and special considerations that need to be handled
 - **Create numbered plan** - Format your plan with clear step numbering: "Step 1:", "Step 2:", "Step 3:"
-- **Proceed to solution** - Provide the code solution or analysis with your numbered plan
+- **DO NOT generate code** - Describe what needs to be done, not the actual implementation. Code generation happens in the Implementation stage.
+
+**Your Response Should Include:**
+1. Restatement of the problem/requirements
+2. Assumptions about the codebase and context
+3. Edge cases and special considerations
+4. Numbered plan (Step 1:, Step 2:, Step 3:) describing what needs to be done
+5. Complexity assessment
+
+**DO NOT include:**
+- Code snippets or code blocks
+- Actual implementation details
+- File creation tool calls
 
 {{rules}}
 

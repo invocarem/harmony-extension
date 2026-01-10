@@ -108,44 +108,64 @@ export class ContinuationManager {
     currentContent: string,
     conversationContext: ConversationContext | null
   ): boolean {
-    // Check if this is a file task with only discovery tools - allow continuation to implementation
-    const isFileTask = /(?:update|create|write|modify|edit|generate).*\.(?:md|txt|json|js|ts|py|java|cpp|c|html|css)/i.test(originalPrompt.toLowerCase());
-    const onlyDiscoveryTools = executedToolCalls.every(tc => 
-      ['list_files', 'read_file', 'grep_files', 'search', 'find'].includes(tc.name)
-    );
-    const hasFileModification = executedToolCalls.some(tc => 
-      ['create_file', 'replace_file', 'write_file', 'update_file'].includes(tc.name)
-    );
+    // Assumptions stage goal: Analyze, create plan, list assumptions - NOT generate code
+    // Check if we have a complete plan and analysis
     
-    // Auto-transition from Assumptions to Implementation is DISABLED
-    // Users must explicitly type "move to implementation" to transition
-    // This ensures users have control over when to proceed to implementation stage
-    // 
-    // Previously, if it was a file task with only discovery tools, we would auto-transition.
-    // Now we require explicit user command:
-    // if (isFileTask && onlyDiscoveryTools && !hasFileModification) {
-    //   ... auto-transition code ...
-    //   return true;
-    // }
+    // Check if a plan exists and is complete
+    const plan = conversationContext?.progressPlan;
+    const hasPlan = !!plan;
+    const planComplete = hasPlan && plan.totalSteps > 0;
     
-    // In assumptions stage, completion is when code snippets are provided
+    // Check for plan indicators in the response
+    const hasPlanSteps = /step\s+\d+:/i.test(currentContent);
+    const hasAssumptions = /(?:assumption|assume|assuming|edge\s+case|consideration)/i.test(currentContent.toLowerCase());
+    const hasAnalysis = /(?:analyze|analysis|complexity|requirement|identify)/i.test(currentContent.toLowerCase());
+    
+    // Check if we have code snippets (should NOT have them in assumptions stage)
     const hasCodeSnippets = /```[\s\S]*?```/.test(currentContent);
-    const hasCompletionPhrase = /(?:here'?s|here is|below|above).*(?:code|snippet|solution|example)/i.test(currentContent.toLowerCase());
-    
-    // Check for explicit continuation hints
-    const hasContinuationHint = /(?:next|continue|then|after|now|further|additional|implement|create|write)/i.test(currentContent.toLowerCase());
-    
-    // In assumptions stage, we don't continue if code snippets are provided
-    if (hasCodeSnippets || hasCompletionPhrase) {
-      console.log(`[Harmony] Assumptions stage: Code snippets provided, task appears complete`);
-      return false;
+    if (hasCodeSnippets) {
+      // If code snippets are present, this suggests the model may be confused about the stage
+      // But we should still check if the plan is complete before deciding to continue
+      console.log(`[Harmony] Assumptions stage: Code snippets detected (unexpected in assumptions stage, but checking plan completeness)`);
     }
     
-    if (hasContinuationHint) {
-      console.log(`[Harmony] Assumptions stage: Has continuation hints`);
+    // Check for explicit continuation hints
+    const hasContinuationHint = /(?:next|continue|then|after|now|further|additional|more|also)/i.test(currentContent.toLowerCase());
+    
+    // Check if the response looks incomplete (starts with "Below are..." but nothing follows)
+    const hasIncompletePhrase = /(?:below|above|here).*(?:are|is).*(?:code|snippet|plan|step)/i.test(currentContent.toLowerCase()) && 
+                                 currentContent.trim().length < 200; // Short response suggests incomplete
+    
+    if (hasIncompletePhrase) {
+      console.log(`[Harmony] Assumptions stage: Incomplete phrase detected, continuing to get full response...`);
       return true;
     }
     
+    // If we have a plan and analysis seems complete, don't continue
+    if (planComplete && hasPlanSteps && (hasAssumptions || hasAnalysis) && !hasContinuationHint) {
+      console.log(`[Harmony] Assumptions stage: Plan and analysis appear complete, not continuing`);
+      return false;
+    }
+    
+    // If we have continuation hints, continue
+    if (hasContinuationHint) {
+      console.log(`[Harmony] Assumptions stage: Has continuation hints, continuing...`);
+      return true;
+    }
+    
+    // If we don't have a plan yet, continue to get one
+    if (!hasPlan || !planComplete) {
+      console.log(`[Harmony] Assumptions stage: Plan not yet complete, continuing...`);
+      return true;
+    }
+    
+    // If we have a plan but no clear analysis/assumptions, continue to get them
+    if (planComplete && !hasAssumptions && !hasAnalysis) {
+      console.log(`[Harmony] Assumptions stage: Plan exists but analysis/assumptions missing, continuing...`);
+      return true;
+    }
+    
+    // Default: don't continue if we have a complete plan and analysis
     return false;
   }
 
