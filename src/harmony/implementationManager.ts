@@ -23,6 +23,7 @@ export interface ImplementationFile {
  * Implementation stage state
  */
 export interface ImplementationState {
+  referredFiles: Array<{ file: string; description?: string }>;  // Files referred to/mentioned in assumptions stage
   createdFiles: ImplementationFile[];  // Files created during implementation
   completedSteps: number[];            // Step numbers that have been completed
   taskId?: string;                     // Reference to ProgressPlan taskId
@@ -51,6 +52,7 @@ export class ImplementationManager {
    */
   initialize(taskId?: string): void {
     this.state = {
+      referredFiles: [],
       createdFiles: [],
       completedSteps: [],
       taskId,
@@ -445,9 +447,11 @@ export class ImplementationManager {
   getState(): ImplementationState | null {
     if (!this.state) return null;
     return {
-      ...this.state,
+      referredFiles: [...this.state.referredFiles],
       createdFiles: [...this.state.createdFiles],
       completedSteps: [...this.state.completedSteps],
+      taskId: this.state.taskId,
+      lastUpdated: this.state.lastUpdated,
     };
   }
 
@@ -490,6 +494,7 @@ export class ImplementationManager {
   /**
    * Generate assumption_data.json file when transitioning from assumptions to implementation stage
    * Creates the CodeContext and generates the diagnostic file
+   * Also stores the referred files from assumptions stage in ImplementationManager state
    * 
    * @param assumptionsExport - Data exported from assumptions stage
    * @param nativeToolsManager - Tool manager to create the file
@@ -505,6 +510,15 @@ export class ImplementationManager {
     nativeToolsManager?: NativeToolsManager,
     contextManager?: ConversationContextManager
   ): Promise<void> {
+    // Store referred files from assumptions stage in ImplementationManager state
+    if (!this.state) {
+      this.initialize(assumptionsExport.progressPlan?.taskId);
+    }
+    if (this.state) {
+      this.state.referredFiles = [...assumptionsExport.codeSnippets];
+      this.state.lastUpdated = Date.now();
+      console.log(`[ImplementationManager] Stored ${assumptionsExport.codeSnippets.length} referred file(s) from assumptions stage`);
+    }
     // Create assumption_data.json CodeContext with progressPlan
     // Note: planSteps is redundant (it's already in progressPlan.steps), so we don't include it
     const assumptionsData = {

@@ -17,6 +17,8 @@ describe('ImplementationManager', () => {
       expect(manager.getCreatedFiles()).toEqual([]);
       expect(manager.getCompletedSteps()).toEqual([]);
       expect(manager.getTaskId()).toBeUndefined();
+      const state = manager.getState();
+      expect(state?.referredFiles).toEqual([]);
     });
 
     it('should initialize with taskId', () => {
@@ -24,11 +26,15 @@ describe('ImplementationManager', () => {
       expect(manager.getTaskId()).toBe('task-123');
       expect(manager.getCreatedFiles()).toEqual([]);
       expect(manager.getCompletedSteps()).toEqual([]);
+      const state = manager.getState();
+      expect(state?.referredFiles).toEqual([]);
     });
 
     it('should auto-initialize when setting taskId without explicit init', () => {
       manager.setTaskId('task-456');
       expect(manager.getTaskId()).toBe('task-456');
+      const state = manager.getState();
+      expect(state?.referredFiles).toEqual([]);
     });
   });
 
@@ -555,6 +561,24 @@ describe('ImplementationManager', () => {
       expect(manager.getTaskId()).toBeUndefined();
       expect(manager.getState()).toBeNull();
     });
+
+    it('should clear referredFiles when cleared', async () => {
+      manager.initialize();
+      
+      const assumptionsExport = {
+        assumptions: ['Assumption 1'],
+        codeSnippets: [
+          { file: 'test.py', description: 'Test file' },
+        ],
+        summary: 'Test summary',
+      };
+
+      await manager.generateAssumptionDataFile(assumptionsExport);
+      expect(manager.getState()?.referredFiles).toHaveLength(1);
+      
+      manager.clear();
+      expect(manager.getState()).toBeNull();
+    });
   });
 
   describe('getSummary', () => {
@@ -628,8 +652,164 @@ describe('ImplementationManager', () => {
       expect(state1).not.toBe(state2); // Different objects
       expect(state1?.createdFiles).not.toBe(state2?.createdFiles); // Different arrays
       expect(state1?.completedSteps).not.toBe(state2?.completedSteps); // Different arrays
+      expect(state1?.referredFiles).not.toBe(state2?.referredFiles); // Different arrays
       expect(state1?.createdFiles).toEqual(state2?.createdFiles);
       expect(state1?.completedSteps).toEqual(state2?.completedSteps);
+      expect(state1?.referredFiles).toEqual(state2?.referredFiles);
+    });
+  });
+
+  describe('referredFiles from assumptions stage', () => {
+    it('should store referredFiles when generateAssumptionDataFile is called', async () => {
+      manager.initialize();
+      
+      const assumptionsExport = {
+        assumptions: ['Assumption 1', 'Assumption 2'],
+        codeSnippets: [
+          { file: 'test1.py', description: 'Test file 1' },
+          { file: 'test2.py', description: 'Test file 2' },
+        ],
+        summary: 'Test summary',
+      };
+
+      await manager.generateAssumptionDataFile(assumptionsExport);
+      
+      const state = manager.getState();
+      expect(state?.referredFiles).toHaveLength(2);
+      expect(state?.referredFiles).toEqual(assumptionsExport.codeSnippets);
+    });
+
+    it('should initialize state if not initialized when generateAssumptionDataFile is called', async () => {
+      const plan = progressPlanManager.createPlan(
+        'task-123',
+        'Test task',
+        'simple',
+        [{ goal: 'Step 1' }]
+      );
+      
+      const assumptionsExport = {
+        assumptions: ['Assumption 1'],
+        codeSnippets: [
+          { file: 'test.py', description: 'Test file' },
+        ],
+        progressPlan: plan,
+        summary: 'Test summary',
+      };
+
+      await manager.generateAssumptionDataFile(assumptionsExport);
+      
+      expect(manager.getTaskId()).toBe('task-123');
+      const state = manager.getState();
+      expect(state?.referredFiles).toHaveLength(1);
+      expect(state?.referredFiles[0]).toEqual({ file: 'test.py', description: 'Test file' });
+    });
+
+    it('should store empty array when codeSnippets is empty', async () => {
+      manager.initialize();
+      
+      const assumptionsExport = {
+        assumptions: ['Assumption 1'],
+        codeSnippets: [],
+        summary: 'Test summary',
+      };
+
+      await manager.generateAssumptionDataFile(assumptionsExport);
+      
+      const state = manager.getState();
+      expect(state?.referredFiles).toEqual([]);
+    });
+
+    it('should overwrite existing referredFiles when generateAssumptionDataFile is called multiple times', async () => {
+      manager.initialize();
+      
+      const firstExport = {
+        assumptions: ['Assumption 1'],
+        codeSnippets: [
+          { file: 'file1.py', description: 'First file' },
+        ],
+        summary: 'First summary',
+      };
+
+      await manager.generateAssumptionDataFile(firstExport);
+      let state = manager.getState();
+      expect(state?.referredFiles).toHaveLength(1);
+      
+      const secondExport = {
+        assumptions: ['Assumption 2'],
+        codeSnippets: [
+          { file: 'file2.py', description: 'Second file' },
+          { file: 'file3.py', description: 'Third file' },
+        ],
+        summary: 'Second summary',
+      };
+
+      await manager.generateAssumptionDataFile(secondExport);
+      state = manager.getState();
+      expect(state?.referredFiles).toHaveLength(2);
+      expect(state?.referredFiles).toEqual(secondExport.codeSnippets);
+      expect(state?.referredFiles[0].file).toBe('file2.py');
+    });
+
+    it('should store referredFiles with description', async () => {
+      manager.initialize();
+      
+      const assumptionsExport = {
+        assumptions: ['Assumption 1'],
+        codeSnippets: [
+          { file: 'test.py', description: 'Test file with description' },
+        ],
+        summary: 'Test summary',
+      };
+
+      await manager.generateAssumptionDataFile(assumptionsExport);
+      
+      const state = manager.getState();
+      expect(state?.referredFiles[0].file).toBe('test.py');
+      expect(state?.referredFiles[0].description).toBe('Test file with description');
+    });
+
+    it('should store referredFiles without description', async () => {
+      manager.initialize();
+      
+      const assumptionsExport = {
+        assumptions: ['Assumption 1'],
+        codeSnippets: [
+          { file: 'test.py' },
+        ],
+        summary: 'Test summary',
+      };
+
+      await manager.generateAssumptionDataFile(assumptionsExport);
+      
+      const state = manager.getState();
+      expect(state?.referredFiles[0].file).toBe('test.py');
+      expect(state?.referredFiles[0].description).toBeUndefined();
+    });
+
+    it('should create a copy of referredFiles array (not reference)', async () => {
+      manager.initialize();
+      
+      const codeSnippets = [
+        { file: 'test1.py', description: 'File 1' },
+        { file: 'test2.py', description: 'File 2' },
+      ];
+      
+      const assumptionsExport = {
+        assumptions: ['Assumption 1'],
+        codeSnippets: codeSnippets,
+        summary: 'Test summary',
+      };
+
+      await manager.generateAssumptionDataFile(assumptionsExport);
+      
+      const state = manager.getState();
+      expect(state?.referredFiles).not.toBe(codeSnippets); // Different array reference
+      expect(state?.referredFiles).toEqual(codeSnippets); // Same content
+      
+      // Modifying original should not affect state
+      codeSnippets.push({ file: 'test3.py', description: 'File 3' });
+      const state2 = manager.getState();
+      expect(state2?.referredFiles).toHaveLength(2); // Still 2, not 3
     });
   });
 

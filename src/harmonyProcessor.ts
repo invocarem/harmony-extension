@@ -387,11 +387,21 @@ export class HarmonyProcessor {
       content = final;
     }
     
-    console.log(`[HarmonyProcessor] Result: content=${content.length} chars, reasoning=${reasoning?.length || 0} chars, final=${final?.length || 0} chars, toolCalls=${rawToolCalls.length}`);
+    // Fix tool call file_paths using analysis buffer if available
+    // This handles cases where analysis buffer comes after final channel
+    let fixedRawToolCalls = rawToolCalls;
+    if (reasoning && rawToolCalls.length > 0) {
+      const fullPath = this.extractPathFromAnalysis(reasoning);
+      if (fullPath) {
+        fixedRawToolCalls = rawToolCalls.map(toolCall => this.fixToolCallFilePath(toolCall, fullPath));
+      }
+    }
+    
+    console.log(`[HarmonyProcessor] Result: content=${content.length} chars, reasoning=${reasoning?.length || 0} chars, final=${final?.length || 0} chars, toolCalls=${fixedRawToolCalls.length}`);
     
     // Debug: Log what's in rawToolCalls
-    if (rawToolCalls.length > 0) {
-      rawToolCalls.forEach((raw, idx) => {
+    if (fixedRawToolCalls.length > 0) {
+      fixedRawToolCalls.forEach((raw, idx) => {
         const looksLikeMcpOrJson = ToolCallExtractor.looksLikeToolCall(raw);
         const looksLikeXml = XmlProcessor.looksLikeXmlToolCall(raw);
         const looksLikeToolCall = looksLikeMcpOrJson || looksLikeXml;
@@ -403,7 +413,7 @@ export class HarmonyProcessor {
       });
     }
     
-    return { content, reasoning, commentary, final, rawToolCalls, remaining: response };
+    return { content, reasoning, commentary, final, rawToolCalls: fixedRawToolCalls, remaining: response };
   }
   
   /**
@@ -440,6 +450,114 @@ export class HarmonyProcessor {
     return 'none';
   }
   
+  /**
+   * Extract full path from analysis buffer JSON
+   * Returns the path value if found, null otherwise
+   */
+  private extractPathFromAnalysis(analysisBuffer: string | undefined): string | null {
+    if (!analysisBuffer) return null;
+    
+    try {
+      const parsed = JSON.parse(analysisBuffer.trim());
+      if (parsed && typeof parsed === 'object' && parsed.path && typeof parsed.path === 'string') {
+        return parsed.path;
+      }
+    } catch {
+      // Not valid JSON or doesn't have path field
+    }
+    
+    return null;
+  }
+
+  /**
+   * Fix tool call file_path if it's just a filename and we have the full path from analysis buffer
+   */
+  private fixToolCallFilePath(toolCallText: string, fullPath: string | null): string {
+    if (!fullPath) return toolCallText;
+    
+    try {
+      // Try to parse as JSON tool call
+      const parsed = JSON.parse(toolCallText.trim());
+      if (parsed && typeof parsed === 'object' && parsed.name && parsed.arguments) {
+        const filePath = parsed.arguments.file_path || parsed.arguments.filePath;
+        if (filePath && typeof filePath === 'string') {
+          // Check if it's just a filename (no path separators)
+          const isJustFilename = !filePath.includes('/') && !filePath.includes('\\');
+          if (isJustFilename) {
+            // Extract the filename from the full path
+            const fullPathFilename = fullPath.split('/').pop() || fullPath.split('\\').pop();
+            // If filenames match, use the full path
+            if (fullPathFilename === filePath) {
+              console.log(`[HarmonyProcessor] Fixing tool call file_path from "${filePath}" to "${fullPath}" using analysis buffer`);
+              const fixedCall = {
+                ...parsed,
+                arguments: {
+                  ...parsed.arguments,
+                  file_path: fullPath
+                }
+              };
+              return JSON.stringify(fixedCall);
+            }
+          }
+        }
+      }
+    } catch {
+      // Not JSON format, try XML format - look for JSON in args attribute
+      try {
+        // Match args attribute with JSON value (handles both single and double quotes)
+        const argsMatch = toolCallText.match(/args\s*=\s*(["'])(\{[^'"}]+\})\1/i);
+        if (argsMatch) {
+          const argsJsonStr = argsMatch[2];
+          const argsParsed = JSON.parse(argsJsonStr);
+          const filePath = argsParsed.file_path || argsParsed.filePath;
+          if (filePath && typeof filePath === 'string') {
+            const isJustFilename = !filePath.includes('/') && !filePath.includes('\\');
+            if (isJustFilename) {
+              const fullPathFilename = fullPath.split('/').pop() || fullPath.split('\\').pop();
+              if (fullPathFilename === filePath) {
+                console.log(`[HarmonyProcessor] Fixing XML tool call file_path from "${filePath}" to "${fullPath}" using analysis buffer`);
+                // Replace the file_path in the JSON string
+                const fixedArgs = {
+                  ...argsParsed,
+                  file_path: fullPath
+                };
+                const fixedArgsJson = JSON.stringify(fixedArgs);
+                const quoteChar = argsMatch[1];
+                // Replace the entire args attribute value
+                return toolCallText.replace(argsMatch[0], `args=${quoteChar}${fixedArgsJson}${quoteChar}`);
+              }
+            }
+          }
+        } else {
+          // Try simpler regex for JSON in XML (handles cases where JSON might span multiple lines or have escaped quotes)
+          const filePathMatch = toolCallText.match(/"file_path"\s*:\s*"([^"\\]+|\\.[^"]*)*"/);
+          if (filePathMatch) {
+            // Extract the file path value (handle escaped quotes)
+            const filePathStr = filePathMatch[0];
+            const filePathMatch2 = filePathStr.match(/"file_path"\s*:\s*"([^"]+)"/);
+            if (filePathMatch2) {
+              const filePath = filePathMatch2[1].replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+              const isJustFilename = !filePath.includes('/') && !filePath.includes('\\');
+              if (isJustFilename) {
+                const fullPathFilename = fullPath.split('/').pop() || fullPath.split('\\').pop();
+                if (fullPathFilename === filePath) {
+                  console.log(`[HarmonyProcessor] Fixing XML tool call file_path from "${filePath}" to "${fullPath}" using analysis buffer (regex fallback)`);
+                  // Escape the full path for JSON
+                  const escapedFullPath = fullPath.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+                  return toolCallText.replace(filePathMatch2[0], `"file_path": "${escapedFullPath}"`);
+                }
+              }
+            }
+          }
+        }
+      } catch {
+        // Can't fix, return original
+      }
+    }
+    
+    return toolCallText;
+  }
+
   /**
    * Save buffer based on channel type
    */
