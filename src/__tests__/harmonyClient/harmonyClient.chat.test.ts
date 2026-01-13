@@ -948,7 +948,7 @@ describe('HarmonyClient - Chat Stage', () => {
         // Verify JSON structure
         expect(promptData).toHaveProperty('queries');
         expect(promptData).toHaveProperty('assistantResponses');
-        expect(promptData).toHaveProperty('relatedFiles');
+        expect(promptData).toHaveProperty('referredFiles');
         expect(promptData).toHaveProperty('summary');
         
         // Verify all 3 queries are included (including the first one that was missed in ChatManager)
@@ -963,8 +963,8 @@ describe('HarmonyClient - Chat Stage', () => {
         // Verify assistantResponses is an array
         expect(promptData.assistantResponses).toBeInstanceOf(Array);
         
-        // Verify relatedFiles is an array
-        expect(promptData.relatedFiles).toBeInstanceOf(Array);
+        // Verify referredFiles is an array
+        expect(promptData.referredFiles).toBeInstanceOf(Array);
         
         // This test should FAIL if the first query is missing
         // The fallback logic should use conversation history to capture all queries

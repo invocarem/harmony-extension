@@ -157,7 +157,7 @@ describe('HarmonyAssistant', () => {
       exportForTransition: jest.fn().mockReturnValue({
         queries: [],
         aggregatedPrompt: '',
-        relatedFiles: [],
+        referredFiles: [],
       }),
       getState: jest.fn().mockReturnValue(null),
     };

@@ -324,7 +324,7 @@ export class AssumptionsManager {
     chatData: {
       queries: string[];
       assistantResponses: Array<{ content: string; reasoning?: string }>;
-      relatedFiles: string[];
+      referredFiles: Array<{ file: string; description?: string }>;
     },
     conversationHistory: readonly ChatMessage[] | undefined,
     nativeToolsManager?: NativeToolsManager,
@@ -339,8 +339,8 @@ export class AssumptionsManager {
     const aggregatedPromptData = {
       queries: chatData.queries,
       assistantResponses: chatData.assistantResponses || [],
-      relatedFiles: chatData.relatedFiles || [],
-      summary: `Aggregated user queries from chat stage: ${chatData.queries.length} queries, ${chatData.assistantResponses.length || 0} assistant responses, ${chatData.relatedFiles.length || 0} related files`
+      referredFiles: chatData.referredFiles || [],
+      summary: `Aggregated user queries from chat stage: ${chatData.queries.length} queries, ${chatData.assistantResponses.length || 0} assistant responses, ${chatData.referredFiles.length || 0} referred files`
     };
 
     // Save aggregatedPrompt as JSON to CodeContext
@@ -358,7 +358,7 @@ export class AssumptionsManager {
     // Store in context manager if provided
     if (contextManager) {
       contextManager.addCodeContext(promptContext);
-      console.log(`[AssumptionsManager] Saved aggregatedPrompt to CodeContext (${chatData.queries.length} queries, ${chatData.assistantResponses.length || 0} assistant responses, ${chatData.relatedFiles.length || 0} related files)`);
+      console.log(`[AssumptionsManager] Saved aggregatedPrompt to CodeContext (${chatData.queries.length} queries, ${chatData.assistantResponses.length || 0} assistant responses, ${chatData.referredFiles.length || 0} referred files)`);
     }
 
     // Generate the file if nativeToolsManager is provided
