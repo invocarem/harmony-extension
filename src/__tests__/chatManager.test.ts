@@ -37,7 +37,7 @@ describe('ChatManager', () => {
       const state = manager.getState();
       expect(state).toBeDefined();
       expect(state?.queries).toEqual([]);
-      expect(state?.allRelatedFiles.size).toBe(0);
+      expect(state?.referredFiles).toEqual([]);
       expect(state?.lastUpdated).toBeDefined();
     });
 
@@ -381,7 +381,7 @@ describe('ChatManager', () => {
       const export_ = manager.exportForTransition();
       expect(export_.queries).toEqual([]);
       expect(export_.aggregatedPrompt).toBe('');
-      expect(export_.relatedFiles).toEqual([]);
+      expect(export_.referredFiles).toEqual([]);
       expect(export_.problemSummary).toBeUndefined();
     });
 
@@ -406,14 +406,14 @@ describe('ChatManager', () => {
       expect(export_.problemSummary).toBe('You want to analyze Latin words');
     });
 
-    it('should export related files', () => {
+    it('should export referred files', () => {
       manager.initialize();
       manager.addQuery('query 1', ['file1.txt']);
       manager.addQuery('query 2', ['file2.txt']);
 
       const export_ = manager.exportForTransition();
-      expect(export_.relatedFiles).toContain('file1.txt');
-      expect(export_.relatedFiles).toContain('file2.txt');
+      expect(export_.referredFiles.map(rf => rf.file)).toContain('file1.txt');
+      expect(export_.referredFiles.map(rf => rf.file)).toContain('file2.txt');
     });
   });
 
@@ -495,7 +495,7 @@ describe('ChatManager', () => {
       expect(export_.aggregatedPrompt).toContain('Please address the following requests:');
       expect(export_.aggregatedPrompt).toContain('analyze latin invenietur');
       expect(export_.aggregatedPrompt).toContain('analyze latin deus');
-      expect(export_.relatedFiles).toContain('latin.txt');
+      expect(export_.referredFiles.map(rf => rf.file)).toContain('latin.txt');
 
       // Clear after transition
       manager.clear();
@@ -791,6 +791,102 @@ describe('ChatManager', () => {
 
       const state = manager.getState();
       expect(state?.queries[0].query).toBe('fix bug');
+    });
+  });
+
+  describe('referredFiles in exportForTransition', () => {
+    it('should include referredFiles in export when files are detected', () => {
+      manager.initialize();
+      
+      // Simulate file detection from "explain calc.py" query
+      const fileContexts: FileReference[] = [];
+      const fileExtractionResult: FileExtractionResult = {
+        detectedFiles: [
+          {
+            path: 'calc.py',
+            type: 'file',
+            confidence: 'high',
+            extractedAt: Date.now()
+          }
+        ],
+        explicitFiles: [],
+        ambiguousMatches: []
+      };
+      
+      manager.addQueryWithFiles('explain calc.py', fileContexts, fileExtractionResult);
+      
+      const export_ = manager.exportForTransition();
+      
+      // Verify referredFiles is not empty
+      expect(export_.referredFiles).not.toHaveLength(0);
+      expect(export_.referredFiles.length).toBe(1);
+      expect(export_.referredFiles[0].file).toBe('calc.py');
+    });
+
+    it('should include referredFiles from multiple queries', () => {
+      manager.initialize();
+      
+      const fileExtractionResult1: FileExtractionResult = {
+        detectedFiles: [
+          {
+            path: 'calc.py',
+            type: 'file',
+            confidence: 'high',
+            extractedAt: Date.now()
+          }
+        ],
+        explicitFiles: [],
+        ambiguousMatches: []
+      };
+      
+      const fileExtractionResult2: FileExtractionResult = {
+        detectedFiles: [
+          {
+            path: 'utils.py',
+            type: 'file',
+            confidence: 'high',
+            extractedAt: Date.now()
+          }
+        ],
+        explicitFiles: [],
+        ambiguousMatches: []
+      };
+      
+      manager.addQueryWithFiles('explain calc.py', [], fileExtractionResult1);
+      manager.addQueryWithFiles('show utils.py', [], fileExtractionResult2);
+      
+      const export_ = manager.exportForTransition();
+      
+      // Verify referredFiles contains both files
+      expect(export_.referredFiles.length).toBe(2);
+      expect(export_.referredFiles.map(rf => rf.file)).toContain('calc.py');
+      expect(export_.referredFiles.map(rf => rf.file)).toContain('utils.py');
+    });
+
+    it('should deduplicate referredFiles when same file appears in multiple queries', () => {
+      manager.initialize();
+      
+      const fileExtractionResult: FileExtractionResult = {
+        detectedFiles: [
+          {
+            path: 'calc.py',
+            type: 'file',
+            confidence: 'high',
+            extractedAt: Date.now()
+          }
+        ],
+        explicitFiles: [],
+        ambiguousMatches: []
+      };
+      
+      manager.addQueryWithFiles('explain calc.py', [], fileExtractionResult);
+      manager.addQueryWithFiles('what does calc.py do?', [], fileExtractionResult);
+      
+      const export_ = manager.exportForTransition();
+      
+      // Verify referredFiles contains calc.py only once
+      expect(export_.referredFiles.length).toBe(1);
+      expect(export_.referredFiles[0].file).toBe('calc.py');
     });
   });
 });

@@ -606,20 +606,9 @@ class ChatStageHandler implements StageHandler {
     if (!context) return;
 
     // Track user queries in chat stage
-    if (conversationHistory && conversationHistory.length > 0) {
-      const lastUserMessage = [...conversationHistory].reverse().find(m => m.role === 'user');
-      if (lastUserMessage) {
-        // Extract file references from the query
-        const filePattern = /\b([\w\-\.\/]+\.\w{2,4})\b/g;
-        const fileMatches = lastUserMessage.content.matchAll(filePattern);
-        const relatedFiles: string[] = [];
-        for (const match of fileMatches) {
-          relatedFiles.push(match[1]);
-        }
-        
-        this.chatManager.addQuery(lastUserMessage.content, relatedFiles);
-      }
-    }
+    // Note: Query is already added in extension.ts with proper file extraction via addQueryWithFiles()
+    // This post-processing only updates problem summary, not the query itself
+    // We skip adding the query here to avoid duplicates and ensure file extraction from FileManager is used
 
     // Extract problem summary from assistant response (first sentence or first paragraph)
     if (content) {

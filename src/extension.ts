@@ -418,7 +418,8 @@ export class HarmonyAssistant {
       const chatManager = this.harmonyClient.getChatManager();
       if (currentStage === 'chat' || currentStage === 'init' || !currentStage) {
         // Initialize ChatManager if not already initialized (for init stage)
-        if (currentStage === 'init' || !currentStage) {
+        // Only initialize if it doesn't already have content to avoid losing existing queries/files
+        if ((currentStage === 'init' || !currentStage) && !chatManager.hasContent()) {
           chatManager.initialize();
         }
         

@@ -22,7 +22,7 @@ export interface ChatQuery {
 export interface ChatState {
   problemSummary?: string;           // Restated problem summary (from assistant)
   queries: ChatQuery[];              // All user queries in chat stage
-  allRelatedFiles: Set<string>;      // All files mentioned across all queries
+  referredFiles: Array<{ file: string; description?: string }>;  // Files referred to/mentioned across all queries
   lastUpdated: number;
 }
 
@@ -44,7 +44,7 @@ export class ChatManager {
   initialize(): void {
     this.state = {
       queries: [],
-      allRelatedFiles: new Set<string>(),
+      referredFiles: [],
       lastUpdated: Date.now(),
     };
     console.log(`[ChatManager] Initialized chat state`);
@@ -142,9 +142,11 @@ export class ChatManager {
 
     this.state.queries.push(chatQuery);
     
-    // Update file set
+    // Update referred files array (deduplicate by file path)
     relatedFiles.forEach(file => {
-      this.state!.allRelatedFiles.add(file);
+      if (!this.state!.referredFiles.some(rf => rf.file === file)) {
+        this.state!.referredFiles.push({ file });
+      }
     });
     
     this.state.lastUpdated = Date.now();
@@ -365,7 +367,10 @@ export class ChatManager {
         if (!query.relatedFiles.includes(file)) {
           query.relatedFiles.push(file);
         }
-        this.state!.allRelatedFiles.add(file);
+        // Update referred files array (deduplicate by file path)
+        if (!this.state!.referredFiles.some(rf => rf.file === file)) {
+          this.state!.referredFiles.push({ file });
+        }
       });
       this.state.lastUpdated = Date.now();
       console.log(`[ChatManager] Linked ${files.length} file(s) to query at index ${index}`);
@@ -415,11 +420,20 @@ export class ChatManager {
   }
 
   /**
-   * Get all related files
+   * Get all referred files
+   */
+  getReferredFiles(): Array<{ file: string; description?: string }> {
+    if (!this.state) return [];
+    return [...this.state.referredFiles];
+  }
+
+  /**
+   * Get all related files (for backward compatibility)
+   * @deprecated Use getReferredFiles() instead
    */
   getAllRelatedFiles(): string[] {
     if (!this.state) return [];
-    return Array.from(this.state.allRelatedFiles);
+    return this.state.referredFiles.map(rf => rf.file);
   }
 
   /**
@@ -436,7 +450,7 @@ export class ChatManager {
     if (!this.state) return null;
     return {
       ...this.state,
-      allRelatedFiles: new Set(this.state.allRelatedFiles), // Copy the Set
+      referredFiles: [...this.state.referredFiles], // Copy the array
     };
   }
 
@@ -455,13 +469,13 @@ export class ChatManager {
     queries: string[];
     aggregatedPrompt: string;
     problemSummary?: string;
-    relatedFiles: string[];
+    referredFiles: Array<{ file: string; description?: string }>;
   } {
     if (!this.state) {
       return {
         queries: [],
         aggregatedPrompt: '',
-        relatedFiles: [],
+        referredFiles: [],
       };
     }
 
@@ -469,7 +483,7 @@ export class ChatManager {
       queries: this.getMeaningfulQueries(),
       aggregatedPrompt: this.getAggregatedPrompt(),
       problemSummary: this.state.problemSummary,
-      relatedFiles: this.getAllRelatedFiles(),
+      referredFiles: this.getReferredFiles(),
     };
   }
 

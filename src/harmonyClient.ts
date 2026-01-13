@@ -169,8 +169,9 @@ export class HarmonyClient {
           const finalContext = this.contextManager.getContext();
           console.log(`[Harmony] Starting new conversation in stage: ${finalContext?.currentStage || 'chat'}`);
           
-          // Initialize chat manager when entering chat stage
-          if (finalContext?.currentStage === 'chat') {
+          // Initialize chat manager when entering chat stage (only if not already initialized)
+          // Note: Query might have already been added in extension.ts before callServer() is called
+          if (finalContext?.currentStage === 'chat' && !this.chatManager.hasContent()) {
             this.chatManager.initialize();
           }
         } else {
@@ -311,15 +312,15 @@ export class HarmonyClient {
                     }
                   }
                   
-                  // Get related files from ChatManager
-                  const relatedFiles = this.chatManager.getAllRelatedFiles();
+                  // Get referred files from ChatManager
+                  const referredFiles = this.chatManager.getReferredFiles();
                   
                   // Generate aggregated_prompt.json using AssumptionsManager
                   await this.assumptionsManager.generateAggregatedPromptFile(
                     {
                       queries: queries,
                       assistantResponses: assistantResponses,
-                      relatedFiles: relatedFiles
+                      referredFiles: referredFiles
                     },
                     conversationHistory,
                     this.nativeToolsManager,

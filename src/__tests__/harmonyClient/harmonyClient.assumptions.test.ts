@@ -347,7 +347,7 @@ describe('HarmonyClient - Assumptions Stage', () => {
         // Verify JSON structure
         expect(promptData).toHaveProperty('queries');
         expect(promptData).toHaveProperty('assistantResponses');
-        expect(promptData).toHaveProperty('relatedFiles');
+        expect(promptData).toHaveProperty('referredFiles');
         expect(promptData).toHaveProperty('summary');
 
         // Verify queries are included (excluding transition command)
