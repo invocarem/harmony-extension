@@ -29,6 +29,20 @@ export interface ConversationContext {
   // Code contexts ready for file creation from assumptions stage
   // Map from filename to array of versions
   codeContexts?: Map<string, CodeContext[]>;
+  // First-principles thinking mode (disabled by default)
+  firstPrinciplesMode?: boolean;
+  firstPrinciplesState?: {
+    questionsAsked: number;        // How many questions asked (0-12)
+    questionsRemaining: number;    // How many questions left
+    answers: Record<number, string>; // Question number → answer mapping
+    synthesisGenerated?: boolean;   // Has synthesis been generated?
+    synthesis?: {
+      coreTruths: string[];
+      falseAssumptions: string[];
+      reconstruction: string;
+      actionableInsights: string[];
+    };
+  };
 }
 
 /**
@@ -344,6 +358,69 @@ export class ConversationContextManager {
     if (codeContext) {
       codeContext.waitForCreate = false;
     }
+  }
+
+  /**
+   * Enable or disable first-principles thinking mode
+   */
+  setFirstPrinciplesMode(enabled: boolean): void {
+    if (!this.context) return;
+    
+    this.context.firstPrinciplesMode = enabled;
+    
+    if (enabled && !this.context.firstPrinciplesState) {
+      // Initialize first-principles state
+      this.context.firstPrinciplesState = {
+        questionsAsked: 0,
+        questionsRemaining: 12,
+        answers: {},
+        synthesisGenerated: false,
+      };
+    } else if (!enabled) {
+      // Clear first-principles state when disabled
+      this.context.firstPrinciplesState = undefined;
+    }
+  }
+
+  /**
+   * Get first-principles mode status
+   */
+  isFirstPrinciplesMode(): boolean {
+    return this.context?.firstPrinciplesMode === true;
+  }
+
+  /**
+   * Get first-principles state
+   */
+  getFirstPrinciplesState() {
+    return this.context?.firstPrinciplesState;
+  }
+
+  /**
+   * Record a question-answer pair in first-principles state
+   */
+  recordFirstPrinciplesAnswer(questionNumber: number, answer: string): void {
+    if (!this.context?.firstPrinciplesState) return;
+    
+    const state = this.context.firstPrinciplesState;
+    state.answers[questionNumber] = answer;
+    state.questionsAsked = Math.max(state.questionsAsked, questionNumber);
+    state.questionsRemaining = Math.max(0, 12 - state.questionsAsked);
+  }
+
+  /**
+   * Mark synthesis as generated
+   */
+  markSynthesisGenerated(synthesis: {
+    coreTruths: string[];
+    falseAssumptions: string[];
+    reconstruction: string;
+    actionableInsights: string[];
+  }): void {
+    if (!this.context?.firstPrinciplesState) return;
+    
+    this.context.firstPrinciplesState.synthesisGenerated = true;
+    this.context.firstPrinciplesState.synthesis = synthesis;
   }
 
   /**

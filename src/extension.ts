@@ -483,10 +483,35 @@ export class HarmonyAssistant {
         }
       }
       
+      // Detect and activate first-principles mode if triggered
+      // This should happen when entering assumptions stage or if already in assumptions stage
+      if (currentStage === 'assumptions') {
+        // Check if first-principles is triggered in the current message
+        const shouldActivate = this.harmonyClient.shouldActivateFirstPrinciples(finalMessage);
+        
+        if (shouldActivate && !this.harmonyClient.isFirstPrinciplesMode()) {
+          // Activate first-principles mode
+          this.harmonyClient.setFirstPrinciplesMode(true);
+          console.log(`[Harmony] First-principles mode activated`);
+        }
+      } else if (currentStage !== 'assumptions') {
+        // Disable first-principles mode when leaving assumptions stage
+        if (this.harmonyClient.isFirstPrinciplesMode()) {
+          this.harmonyClient.setFirstPrinciplesMode(false);
+          console.log(`[Harmony] First-principles mode deactivated (left assumptions stage)`);
+        }
+      }
+      
       let templateName: string;
       switch (currentStage) {
         case 'assumptions':
-          templateName = 'assumptions';
+          // Check if first-principles mode is active
+          if (this.harmonyClient.isFirstPrinciplesMode()) {
+            templateName = 'first-principles';
+            console.log(`[Harmony] First-principles mode active in assumptions stage`);
+          } else {
+            templateName = 'assumptions';
+          }
           break;
         case 'implementation':
           templateName = 'implementation';

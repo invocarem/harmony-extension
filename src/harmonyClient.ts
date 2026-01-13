@@ -2097,6 +2097,34 @@ export class HarmonyClient {
   getProgressPlanManager(): ProgressPlanManager {
     return this.progressPlanManager;
   }
+
+  /**
+   * Get the current conversation context
+   */
+  getContext(): ConversationContext | null {
+    return this.contextManager.getContext();
+  }
+
+  /**
+   * Check if first-principles mode should be activated based on prompt
+   */
+  shouldActivateFirstPrinciples(prompt: string): boolean {
+    return this.stageDetector.detectFirstPrinciplesMode(prompt);
+  }
+
+  /**
+   * Activate or deactivate first-principles mode
+   */
+  setFirstPrinciplesMode(enabled: boolean): void {
+    this.contextManager.setFirstPrinciplesMode(enabled);
+  }
+
+  /**
+   * Check if first-principles mode is active
+   */
+  isFirstPrinciplesMode(): boolean {
+    return this.contextManager.isFirstPrinciplesMode();
+  }
 }
 
 

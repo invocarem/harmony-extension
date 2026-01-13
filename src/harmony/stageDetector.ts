@@ -12,6 +12,21 @@ export class StageDetector {
   ) {}
 
   /**
+   * Detect if first-principles thinking mode should be activated
+   */
+  detectFirstPrinciplesMode(prompt: string): boolean {
+    const promptLower = prompt.toLowerCase();
+    const triggers = [
+      /@first-principles|@fpt|@first-principles-thinking/i,
+      /\bfirst\s+principles?\s+thinking/i,
+      /\bbreak\s+down\s+to\s+fundamentals/i,
+      /\bstrip\s+assumptions/i,
+      /\bfundamental\s+analysis/i,
+    ];
+    return triggers.some(pattern => pattern.test(promptLower));
+  }
+
+  /**
    * Detect the appropriate workflow stage based on the prompt using state machine
    */
   detectStage(
