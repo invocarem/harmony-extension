@@ -17,6 +17,7 @@ export interface LlamaConfig {
   harmonyMode: boolean;
   verbose: boolean;
   verboseToolExtraction?: boolean; // Control XmlProcessor and ToolCallExtractor logging
+  firstPrinciplesMode?: boolean; // Enable first-principles thinking mode by default in assumptions stage
 }
 
 /**
@@ -106,6 +107,7 @@ export function loadConfig(): LlamaConfig {
     harmonyMode: config.get("harmonyMode", true),
     verbose: config.get("verbose", false),
     verboseToolExtraction: config.get("verboseToolExtraction", false), // Control XmlProcessor and ToolCallExtractor logging
+    firstPrinciplesMode: config.get("firstPrinciplesMode", false), // Default: disabled
   };
 }
 

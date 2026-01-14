@@ -175,6 +175,11 @@
           "type": "boolean",
           "default": false,
           "description": "When enabled, shows full verbose responses without filtering or cleaning. Useful for debugging and seeing stage changes (chat, analysis, implementation)."
+        },
+        "harmony.firstPrinciplesMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable first-principles thinking mode by default in assumptions stage. When enabled, the assumptions stage will use first-principles analysis (asking 10-12 fundamental questions) before generating plans. Can also be activated per-conversation using @first-principles or @fpt commands."
         }
       }
     }

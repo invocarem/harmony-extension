@@ -147,28 +147,84 @@ export class AutoTransitionManager {
     originalPrompt?: string,
     complexity?: 'simple' | 'hard' | null
   ): Array<{ goal: string; description?: string }> {
+    // Helper function to check if a step is an edge case discussion
+    const isEdgeCaseStep = (stepContent: string): boolean => {
+      const edgeCaseKeywords = [
+        'file not found',
+        'multiple matches',
+        'large file',
+        'corrupted',
+        'binary reading',
+        'size limits',
+        'valid.*docx',
+        'error.*surface',
+        'reject.*file'
+      ];
+      const lowerContent = stepContent.toLowerCase();
+      return edgeCaseKeywords.some(keyword => {
+        const pattern = new RegExp(keyword, 'i');
+        return pattern.test(lowerContent);
+      });
+    };
+
+    // Helper function to check if a step is an execution step (has action verbs)
+    const isExecutionStep = (stepContent: string): boolean => {
+      const actionVerbs = [
+        'locate', 'find', 'read', 'encode', 'convert', 'call', 'save', 'write',
+        'create', 'implement', 'execute', 'perform', 'run', 'use', 'pass',
+        'determine', 'prepare', 'obtain', 'capture', 'return'
+      ];
+      const lowerContent = stepContent.toLowerCase();
+      return actionVerbs.some(verb => {
+        const pattern = new RegExp(`\\b${verb}\\b`, 'i');
+        return pattern.test(lowerContent);
+      });
+    };
+
     // Helper function to extract steps using regex patterns
-    const extractStepsFromTextHelper = (text: string): Array<{number: number, content: string}> => {
+    const extractStepsFromTextHelper = (text: string): Array<{number: number, content: string, isInNumberedPlan?: boolean}> => {
       const stepPatterns = [
-        // Handle: "Step 1.", "Step 1:", "Step 1"
-        /(?:^|\n)\s*(?:Step|step)\s*(\d+)[:.)]?\s*(.+?)(?=\n\s*(?:Step|step)\s*\d+[:.)]?|$)/gis,
-        // Handle: "1.", "1:", "1)"
+        // Handle: "**Step 1:**", "Step 1:", "Step 1." (with optional markdown bold)
+        /(?:^|\n)\s*(?:\*\*)?\s*(?:Step|step)\s*(\d+)[:.)]?\s*\*?\*?\s*(.+?)(?=\n\s*(?:\*\*)?\s*(?:Step|step)\s*\d+[:.)]?|$)/gis,
+        // Handle: "1.", "1:", "1)" 
         /(?:^|\n)\s*(\d+)[:.)]\s*(.+?)(?=\n\s*\d+[:.)]|$)/gis,
       ];
       
-      let extractedSteps: Array<{number: number, content: string}> = [];
+      // Try to find the "Numbered plan" section first
+      const numberedPlanMatch = text.match(/(?:^|\n)\s*(?:\*\*)?\s*\d+\.\s*(?:Numbered\s+plan|numbered\s+plan).*?(?=\n\s*(?:\*\*)?\s*\d+\.\s*|$)/is);
+      const numberedPlanSection = numberedPlanMatch ? numberedPlanMatch[0] : text;
+      
+      let extractedSteps: Array<{number: number, content: string, isInNumberedPlan?: boolean}> = [];
       
       for (const pattern of stepPatterns) {
+        // First, try extracting from the "Numbered plan" section
+        const numberedPlanMatches = Array.from(numberedPlanSection.matchAll(pattern));
+        for (const match of numberedPlanMatches) {
+          const stepNum = parseInt(match[1] || '0', 10);
+          const stepContent = (match[2] || '').trim().replace(/^\*\*|\*\*$/g, ''); // Remove markdown bold
+          
+          if (stepNum > 0 && stepContent && stepContent.length > 5) {
+            if (!/execute\s+step|complete\s+part|part\s+\d+|step\s+\d+:?$/i.test(stepContent)) {
+              extractedSteps.push({ number: stepNum, content: stepContent, isInNumberedPlan: true });
+            }
+          }
+        }
+        
+        // If we found steps in the numbered plan section, use those
+        if (extractedSteps.length >= 3) break;
+        
+        // Otherwise, extract from the full text and filter
         const matches = Array.from(text.matchAll(pattern));
         for (const match of matches) {
           const stepNum = parseInt(match[1] || '0', 10);
-          const stepContent = (match[2] || '').trim();
+          const stepContent = (match[2] || '').trim().replace(/^\*\*|\*\*$/g, ''); // Remove markdown bold
           
-          // Only add if we have meaningful content
           if (stepNum > 0 && stepContent && stepContent.length > 5) {
-            // Remove if it's too generic
             if (!/execute\s+step|complete\s+part|part\s+\d+|step\s+\d+:?$/i.test(stepContent)) {
-              extractedSteps.push({ number: stepNum, content: stepContent });
+              // Skip edge case steps
+              if (!isEdgeCaseStep(stepContent)) {
+                extractedSteps.push({ number: stepNum, content: stepContent, isInNumberedPlan: false });
+              }
             }
           }
         }
@@ -183,11 +239,39 @@ export class AutoTransitionManager {
     let steps: Array<{ goal: string; description?: string }> = [];
     
     // First try extracting from content
-    let extractedSteps = extractStepsFromTextHelper(content);
+    let extractedStepsWithFlags = extractStepsFromTextHelper(content);
+    
+    // Filter and prioritize: prefer steps from numbered plan section, then execution steps
+    let extractedSteps: Array<{number: number, content: string}> = [];
+    if (extractedStepsWithFlags.length > 0) {
+      // Separate steps from numbered plan vs other steps
+      const numberedPlanSteps = extractedStepsWithFlags.filter(s => s.isInNumberedPlan);
+      const otherSteps = extractedStepsWithFlags.filter(s => !s.isInNumberedPlan);
+      
+      // Use numbered plan steps if we have them, otherwise use other steps (filtered to execution steps)
+      const stepsToUse = numberedPlanSteps.length >= 3
+        ? numberedPlanSteps
+        : otherSteps.filter(s => isExecutionStep(s.content));
+      
+      // Group by step number and keep the first occurrence
+      const stepMap = new Map<number, {number: number, content: string}>();
+      for (const step of stepsToUse) {
+        if (!stepMap.has(step.number) || step.isInNumberedPlan) {
+          stepMap.set(step.number, { number: step.number, content: step.content });
+        }
+      }
+      
+      extractedSteps = Array.from(stepMap.values());
+    }
     
     // If not found in content, try originalPrompt
     if (extractedSteps.length < 3 && originalPrompt) {
-      extractedSteps = extractStepsFromTextHelper(originalPrompt);
+      const promptStepsWithFlags = extractStepsFromTextHelper(originalPrompt);
+      const promptSteps = promptStepsWithFlags.map(s => ({ number: s.number, content: s.content }));
+      // Only use prompt steps if we don't have any from content, or if they're better
+      if (extractedSteps.length === 0 || (promptSteps.length >= 3 && extractedSteps.length < 3)) {
+        extractedSteps = promptSteps;
+      }
     }
     
     // Convert to step format

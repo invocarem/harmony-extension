@@ -268,6 +268,22 @@ export class NativeToolsManager {
     try {
       const resolvedPath = this.resolvePath(filePath);
       console.log(`[NativeTools] Reading file: "${filePath}" -> resolved to: "${resolvedPath}" (workspaceRoot: ${this.workspaceRoot || 'undefined'})`);
+      
+      // Block binary files - they cannot be read as text
+      const ext = path.extname(filePath).toLowerCase();
+      const binaryExtensions = ['.docx', '.pdf', '.doc', '.xlsx', '.xls', '.ppt', '.pptx', '.zip', '.rar', '.7z', '.tar', '.gz', '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.ico', '.svg', '.exe', '.dll', '.so', '.dylib', '.bin'];
+      if (binaryExtensions.includes(ext)) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Cannot read binary file "${filePath}". Binary files (${ext}) cannot be read as text.${ext === '.docx' || ext === '.pdf' ? ' To convert DOCX/PDF files to markdown, use the conversion command: "convert ' + filePath + ' to markdown"' : ''}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+      
       const content = await readFile(resolvedPath, "utf-8");
       return {
         content: [

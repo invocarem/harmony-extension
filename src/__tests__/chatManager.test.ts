@@ -36,6 +36,7 @@ describe('ChatManager', () => {
 
       const state = manager.getState();
       expect(state).toBeDefined();
+      expect(state?.problems).toEqual([]);
       expect(state?.queries).toEqual([]);
       expect(state?.referredFiles).toEqual([]);
       expect(state?.lastUpdated).toBeDefined();
@@ -99,125 +100,220 @@ describe('ChatManager', () => {
     });
   });
 
-  describe('updateProblemSummary', () => {
-    it('should update problem summary', () => {
+  describe('addProblem', () => {
+    it('should add a problem', () => {
       manager.initialize();
-      manager.updateProblemSummary('You want to analyze Latin words');
+      manager.addProblem('You want to analyze Latin words');
 
-      expect(manager.getProblemSummary()).toBe('You want to analyze Latin words');
+      const problems = manager.getUnansweredProblems();
+      expect(problems).toHaveLength(1);
+      expect(problems[0].statement).toBe('You want to analyze Latin words');
     });
 
-    it('should trim problem summary', () => {
+    it('should trim problem statement', () => {
       manager.initialize();
-      manager.updateProblemSummary('  Problem summary  ');
+      manager.addProblem('  Problem summary  ');
 
-      expect(manager.getProblemSummary()).toBe('Problem summary');
+      const problems = manager.getUnansweredProblems();
+      expect(problems[0].statement).toBe('Problem summary');
     });
 
-    it('should initialize automatically when updating summary', () => {
-      manager.updateProblemSummary('test summary');
+    it('should initialize automatically when adding problem', () => {
+      manager.addProblem('test summary');
 
+      expect(manager.hasUnansweredProblems()).toBe(true);
       expect(manager.getProblemSummary()).toBe('test summary');
+    });
+
+    it('should not add duplicate problems', () => {
+      manager.initialize();
+      manager.addProblem('You want to analyze Latin words');
+      manager.addProblem('You want to analyze Latin words');
+
+      const problems = manager.getUnansweredProblems();
+      expect(problems).toHaveLength(1);
+    });
+
+    it('should add problem with original query', () => {
+      manager.initialize();
+      manager.addProblem('You want to fix the bug', 'fix bug in calc.py');
+
+      const problems = manager.getUnansweredProblems();
+      expect(problems[0].originalQuery).toBe('fix bug in calc.py');
+    });
+
+    it('should add problem with requiresTools flag', () => {
+      manager.initialize();
+      manager.addProblem('You need to create a file', 'create hello.py', true);
+
+      const problems = manager.getUnansweredProblems();
+      expect(problems[0].requiresTools).toBe(true);
+    });
+
+    it('should not add very short statements', () => {
+      manager.initialize();
+      manager.addProblem('short');
+
+      expect(manager.hasUnansweredProblems()).toBe(false);
     });
   });
 
-  describe('updateProblemSummaryFromResponse', () => {
-    it('should extract problem summary from valid restatement response', () => {
+  describe('processResponse', () => {
+    it('should add problem when response only restates without solving', () => {
       manager.initialize();
-      manager.addQuery('bug fix on @file:calc.py, please fix indentation problem.');
-      
-      const responseContent = 'You want to fix the indentation bug in calc.py. The issue is in the divide function.';
-      manager.updateProblemSummaryFromResponse(responseContent, 'bug fix on @file:calc.py, please fix indentation problem.');
-
-      expect(manager.getProblemSummary()).toBe('You want to fix the indentation bug in calc.py. The issue is in the divide function.');
-    });
-
-    it('should NOT use system warning message as problem summary', () => {
-      manager.initialize();
-      const userQuery = 'bug fix on @file:calc.py, please fix indentation problem.';
+      const userQuery = 'What is the capital of France?';
       manager.addQuery(userQuery);
       
-      // Simulate the system warning message when file modification tools are blocked
-      const warningResponse = 'I understand you want to create files.\n\n⚠️ **Note**: File modification tools (create_file) are not available in the Chat stage. To create files, say "move to assumption" to analyze and provide code snippets first, then "move to implementation" to create the files.';
-      
-      manager.updateProblemSummaryFromResponse(warningResponse, userQuery);
+      const responseContent = 'You are asking about the capital of France. We will need to move to assumptions stage to answer this.';
+      manager.processResponse(responseContent, userQuery);
 
-      // Should extract intent from user query instead of using the warning
-      const summary = manager.getProblemSummary();
-      expect(summary).not.toContain('I understand you want to create files');
-      expect(summary).not.toContain('⚠️');
-      expect(summary).toMatch(/fix|indentation|bug/i);
+      expect(manager.hasUnansweredProblems()).toBe(true);
+      const problems = manager.getUnansweredProblems();
+      expect(problems.length).toBeGreaterThan(0);
     });
 
-    it('should extract problem summary from user query when response is system warning', () => {
+    it('should remove problem when response actually solves it', () => {
+      manager.initialize();
+      const userQuery = 'What is the capital of France?';
+      manager.addQuery(userQuery);
+      
+      // First, add a problem (simulate restatement)
+      manager.addProblem('You are asking about the capital of France', userQuery);
+      expect(manager.hasUnansweredProblems()).toBe(true);
+      
+      // Then, process a response that solves it
+      const responseContent = 'The capital of France is Paris.';
+      manager.processResponse(responseContent, userQuery);
+
+      // Problem should be removed
+      expect(manager.hasUnansweredProblems()).toBe(false);
+    });
+
+    it('should NOT create problem for greetings', () => {
+      manager.initialize();
+      const userQuery = 'Hi';
+      manager.addQuery(userQuery);
+      
+      const responseContent = 'How can I help you?';
+      manager.processResponse(responseContent, userQuery);
+
+      expect(manager.hasUnansweredProblems()).toBe(false);
+    });
+
+    it('should add problem from system warning and mark as requiring tools', () => {
       manager.initialize();
       const userQuery = 'bug fix on @file:calc.py, please fix indentation problem.';
       manager.addQuery(userQuery);
       
       const warningResponse = 'I understand you want to create files.\n\n⚠️ **Note**: File modification tools (create_file) are not available in the Chat stage.';
       
-      manager.updateProblemSummaryFromResponse(warningResponse, userQuery);
+      manager.processResponse(warningResponse, userQuery);
 
-      const summary = manager.getProblemSummary();
-      expect(summary).toBeDefined();
-      expect(summary).not.toBe('');
-      // Should extract meaningful intent about fixing indentation bug
-      expect(summary?.toLowerCase()).toMatch(/fix.*indentation|indentation.*bug|fix.*bug.*calc/i);
+      const problems = manager.getUnansweredProblems();
+      expect(problems.length).toBeGreaterThan(0);
+      expect(problems[0].requiresTools).toBe(true);
+      expect(problems[0].statement).toMatch(/fix|indentation|bug/i);
     });
 
-    it('should handle response with actual content followed by warning', () => {
+    it('should handle factual question that gets answered', () => {
       manager.initialize();
-      const userQuery = 'bug fix on @file:calc.py, please fix indentation problem.';
+      const userQuery = 'What is the capital of France?';
       manager.addQuery(userQuery);
       
-      // Response has actual content, then warning
-      const responseWithContent = 'I can see the indentation issue in calc.py. The divide function has incorrect indentation.\n\n⚠️ **Note**: File modification tools (create_file) are not available in the Chat stage.';
+      // First response: only restates
+      manager.processResponse('You are asking about the capital of France.', userQuery);
+      expect(manager.hasUnansweredProblems()).toBe(true);
       
-      manager.updateProblemSummaryFromResponse(responseWithContent, userQuery);
-
-      // Should use the actual content, not the warning
-      const summary = manager.getProblemSummary();
-      expect(summary).toContain('indentation issue');
-      expect(summary).toContain('calc.py');
-      expect(summary).not.toContain('⚠️');
+      // Second response: actually answers
+      manager.processResponse('The capital of France is Paris.', userQuery);
+      expect(manager.hasUnansweredProblems()).toBe(false);
     });
 
-    it('should not update summary if response is only generic warning with no user query context', () => {
+    it('should not add problem if response is empty', () => {
       manager.initialize();
-      // No query added
-      
-      const warningResponse = 'I understand you want to create files.\n\n⚠️ **Note**: File modification tools are not available.';
-      
-      manager.updateProblemSummaryFromResponse(warningResponse, '');
-
-      // Should not set a generic warning as problem summary
-      expect(manager.getProblemSummary()).toBeUndefined();
-    });
-
-    it('should handle assumptions stage warning message', () => {
-      manager.initialize();
-      const userQuery = 'bug fix on @file:calc.py, please fix indentation problem.';
+      const userQuery = 'test query';
       manager.addQuery(userQuery);
       
-      const assumptionsWarning = 'I understand you want to create files. In the Analysis stage, I should provide code snippets first.\n\n⚠️ **Note**: File modification tools (create_file) are not available in the Analysis stage.';
-      
-      manager.updateProblemSummaryFromResponse(assumptionsWarning, userQuery);
+      manager.processResponse('', userQuery);
 
-      const summary = manager.getProblemSummary();
-      expect(summary).not.toContain('I understand you want to create files');
-      expect(summary).toMatch(/fix|indentation|bug/i);
+      expect(manager.hasUnansweredProblems()).toBe(false);
+    });
+  });
+
+  describe('removeProblemIfSolved', () => {
+    it('should remove problem when solved', () => {
+      manager.initialize();
+      manager.addProblem('What is the capital of France?', 'What is the capital of France?');
+      
+      const removed = manager.removeProblemIfSolved('What is the capital of France?', 'The capital of France is Paris.', 'What is the capital of France?');
+      
+      expect(removed).toBe(true);
+      expect(manager.hasUnansweredProblems()).toBe(false);
     });
 
-    it('should extract summary from response that contains user intent', () => {
+    it('should not remove problem if only restated', () => {
       manager.initialize();
-      const userQuery = 'fix indentation bug in calc.py divide function';
-      manager.addQuery(userQuery);
+      manager.addProblem('What is the capital of France?', 'What is the capital of France?');
       
-      const response = 'You need to fix the indentation error in the divide function of calc.py. The raise ValueError statement is not properly indented.';
+      const removed = manager.removeProblemIfSolved('What is the capital of France?', 'You are asking about the capital of France.', 'What is the capital of France?');
       
-      manager.updateProblemSummaryFromResponse(response, userQuery);
+      expect(removed).toBe(false);
+      expect(manager.hasUnansweredProblems()).toBe(true);
+    });
+  });
 
-      expect(manager.getProblemSummary()).toBe('You need to fix the indentation error in the divide function of calc.py. The raise ValueError statement is not properly indented.');
+  describe('getUnansweredProblems', () => {
+    it('should return empty array when no problems', () => {
+      manager.initialize();
+      expect(manager.getUnansweredProblems()).toEqual([]);
+    });
+
+    it('should return all unsolved problems', () => {
+      manager.initialize();
+      manager.addProblem('You want to fix the indentation bug in calc.py');
+      manager.addProblem('You need to add error handling to the divide function');
+      
+      const problems = manager.getUnansweredProblems();
+      expect(problems).toHaveLength(2);
+      expect(problems.map(p => p.statement)).toContain('You want to fix the indentation bug in calc.py');
+      expect(problems.map(p => p.statement)).toContain('You need to add error handling to the divide function');
+    });
+
+    it('should not return solved problems', () => {
+      manager.initialize();
+      manager.addProblem('You want to fix the indentation bug in calc.py', 'query 1');
+      manager.addProblem('You need to add error handling to the divide function', 'query 2');
+      
+      // Solve problem 1 (response that actually solves it)
+      manager.removeProblemIfSolved('You want to fix the indentation bug in calc.py', 'Here is the solution: I fixed the indentation bug in calc.py by correcting the spacing.', 'query 1');
+      
+      const problems = manager.getUnansweredProblems();
+      expect(problems).toHaveLength(1);
+      expect(problems[0].statement).toBe('You need to add error handling to the divide function');
+    });
+  });
+
+  describe('hasUnansweredProblems', () => {
+    it('should return false when no problems', () => {
+      manager.initialize();
+      expect(manager.hasUnansweredProblems()).toBe(false);
+    });
+
+    it('should return true when problems exist', () => {
+      manager.initialize();
+      manager.addProblem('Test problem');
+      expect(manager.hasUnansweredProblems()).toBe(true);
+    });
+
+    it('should return false after all problems are solved', () => {
+      manager.initialize();
+      manager.addProblem('You want to solve Problem 1', 'query 1');
+      
+      expect(manager.hasUnansweredProblems()).toBe(true);
+      
+      // Solution that actually solves it (has substantial content)
+      manager.removeProblemIfSolved('You want to solve Problem 1', 'Here is the complete solution for problem 1 with detailed explanation.', 'query 1');
+      expect(manager.hasUnansweredProblems()).toBe(false);
     });
   });
 
@@ -397,13 +493,25 @@ describe('ChatManager', () => {
       expect(export_.aggregatedPrompt).toContain('analyze latin deus');
     });
 
-    it('should export problem summary if set', () => {
+    it('should export problem summary if problems exist', () => {
       manager.initialize();
       manager.addQuery('test query');
-      manager.updateProblemSummary('You want to analyze Latin words');
+      manager.addProblem('You want to analyze Latin words');
 
       const export_ = manager.exportForTransition();
       expect(export_.problemSummary).toBe('You want to analyze Latin words');
+      expect(export_.problems).toHaveLength(1);
+    });
+
+    it('should export multiple problems in summary', () => {
+      manager.initialize();
+      manager.addProblem('You want to fix the indentation bug in calc.py');
+      manager.addProblem('You need to add error handling to the divide function');
+
+      const export_ = manager.exportForTransition();
+      expect(export_.problemSummary).toContain('indentation bug');
+      expect(export_.problemSummary).toContain('error handling');
+      expect(export_.problems).toHaveLength(2);
     });
 
     it('should export referred files', () => {
@@ -421,13 +529,14 @@ describe('ChatManager', () => {
     it('should clear all state', () => {
       manager.initialize();
       manager.addQuery('test query', ['file.txt']);
-      manager.updateProblemSummary('test summary');
+      manager.addProblem('test summary');
 
       manager.clear();
 
       expect(manager.getState()).toBeNull();
       expect(manager.hasContent()).toBe(false);
       expect(manager.getAllQueries()).toEqual([]);
+      expect(manager.hasUnansweredProblems()).toBe(false);
     });
 
     it('should allow re-initialization after clear', () => {
@@ -887,6 +996,117 @@ describe('ChatManager', () => {
       // Verify referredFiles contains calc.py only once
       expect(export_.referredFiles.length).toBe(1);
       expect(export_.referredFiles[0].file).toBe('calc.py');
+    });
+  });
+
+  describe('Problem tracking scenarios', () => {
+    it('should handle "Hi" greeting - no problem created', () => {
+      manager.initialize();
+      manager.addQuery('Hi');
+      
+      manager.processResponse('How can I help you?', 'Hi');
+      
+      expect(manager.hasUnansweredProblems()).toBe(false);
+    });
+
+    it('should handle "What is the capital of France?" - answered immediately', () => {
+      manager.initialize();
+      const userQuery = 'What is the capital of France?';
+      manager.addQuery(userQuery);
+      
+      // Response that answers the question
+      manager.processResponse('The capital of France is Paris.', userQuery);
+      
+      // Should not have problems (question was answered)
+      expect(manager.hasUnansweredProblems()).toBe(false);
+    });
+
+    it('should handle "What is the capital of France?" - only restated', () => {
+      manager.initialize();
+      const userQuery = 'What is the capital of France?';
+      manager.addQuery(userQuery);
+      
+      // Response that only restates
+      manager.processResponse('You are asking about the capital of France. We will need to move to assumptions stage.', userQuery);
+      
+      // Should have a problem (question was not answered)
+      expect(manager.hasUnansweredProblems()).toBe(true);
+      const problems = manager.getUnansweredProblems();
+      expect(problems[0].statement.toLowerCase()).toMatch(/capital.*france|france.*capital/);
+    });
+
+    it('should handle problem that gets solved in second response', () => {
+      manager.initialize();
+      const userQuery = 'What is the capital of France?';
+      manager.addQuery(userQuery);
+      
+      // First response: only restates (creates problem)
+      manager.processResponse('You are asking about the capital of France. We will need to move to assumptions stage.', userQuery);
+      expect(manager.hasUnansweredProblems()).toBe(true);
+      
+      // Second response: actually answers (removes problem)
+      manager.processResponse('The capital of France is Paris.', userQuery);
+      expect(manager.hasUnansweredProblems()).toBe(false);
+    });
+
+    it('should track multiple problems independently', () => {
+      manager.initialize();
+      
+      // First problem - only restated
+      manager.addQuery('What is the capital of France?');
+      manager.processResponse('You are asking about the capital of France. We need to move to assumptions.', 'What is the capital of France?');
+      
+      // Second problem - only restated
+      manager.addQuery('What is 2+2?');
+      manager.processResponse('You are asking about 2+2. We need more information.', 'What is 2+2?');
+      
+      expect(manager.hasUnansweredProblems()).toBe(true);
+      const problems = manager.getUnansweredProblems();
+      expect(problems.length).toBeGreaterThanOrEqual(1); // At least one problem should exist
+      
+      // Solve first problem
+      manager.processResponse('The capital of France is Paris.', 'What is the capital of France?');
+      
+      // Solve second problem
+      manager.processResponse('2+2 equals 4.', 'What is 2+2?');
+      expect(manager.hasUnansweredProblems()).toBe(false);
+    });
+
+    it('should detect requiresTools from response', () => {
+      manager.initialize();
+      const userQuery = 'create hello.py file';
+      manager.addQuery(userQuery);
+      
+      // System warning response that indicates tools are needed
+      const response = 'I understand you want to create files.\n\n⚠️ **Note**: File modification tools (create_file) are not available in the Chat stage.';
+      manager.processResponse(response, userQuery);
+      
+      const problems = manager.getUnansweredProblems();
+      expect(problems.length).toBeGreaterThan(0);
+      expect(problems[0].requiresTools).toBe(true);
+    });
+
+    it('should get problem summary as string for backward compatibility', () => {
+      manager.initialize();
+      manager.addProblem('You want to fix the indentation bug in calc.py');
+      
+      const summary = manager.getProblemSummary();
+      expect(summary).toBe('You want to fix the indentation bug in calc.py');
+    });
+
+    it('should get problem summary as concatenated string for multiple problems', () => {
+      manager.initialize();
+      manager.addProblem('You want to fix the indentation bug in calc.py');
+      manager.addProblem('You need to add error handling to the divide function');
+      
+      const summary = manager.getProblemSummary();
+      expect(summary).toContain('indentation bug');
+      expect(summary).toContain('error handling');
+    });
+
+    it('should return undefined for problem summary when no problems', () => {
+      manager.initialize();
+      expect(manager.getProblemSummary()).toBeUndefined();
     });
   });
 });

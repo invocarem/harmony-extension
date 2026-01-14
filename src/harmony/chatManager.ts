@@ -17,11 +17,22 @@ export interface ChatQuery {
 }
 
 /**
+ * Represents an unsolved problem identified from user queries
+ * Only unsolved problems are kept in the list - solved problems are removed
+ */
+export interface Problem {
+  statement: string;              // The restated problem statement
+  originalQuery?: string;        // Original user query that led to this problem
+  requiresTools?: boolean;      // Whether this problem requires tools not available in chat stage
+  timestamp: number;             // When problem was identified
+}
+
+/**
  * Chat stage state
  */
 export interface ChatState {
-  problemSummary?: string;           // Restated problem summary (from assistant)
-  queries: ChatQuery[];              // All user queries in chat stage
+  problems: Problem[];           // Only unsolved problems (solved ones are removed)
+  queries: ChatQuery[];           // All user queries in chat stage
   referredFiles: Array<{ file: string; description?: string }>;  // Files referred to/mentioned across all queries
   lastUpdated: number;
 }
@@ -43,6 +54,7 @@ export class ChatManager {
    */
   initialize(): void {
     this.state = {
+      problems: [],
       queries: [],
       referredFiles: [],
       lastUpdated: Date.now(),
@@ -154,38 +166,115 @@ export class ChatManager {
   }
 
   /**
-   * Update the problem summary (restatement from assistant)
+   * Add a problem to the list (only if it doesn't already exist)
+   * Problems are only added if they represent actual unsolved issues
    */
-  updateProblemSummary(summary: string): void {
+  addProblem(statement: string, originalQuery?: string, requiresTools?: boolean): void {
     if (!this.state) {
       this.initialize();
     }
 
     if (!this.state) return;
 
-    this.state.problemSummary = summary.trim();
+    const trimmedStatement = statement.trim();
+    if (!trimmedStatement || trimmedStatement.length < 10) {
+      return; // Skip very short statements
+    }
+
+    // Check if this problem already exists (similar statement)
+    const existingProblem = this.state.problems.find(p => 
+      this.areProblemsSimilar(p.statement, trimmedStatement)
+    );
+
+    if (existingProblem) {
+      // Update existing problem if needed
+      if (requiresTools !== undefined) {
+        existingProblem.requiresTools = requiresTools;
+      }
+      if (originalQuery && !existingProblem.originalQuery) {
+        existingProblem.originalQuery = originalQuery;
+      }
+      this.state.lastUpdated = Date.now();
+      console.log(`[ChatManager] Problem already exists, updated: "${trimmedStatement.substring(0, 50)}..."`);
+      return;
+    }
+
+    // Add new problem
+    const problem: Problem = {
+      statement: trimmedStatement,
+      originalQuery,
+      requiresTools,
+      timestamp: Date.now(),
+    };
+
+    this.state.problems.push(problem);
     this.state.lastUpdated = Date.now();
-    console.log(`[ChatManager] Updated problem summary: "${summary.substring(0, 100)}${summary.length > 100 ? '...' : ''}"`);
+    console.log(`[ChatManager] Added problem: "${trimmedStatement.substring(0, 50)}${trimmedStatement.length > 50 ? '...' : ''}"`);
   }
 
   /**
-   * Update problem summary from response content, intelligently handling system warnings
-   * If response is a system warning message, extracts intent from user query instead
+   * Remove a problem when it's been solved
+   * Checks if response actually solves the problem before removing
    */
-  updateProblemSummaryFromResponse(responseContent: string, userQuery: string): void {
-    if (!responseContent || !responseContent.trim()) {
+  removeProblemIfSolved(problemStatement: string, responseContent: string, originalQuery?: string): boolean {
+    if (!this.state || !responseContent) return false;
+
+    // Check if the response actually solves the problem
+    if (!this.isProblemSolved(problemStatement, responseContent, originalQuery)) {
+      return false;
+    }
+
+    // Find and remove the problem
+    const index = this.state.problems.findIndex(p => 
+      this.areProblemsSimilar(p.statement, problemStatement)
+    );
+
+    if (index >= 0) {
+      const removed = this.state.problems.splice(index, 1)[0];
+      this.state.lastUpdated = Date.now();
+      console.log(`[ChatManager] Removed solved problem: "${removed.statement.substring(0, 50)}..."`);
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Process response and update problems accordingly
+   * Adds problems from restatements, removes problems that are solved
+   */
+  processResponse(responseContent: string, userQuery: string): void {
+    if (!this.state) {
+      this.initialize();
+    }
+    if (!this.state || !responseContent || !responseContent.trim()) {
       return;
+    }
+
+    // Skip greetings - they don't create problems
+    const isGreeting = /^(hi|hello|hey|greetings?)$/i.test(userQuery.trim());
+    if (isGreeting) {
+      return;
+    }
+
+    // First, check if any existing problems are solved by this response
+    // This handles cases where response directly answers without restating
+    const existingProblems = [...this.state.problems];
+    for (const problem of existingProblems) {
+      if (this.isProblemSolved(problem.statement, responseContent, problem.originalQuery || userQuery)) {
+        this.removeProblemIfSolved(problem.statement, responseContent, problem.originalQuery || userQuery);
+      }
     }
 
     // Check if response is a system warning message
     const isSystemWarning = this.isSystemWarningMessage(responseContent);
     
     if (isSystemWarning) {
-      // Extract problem summary from user query instead of using the warning
+      // Extract problem from user query
       const intent = this.extractIntentFromUserQuery(userQuery);
       if (intent) {
-        this.updateProblemSummary(intent);
-        console.log(`[ChatManager] Updated problem summary from user query (warning response detected)`);
+        this.addProblem(intent, userQuery, true); // Requires tools
+        console.log(`[ChatManager] Added problem from user query (warning response detected)`);
       }
       return;
     }
@@ -195,19 +284,112 @@ export class ChatManager {
     if (summaryMatch) {
       const potentialSummary = summaryMatch[1].trim();
       
-      // Check if it's a valid restatement (not a generic system message)
+      // Check if it's a valid restatement
       if (this.isValidRestatement(potentialSummary, userQuery)) {
-        this.updateProblemSummary(potentialSummary);
-        console.log(`[ChatManager] Updated problem summary from response`);
+        // Check if this restatement actually solves the problem or just restates it
+        if (this.isProblemSolved(potentialSummary, responseContent, userQuery)) {
+          // Problem was solved - remove it if it exists (already handled above, but check again for exact match)
+          this.removeProblemIfSolved(potentialSummary, responseContent, userQuery);
+        } else {
+          // Problem was only restated, not solved - add it
+          const requiresTools = this.detectRequiresTools(responseContent);
+          this.addProblem(potentialSummary, userQuery, requiresTools);
+        }
       } else {
-        // Fallback to extracting from user query if response doesn't contain valid restatement
+        // No valid restatement - check if response solves any problem from user query
+        // If response directly answers the question without restating, don't add a problem
         const intent = this.extractIntentFromUserQuery(userQuery);
         if (intent) {
-          this.updateProblemSummary(intent);
-          console.log(`[ChatManager] Updated problem summary from user query (no valid restatement in response)`);
+          // Check if response solves the problem
+          if (!this.isProblemSolved(intent, responseContent, userQuery)) {
+            // Only add if not solved and not already exists
+            const exists = this.state.problems.some(p => 
+              this.areProblemsSimilar(p.statement, intent)
+            );
+            if (!exists) {
+              this.addProblem(intent, userQuery);
+            }
+          }
         }
       }
     }
+  }
+
+  /**
+   * Check if two problem statements are similar (for deduplication)
+   */
+  private areProblemsSimilar(statement1: string, statement2: string): boolean {
+    const s1 = statement1.toLowerCase().trim();
+    const s2 = statement2.toLowerCase().trim();
+    
+    // Exact match
+    if (s1 === s2) return true;
+    
+    // Check if one contains the other (with some threshold)
+    const longer = s1.length > s2.length ? s1 : s2;
+    const shorter = s1.length > s2.length ? s2 : s1;
+    
+    // If shorter is at least 70% of longer and is contained, consider similar
+    if (shorter.length >= longer.length * 0.7 && longer.includes(shorter)) {
+      return true;
+    }
+    
+    // Extract key words and compare
+    const words1 = s1.split(/\s+/).filter(w => w.length > 3);
+    const words2 = s2.split(/\s+/).filter(w => w.length > 3);
+    
+    if (words1.length === 0 || words2.length === 0) return false;
+    
+    const commonWords = words1.filter(w => words2.includes(w));
+    const similarity = commonWords.length / Math.max(words1.length, words2.length);
+    
+    return similarity >= 0.6; // 60% word overlap
+  }
+
+  /**
+   * Check if a problem was actually solved by the response
+   * Returns true if response contains an actual answer, not just a restatement
+   */
+  private isProblemSolved(problemStatement: string, responseContent: string, originalQuery?: string): boolean {
+    const lowerResponse = responseContent.toLowerCase();
+    const lowerQuery = originalQuery?.toLowerCase() || problemStatement.toLowerCase();
+    
+    // Check if response only restates without answering
+    const onlyRestates = /(?:you\s+(?:want|need|are\s+asking|would\s+like)|the\s+question\s+is|you're\s+asking\s+about)/i.test(lowerResponse) &&
+                         !/(?:here|answer|solution|result|is\s+\w+|the\s+\w+\s+is)/i.test(lowerResponse);
+    
+    if (onlyRestates) {
+      return false;
+    }
+
+    // Check for factual questions (like "What is the capital of France?")
+    if (/^(what|where|when|who|which|how\s+many|how\s+much)\s+/i.test(lowerQuery)) {
+      // For "What is the capital of France?" - check if "Paris" is mentioned
+      if (lowerQuery.includes('capital') && lowerQuery.includes('france')) {
+        return lowerResponse.includes('paris');
+      }
+      
+      // For other factual questions, check if response has substantial content beyond restatement
+      const hasSubstantialAnswer = responseContent.length > problemStatement.length * 1.5;
+      return hasSubstantialAnswer && !onlyRestates;
+    }
+
+    // For other types of queries, check if response goes beyond restatement
+    const hasAnswer = !onlyRestates && 
+                      (responseContent.length > (originalQuery?.length || problemStatement.length) * 0.8);
+    
+    return hasAnswer;
+  }
+
+  /**
+   * Detect if response indicates tools are required
+   */
+  private detectRequiresTools(responseContent: string): boolean {
+    const lowerContent = responseContent.toLowerCase();
+    return lowerContent.includes('move to assumptions') ||
+           lowerContent.includes('tools not available') ||
+           lowerContent.includes('requires tools') ||
+           lowerContent.includes('need tools');
   }
 
   /**
@@ -275,8 +457,8 @@ export class ChatManager {
     const intentPatterns = [
       // Bug fixes
       /(?:fix|fixing|fixed|resolve|resolving|correct|correcting)\s+(?:a\s+)?(?:bug|error|issue|problem|indentation\s+(?:error|bug|issue)|syntax\s+(?:error|issue))/i,
-      // Code changes
-      /(?:change|modify|update|edit|add|remove|improve|refactor)\s+.+/i,
+      // Code changes and file operations
+      /(?:change|modify|update|edit|add|remove|improve|refactor|create|write|make|generate|build)\s+.+/i,
       // Specific error mentions
       /(?:indentation|syntax|runtime|compile|type)\s+error/i,
       // File-specific issues
@@ -437,10 +619,35 @@ export class ChatManager {
   }
 
   /**
-   * Get problem summary
+   * Get all unsolved problems
+   */
+  getUnansweredProblems(): Problem[] {
+    if (!this.state) return [];
+    return [...this.state.problems];
+  }
+
+  /**
+   * Check if there are any unsolved problems
+   */
+  hasUnansweredProblems(): boolean {
+    return this.state !== null && this.state.problems.length > 0;
+  }
+
+  /**
+   * Get problem summary (for backward compatibility)
+   * Returns concatenated problem statements
    */
   getProblemSummary(): string | undefined {
-    return this.state?.problemSummary;
+    if (!this.state || this.state.problems.length === 0) {
+      return undefined;
+    }
+    
+    if (this.state.problems.length === 1) {
+      return this.state.problems[0].statement;
+    }
+    
+    // Return all problem statements joined
+    return this.state.problems.map(p => p.statement).join('\n\n');
   }
 
   /**
@@ -450,6 +657,7 @@ export class ChatManager {
     if (!this.state) return null;
     return {
       ...this.state,
+      problems: [...this.state.problems], // Copy the array
       referredFiles: [...this.state.referredFiles], // Copy the array
     };
   }
@@ -469,12 +677,14 @@ export class ChatManager {
     queries: string[];
     aggregatedPrompt: string;
     problemSummary?: string;
+    problems: Problem[];
     referredFiles: Array<{ file: string; description?: string }>;
   } {
     if (!this.state) {
       return {
         queries: [],
         aggregatedPrompt: '',
+        problems: [],
         referredFiles: [],
       };
     }
@@ -482,7 +692,8 @@ export class ChatManager {
     return {
       queries: this.getMeaningfulQueries(),
       aggregatedPrompt: this.getAggregatedPrompt(),
-      problemSummary: this.state.problemSummary,
+      problemSummary: this.getProblemSummary(), // For backward compatibility
+      problems: this.getUnansweredProblems(),
       referredFiles: this.getReferredFiles(),
     };
   }

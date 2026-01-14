@@ -594,5 +594,135 @@ export class ImplementationManager {
       }
     }
   }
+
+  /**
+   * Generate implementation_step_N.json file when processing a step with @cmd:next_step
+   * Creates the CodeContext and generates the diagnostic file
+   * 
+   * @param stepNumber - The step number being processed
+   * @param codeContexts - Code contexts that match this step (if any)
+   * @param nativeToolsManager - Tool manager to create the file
+   * @param contextManager - Context manager to store CodeContext
+   */
+  async generateImplementationStepFile(
+    stepNumber: number,
+    codeContexts: CodeContext[] = [],
+    nativeToolsManager?: NativeToolsManager,
+    contextManager?: ConversationContextManager
+  ): Promise<void> {
+    if (!this.state || !this.state.taskId) {
+      console.log(`[ImplementationManager] No state or taskId, skipping implementation_step_${stepNumber}.json generation`);
+      return;
+    }
+
+    const plan = this.getProgressPlan();
+    if (!plan) {
+      console.log(`[ImplementationManager] No plan found, skipping implementation_step_${stepNumber}.json generation`);
+      return;
+    }
+
+    const step = plan.steps.find(s => s.stepNumber === stepNumber);
+    if (!step) {
+      console.log(`[ImplementationManager] Step ${stepNumber} not found in plan, skipping implementation_step_${stepNumber}.json generation`);
+      return;
+    }
+
+    // Get files created for this step
+    const filesForStep = this.getFilesForStep(stepNumber);
+
+    // Create JSON structure for implementation step
+    const stepData = {
+      stepNumber: step.stepNumber,
+      goal: step.goal,
+      description: step.description,
+      tools: step.tools || [],
+      status: step.status,
+      taskId: plan.taskId,
+      originalPrompt: plan.originalPrompt,
+      complexity: plan.complexity,
+      totalSteps: plan.totalSteps,
+      codeContexts: codeContexts.map(cc => ({
+        fileName: cc.name,
+        description: cc.description,
+        hasContent: cc.content && cc.content.length > 0,
+        waitForCreate: cc.waitForCreate
+      })),
+      filesCreated: filesForStep.map(f => ({
+        file: f.file,
+        status: f.status,
+        createdAt: f.createdAt,
+        error: f.error
+      })),
+      timestamp: Date.now(),
+      summary: `Implementation step ${stepNumber}: ${step.goal}${step.description ? ` - ${step.description}` : ''}`
+    };
+
+    const fileName = `implementation_step_${stepNumber}.json`;
+    const stepJson = JSON.stringify(stepData, null, 2);
+    const stepLines = stepJson.split('\n');
+    const stepContext = new CodeContext(
+      fileName,
+      stepLines,
+      false, // waitForCreate: false - just store, don't create file yet
+      'v1',
+      Date.now(),
+      `Implementation step ${stepNumber} diagnostic data`
+    );
+
+    // Store in context manager if provided
+    if (contextManager) {
+      contextManager.addCodeContext(stepContext);
+      console.log(`[ImplementationManager] Saved ${fileName} to CodeContext`);
+    }
+
+    // Generate the file if nativeToolsManager is provided
+    if (nativeToolsManager && contextManager) {
+      const context = contextManager.getContext();
+      if (context?.codeContexts) {
+        const versions = context.codeContexts.get(fileName);
+        if (versions) {
+          const activeVersion = versions.find(v => v.isActive);
+          if (activeVersion && !activeVersion.waitForCreate) {
+            try {
+              const content = activeVersion.getContentAsString();
+              if (content && content.trim().length > 0) {
+                console.log(`[ImplementationManager] Implementation stage: Auto-generating diagnostic file: ${fileName}`);
+                try {
+                  const createResult = await nativeToolsManager.callTool('create_file', {
+                    file_path: fileName,
+                    content: content
+                  });
+                  
+                  if (createResult && !createResult.isError) {
+                    console.log(`[ImplementationManager] ✅ Successfully created diagnostic file: ${fileName}`);
+                  } else if (createResult && createResult.content?.[0]?.text?.includes('already exists')) {
+                    // File exists, use replace_file
+                    const replaceResult = await nativeToolsManager.callTool('replace_file', {
+                      file_path: fileName,
+                      content: content
+                    });
+                    if (replaceResult && !replaceResult.isError) {
+                      console.log(`[ImplementationManager] ✅ Successfully updated diagnostic file: ${fileName}`);
+                    } else {
+                      const errorMsg = replaceResult?.content?.[0]?.text || 'Unknown error';
+                      console.warn(`[ImplementationManager] ⚠️ Failed to update diagnostic file ${fileName}: ${errorMsg}`);
+                    }
+                  } else {
+                    const errorMsg = createResult?.content?.[0]?.text || 'Unknown error';
+                    console.warn(`[ImplementationManager] ⚠️ Failed to create diagnostic file ${fileName}: ${errorMsg}`);
+                  }
+                } catch (error: any) {
+                  // Silently ignore errors during diagnostic file creation (non-critical)
+                  console.warn(`[ImplementationManager] ⚠️ Error creating diagnostic file ${fileName}:`, error.message || error);
+                }
+              }
+            } catch (error: any) {
+              console.warn(`[ImplementationManager] ⚠️ Error creating diagnostic file ${fileName}:`, error);
+            }
+          }
+        }
+      }
+    }
+  }
 }
 

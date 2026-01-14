@@ -153,5 +153,56 @@ Step 3. write hello.md to document hello module`;
       expect(result.plan?.steps[2].goal).toContain('hello.md');
     });
   });
+
+  describe('extractStepsFromText', () => {
+    it('should prefer execution plan steps over edge case discussions', () => {
+      // Simulate LLM response that contains both edge cases and execution plan
+      const content = `**4. Numbered plan (one step per distinct requirement)**
+
+*Requirement identified*: Convert the DOCX file bliu.docx to Markdown and return the result.
+
+**Step 1:** Locate the file bliu.docx in the workspace.
+- Use find_files with the name pattern "bliu.docx" (case-insensitive, not a regex) to obtain the full path.
+- Verify that exactly one match is returned. If none or multiple matches are found, handle the edge cases (report "file not found" or request clarification).
+
+**Step 2:** Read the file's binary content and prepare the parameters for the conversion tool.
+- Use read_file on the path obtained in Step 1 to get the raw bytes of the DOCX.
+- Determine the file size (length of the byte array).
+- Encode the binary content to a Base-64 string (the conversion tool expects content_base64).
+
+**Step 3:** Call the MCP tool convert_docx_to_markdown with the prepared arguments.
+- Pass content_base64 (the Base-64 string from Step 2), filename: "bliu.docx", and file_size (from Step 2).
+- Capture the tool's response, which should be the Markdown representation of the document.
+- Return that Markdown text to the user.
+
+**5. Complexity assessment**
+The task involves three distinct actions (search, read & encode, convert) and handling of possible edge cases, so it is **moderately complex** (requires >2 steps). The plan is therefore classified as a **hard** task.
+
+**Plan Progress:**
+Step 1: **File not found** – If bliu.docx does not exist, we must report that back to the user.
+Step 2: **Multiple matches** – If more than one file matches the pattern (e.g., bliu.docx and bliu (copy).docx), we should pick the exact match; otherwise we may need clarification.
+Step 3: **Large file** – If the file is unusually large, the tool might reject it; we would need to inform the user about size limits.
+Step 4: **Corrupted DOCX** – If the conversion tool fails because the file is not a valid DOCX, we should surface the error.
+Step 5: **Binary reading** – The workspace tools (read_file) return text; to obtain a Base-64 representation we must read the file as binary.`;
+
+      const steps = manager.extractStepsFromText(content, undefined, 'hard');
+
+      // Should extract the execution plan (3 steps), not the edge cases (5 steps)
+      expect(steps.length).toBe(3);
+      expect(steps[0].goal).toContain('Locate');
+      expect(steps[0].goal).toContain('bliu.docx');
+      expect(steps[1].goal).toContain('Read');
+      expect(steps[1].goal).toContain('binary content');
+      expect(steps[2].goal).toContain('Call');
+      expect(steps[2].goal).toContain('convert_docx_to_markdown');
+
+      // Should NOT include edge cases
+      expect(steps.some(s => s.goal.includes('File not found'))).toBe(false);
+      expect(steps.some(s => s.goal.includes('Multiple matches'))).toBe(false);
+      expect(steps.some(s => s.goal.includes('Large file'))).toBe(false);
+      expect(steps.some(s => s.goal.includes('Corrupted DOCX'))).toBe(false);
+      expect(steps.some(s => s.goal.includes('Binary reading'))).toBe(false);
+    });
+  });
 });
 

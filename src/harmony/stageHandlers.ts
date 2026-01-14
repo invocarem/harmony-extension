@@ -300,6 +300,16 @@ class ImplementationStageHandler implements StageHandler {
       // Match CodeContexts to the current step based on filename mentioned in step goal/description
       filteredCodeContexts = this.implementationManager.filterCodeContextsForStep(codeContexts, currentStepForFilter);
       console.log(`[StageHandler:Implementation] Filtered ${codeContexts.length} code context(s) to ${filteredCodeContexts.length} matching step ${currentStepForFilter.stepNumber}`);
+      
+      // Generate diagnostic file for this step if next_step command was used
+      if (isNextStepRequest) {
+        await this.implementationManager.generateImplementationStepFile(
+          currentStepForFilter.stepNumber,
+          filteredCodeContexts,
+          nativeToolsManager,
+          contextManager
+        );
+      }
     }
 
     // Execute action based on plan decision
@@ -423,12 +433,65 @@ class ImplementationStageHandler implements StageHandler {
     // Fallback: no plan decision and no CodeContext
     return { shouldSkipLLM: false };
   }
+
+  async handlePostProcessing(
+    context: ConversationContext | null,
+    content: string,
+    parsed: HarmonyParseResult,
+    toolCalls: MCPToolCall[],
+    executedToolCalls: Array<{ name: string; arguments: Record<string, any>; result?: any }> | undefined,
+    contextManager: ConversationContextManager,
+    progressPlanManager: ProgressPlanManager,
+    autoTransitionManager: AutoTransitionManager,
+    nativeToolsManager?: NativeToolsManager
+  ): Promise<void> {
+    if (!context || !this.implementationManager) return;
+
+    const plan = context.progressPlan;
+    if (!plan) return;
+
+    // Get current step
+    const currentStep = this.implementationManager.getCurrentStep();
+    if (!currentStep || currentStep.status !== 'in_progress') {
+      return;
+    }
+
+    // Check if step requires file creation tools
+    const fileCreationTools = ['create_file', 'replace_file', 'write_file', 'update_file'];
+    const needsFileCreation = currentStep.tools?.some(tool => 
+      fileCreationTools.includes(tool)
+    ) || false;
+
+    // Check if any file creation tool calls were executed
+    const hasFileCreationToolCalls = executedToolCalls?.some(tc => 
+      fileCreationTools.includes(tc.name)
+    ) || false;
+
+    // If step doesn't require file creation AND no file creation tool calls were executed,
+    // mark the step as complete (the LLM has responded, which is sufficient for non-file-creation steps)
+    if (!needsFileCreation && !hasFileCreationToolCalls) {
+      this.implementationManager.completeStep(currentStep.stepNumber);
+      console.log(`[StageHandler:Implementation] ProgressPlan: Marked step ${currentStep.stepNumber} (${currentStep.goal}) as completed after LLM response (step doesn't require file creation)`);
+    }
+  }
 }
 
 /**
  * Assumptions stage handler
  */
 class AssumptionsStageHandler implements StageHandler {
+  async handlePreProcessing(
+    context: ConversationContext | null,
+    prompt: string,
+    nativeToolsManager?: NativeToolsManager,
+    contextManager?: ConversationContextManager,
+    progressPlanManager?: ProgressPlanManager
+  ): Promise<{ shouldSkipLLM: boolean; response?: any }> {
+    // No special handling for convert command - let LLM generate the plan naturally
+    // The improved step extraction logic will properly extract execution steps from LLM's response
+    return { shouldSkipLLM: false };
+  }
+
   async handlePostProcessing(
     context: ConversationContext | null,
     content: string,
@@ -607,31 +670,17 @@ class ChatStageHandler implements StageHandler {
 
     // Track user queries in chat stage
     // Note: Query is already added in extension.ts with proper file extraction via addQueryWithFiles()
-    // This post-processing only updates problem summary, not the query itself
-    // We skip adding the query here to avoid duplicates and ensure file extraction from FileManager is used
+    // This post-processing processes the response to update problems (add unsolved, remove solved)
 
-    // Extract problem summary from assistant response (first sentence or first paragraph)
-    if (content) {
-      // Look for restatement patterns: "You want to...", "You're asking...", "The task is..."
-      const restatementPatterns = [
-        /(?:you\s+(?:want|need|are\s+asking|would\s+like|requested)|the\s+task\s+is|the\s+goal\s+is)[^.!?]+[.!?]/i,
-        /(?:i\s+understand\s+that\s+you\s+want|based\s+on\s+your\s+request)[^.!?]+[.!?]/i,
-      ];
-
-      for (const pattern of restatementPatterns) {
-        const match = content.match(pattern);
-        if (match) {
-          this.chatManager.updateProblemSummary(match[0]);
-          break;
-        }
-      }
-
-      // If no explicit restatement found, use first sentence as summary
-      if (!this.chatManager.getProblemSummary()) {
-        const firstSentence = content.split(/[.!?]/)[0].trim();
-        if (firstSentence.length > 20) {
-          this.chatManager.updateProblemSummary(firstSentence);
-        }
+    // Get the last user query from conversation history
+    if (content && conversationHistory) {
+      // Find the last user message (before the current assistant response)
+      const userMessages = conversationHistory.filter(m => m.role === 'user');
+      const lastUserQuery = userMessages.length > 0 ? userMessages[userMessages.length - 1].content : undefined;
+      
+      if (lastUserQuery) {
+        // Process response to add/remove problems
+        this.chatManager.processResponse(content, lastUserQuery);
       }
     }
   }

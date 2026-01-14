@@ -103,6 +103,15 @@ describe('CommandExtractor', () => {
       expect(result.cleanMessage).toBe('');
     });
 
+    it('should handle auto command', () => {
+      const message = '@cmd:auto';
+      const result = CommandExtractor.extractCommand(message);
+      
+      expect(result.command).not.toBeNull();
+      expect(result.command?.command).toBe('auto');
+      expect(result.cleanMessage).toBe('');
+    });
+
     it('should extract command with underscores', () => {
       const message = '@cmd:move_to_implementation';
       const result = CommandExtractor.extractCommand(message);

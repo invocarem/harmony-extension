@@ -1049,26 +1049,34 @@ export class HarmonyClient {
           
           // Create or update plan in assumptions stage
           // Delegated to AssumptionsManager for centralized handling
-          if (currentStage === 'assumptions' && context && content && !context.progressPlan) {
+          if (currentStage === 'assumptions' && context && content) {
             try {
               const originalPrompt = context.originalPrompt || prompt;
               if (originalPrompt) {
-                // Ensure AssumptionsManager is initialized
-                if (!this.assumptionsManager.getState()) {
-                  this.assumptionsManager.initialize();
-                }
-                
-                // Use AssumptionsManager to create/update plan (centralized logic)
-                const plan = this.assumptionsManager.createOrUpdatePlan(
-                  content,
-                  originalPrompt,
-                  parsed.reasoning,
-                  toolCalls
-                );
-                
-                if (plan) {
-                  this.contextManager.setProgressPlan(plan);
-                  console.log(`[Harmony] Assumptions stage: Created ProgressPlan with ${plan.totalSteps} step(s) (complexity: ${plan.complexity}), taskId: ${plan.taskId}`);
+                // Check if a plan already exists in the context (created by stage handler for convert commands)
+                const existingContext = this.contextManager.getContext();
+                if (existingContext?.progressPlan) {
+                  // Plan already exists (created by stage handler), set taskId in AssumptionsManager
+                  this.assumptionsManager.setTaskId(existingContext.progressPlan.taskId);
+                  console.log(`[Harmony] Assumptions stage: Using existing plan from context (taskId: ${existingContext.progressPlan.taskId})`);
+                } else {
+                  // Ensure AssumptionsManager is initialized
+                  if (!this.assumptionsManager.getState()) {
+                    this.assumptionsManager.initialize();
+                  }
+                  
+                  // Use AssumptionsManager to create/update plan (centralized logic)
+                  const plan = this.assumptionsManager.createOrUpdatePlan(
+                    content,
+                    originalPrompt,
+                    parsed.reasoning,
+                    toolCalls
+                  );
+                  
+                  if (plan) {
+                    this.contextManager.setProgressPlan(plan);
+                    console.log(`[Harmony] Assumptions stage: Created ProgressPlan with ${plan.totalSteps} step(s) (complexity: ${plan.complexity}), taskId: ${plan.taskId}`);
+                  }
                 }
               }
             } catch (error) {

@@ -11,6 +11,7 @@ import { NativeToolsManager, NativeToolResult } from "./nativeToolManager";
 import { ConversationManager, ChatMessage } from "./conversationManager";
 import { FileContextExtractor } from "./utils/fileContextExtractor";
 import { FileManager } from "./utils/fileManager";
+import { FileReader } from "./utils/fileReader";
 import { cleanVerboseResponse } from "./utils/responseCleaner";
 import { StageStateMachine, WorkflowStage } from "./harmony/stageStateMachine";
 import { FileExtractionResult, VerboseInfoBuilder, VerboseInfoFormatter } from "./utils/verboseInfo";
@@ -29,9 +30,11 @@ export class HarmonyAssistant {
   private conversationManager: ConversationManager;
   private stageStateMachine: StageStateMachine;
   private fileManager: FileManager;
+  private fileReader: FileReader;
   private confirmationManager: ConfirmationManager;
   private lastActiveTextEditor: vscode.TextEditor | undefined;
   private editorChangeDisposable: vscode.Disposable | undefined;
+  private isAutoMode: boolean = false;
 
   constructor(context: vscode.ExtensionContext) {
     this.config = loadConfig();
@@ -42,6 +45,7 @@ export class HarmonyAssistant {
     this.conversationManager = new ConversationManager();
     this.stageStateMachine = new StageStateMachine();
     this.fileManager = new FileManager();
+    this.fileReader = new FileReader();
     this.confirmationManager = new ConfirmationManager();
     this.harmonyClient = new HarmonyClient(this.config, this.mcpManager, this.rulesManager, this.nativeToolsManager);
     
@@ -288,10 +292,14 @@ export class HarmonyAssistant {
           }
           
           // Use cleaned message for remaining processing
-          // For next_step command, remaining text should be ignored (command is self-contained)
-          if (command.command === 'next_step') {
-            text = '';  // Empty message - ImplementationStageHandler will detect this as next_step request
-            console.log(`[CommandExtractor] next_step command - ignoring remaining text, using empty prompt`);
+          // For next_step and auto commands, remaining text should be ignored (command is self-contained)
+          if (command.command === 'next_step' || command.command === 'auto') {
+            text = '';  // Empty message - ImplementationStageHandler will detect this as next_step/auto request
+            console.log(`[CommandExtractor] ${command.command} command - ignoring remaining text, using empty prompt`);
+          } else if (commandResult.modifiedMessage !== undefined) {
+            // Use modified message if provided (e.g., to preserve command for later processing)
+            text = commandResult.modifiedMessage;
+            console.log(`[CommandExtractor] Using modified message from command handler`);
           } else {
             text = messageAfterCommand;
           }
@@ -477,26 +485,45 @@ export class HarmonyAssistant {
             this.confirmationManager
           );
           if (detectedStage && detectedStage !== currentStage) {
-            // Clear confirmation after successful transition
-            this.confirmationManager.clear();
+            // If transitioning to assumptions, check if there are unanswered problems
+            if (detectedStage === 'assumptions') {
+              const hasUnanswered = chatManager.hasUnansweredProblems();
+              if (!hasUnanswered) {
+                console.log(`[Harmony] Blocking transition to assumptions - all problems have been solved`);
+                // Stay in chat stage
+                currentStage = 'chat';
+              } else {
+                // Clear confirmation after successful transition
+                this.confirmationManager.clear();
+                currentStage = detectedStage;
+              }
+            } else {
+              // Clear confirmation after successful transition
+              this.confirmationManager.clear();
+              currentStage = detectedStage;
+            }
+          } else {
+            currentStage = detectedStage || 'chat';
           }
-          currentStage = detectedStage || 'chat';
         }
       }
       
-      // Detect and activate first-principles mode if triggered
+      // Detect and activate first-principles mode if triggered or enabled in config
       // This should happen when entering assumptions stage or if already in assumptions stage
       if (currentStage === 'assumptions') {
-        // Check if first-principles is triggered in the current message
-        const shouldActivate = this.harmonyClient.shouldActivateFirstPrinciples(finalMessage);
+        // Check if first-principles is triggered in the current message OR enabled in config
+        const shouldActivate = this.harmonyClient.shouldActivateFirstPrinciples(finalMessage) || 
+                               this.config.firstPrinciplesMode === true;
         
         if (shouldActivate && !this.harmonyClient.isFirstPrinciplesMode()) {
           // Activate first-principles mode
           this.harmonyClient.setFirstPrinciplesMode(true);
-          console.log(`[Harmony] First-principles mode activated`);
+          const reason = this.config.firstPrinciplesMode ? 'config setting' : 'user trigger';
+          console.log(`[Harmony] First-principles mode activated (${reason})`);
         }
-      } else if (currentStage !== 'assumptions') {
+      } else {
         // Disable first-principles mode when leaving assumptions stage
+        // (unless config says to keep it enabled - but we reset per conversation)
         if (this.harmonyClient.isFirstPrinciplesMode()) {
           this.harmonyClient.setFirstPrinciplesMode(false);
           console.log(`[Harmony] First-principles mode deactivated (left assumptions stage)`);
@@ -565,17 +592,160 @@ export class HarmonyAssistant {
         conversationHistory
       );
 
-      // Update problem summary in ChatManager if in chat stage
+      // Process response and update problems in ChatManager if in chat stage
       if (currentStage === 'chat' && cleanedContent) {
-        chatManager.updateProblemSummaryFromResponse(cleanedContent, cleanMessage);
+        chatManager.processResponse(cleanedContent, cleanMessage);
       }
 
       await this.webviewManager.sendMessage(cleanedResponse);
+
+      // Check if we're in auto mode and should continue to next step
+      if (this.isAutoMode && currentStage === 'implementation') {
+        const isComplete = cleanedResponse.verboseInfo?.isComplete === true;
+        if (!isComplete) {
+          // There are more steps - continue processing
+          console.log(`[Harmony] @cmd:auto - Step completed, continuing to next step...`);
+          // Use setTimeout to avoid blocking and allow the response to be displayed first
+          setTimeout(async () => {
+            await this.handleChatMessage('');
+          }, 100);
+        } else {
+          // All steps completed - clear auto mode flag
+          console.log(`[Harmony] @cmd:auto - All steps completed`);
+          this.isAutoMode = false;
+        }
+      }
     } catch (error: any) {
       console.error(`[Harmony] Error in handleChatMessage:`, error);
+      // Clear auto mode flag on error
+      this.isAutoMode = false;
       await this.webviewManager.sendMessage({
         content: `❌ Error: ${error.message}`,
       });
+    }
+  }
+
+  /**
+   * Get MCP tool name for conversion based on source and target types
+   * @param sourceType - Source file type (e.g., "docx", "pdf")
+   * @param targetType - Target format type (e.g., "markdown", "html")
+   * @returns MCP tool name or null if not supported
+   */
+  private getConversionToolName(sourceType: string, targetType: string): string | null {
+    const source = sourceType.toLowerCase();
+    const target = targetType.toLowerCase();
+
+    // Map source/target combinations to MCP tool names
+    if (source === 'docx' && target === 'markdown') {
+      return 'convert_docx_to_markdown';
+    }
+    if (source === 'pdf' && target === 'markdown') {
+      return 'extract_pdf_text';
+    }
+    // Add more mappings as MCP tools become available
+    // if (source === 'docx' && target === 'html') {
+    //   return 'convert_docx_to_html';
+    // }
+
+    return null;
+  }
+
+  /**
+   * Execute file conversion
+   * @param filename - The filename to convert (e.g., "bliu.docx")
+   * @param targetType - Target format type (e.g., "markdown", defaults to "markdown")
+   * @returns Result message to display
+   */
+  private async executeConversion(
+    filename: string,
+    targetType: string = 'markdown'
+  ): Promise<{ message: string }> {
+    console.log(`[Conversion] Converting file: ${filename} to ${targetType}`);
+
+    try {
+      // Check if file is supported
+      if (!FileReader.isSupportedFile(filename)) {
+        return {
+          message: `❌ Error: File "${filename}" is not supported. Only .docx and .pdf files are supported.`,
+        };
+      }
+
+      // Determine source type from file extension
+      const sourceType = filename.toLowerCase().endsWith('.docx') ? 'docx' : 'pdf';
+
+      // Get MCP tool name for this conversion
+      const toolName = this.getConversionToolName(sourceType, targetType);
+      if (!toolName) {
+        return {
+          message: `❌ Error: Conversion from ${sourceType} to ${targetType} is not supported. Supported conversions: docx→markdown, pdf→markdown.`,
+        };
+      }
+
+      const serverName = this.mcpManager.findToolServer(toolName);
+
+      if (!serverName) {
+        return {
+          message: `❌ Error: MCP tool "${toolName}" not available. File conversion requires a configured MCP server with this tool.`,
+        };
+      }
+
+      // Read file to base64
+      const fileResult = await this.fileReader.readFileToBase64(filename);
+
+      // Call MCP tool
+      const mcpResult = await this.mcpManager.callTool(serverName, toolName, {
+        content_base64: fileResult.base64,
+        filename: fileResult.filename,
+        file_size: fileResult.fileSize,
+      });
+
+      if (mcpResult.isError) {
+        const errorText = mcpResult.content?.[0]?.text || 'Unknown error';
+        return {
+          message: `❌ Error converting file: ${errorText}`,
+        };
+      }
+
+      // Parse result (MCP tools return JSON strings)
+      let resultData: any;
+      try {
+        const resultText = mcpResult.content?.[0]?.text || '{}';
+        resultData = JSON.parse(resultText);
+      } catch (parseError) {
+        // If parsing fails, use the raw text
+        resultData = { markdown: mcpResult.content?.[0]?.text || '' };
+      }
+
+      // Format and return result
+      // Handle different target types in the response
+      let content: string | undefined;
+      if (targetType === 'markdown') {
+        content = resultData.markdown || resultData.content;
+      } else {
+        // For other target types, try common field names
+        content = resultData.content || resultData[targetType] || resultData.markdown;
+      }
+
+      if (resultData.success && content) {
+        return {
+          message: `✅ Successfully converted "${fileResult.filename}" to ${targetType}:\n\n` +
+            `---\n\n` +
+            content,
+        };
+      } else if (resultData.error) {
+        return {
+          message: `❌ Error converting file: ${resultData.error}`,
+        };
+      } else {
+        return {
+          message: `⚠️ Conversion completed but no ${targetType} content was returned.`,
+        };
+      }
+    } catch (error: any) {
+      console.error(`[Conversion] Error converting file:`, error);
+      return {
+        message: `❌ Error: ${error.message}`,
+      };
     }
   }
 
@@ -591,6 +761,7 @@ export class HarmonyAssistant {
     shouldReturn: boolean;
     message?: string;
     newStage?: WorkflowStage;
+    modifiedMessage?: string; // Modified message to use for continued processing
   }> {
     const commandLower = command.toLowerCase().trim();
 
@@ -622,6 +793,20 @@ export class HarmonyAssistant {
             message: `Cannot transition to assumptions stage from ${currentStage}. Valid transitions: ${currentStage === 'chat' ? 'chat -> assumptions' : currentStage === 'implementation' ? 'implementation -> assumptions' : 'N/A'}`,
           };
         }
+        
+        // If transitioning from chat, check if there are unanswered problems
+        if (currentStage === 'chat') {
+          const chatManager = this.harmonyClient.getChatManager();
+          const hasUnanswered = chatManager.hasUnansweredProblems();
+          if (!hasUnanswered) {
+            return {
+              handled: true,
+              shouldReturn: true,
+              message: `All questions have been answered. No need to move to assumptions stage.`,
+            };
+          }
+        }
+        
         return {
           handled: true,
           shouldReturn: false,
@@ -666,6 +851,26 @@ export class HarmonyAssistant {
         };
       }
 
+      case 'auto': {
+        // auto command - executes all steps until completion
+        const currentStage = this.harmonyClient.getCurrentStage();
+        if (currentStage !== 'implementation') {
+          return {
+            handled: true,
+            shouldReturn: true,
+            message: 'auto command is only available in implementation stage',
+          };
+        }
+        // Set auto mode flag and process first step (similar to next_step)
+        this.isAutoMode = true;
+        console.log(`[CommandHandler] @cmd:auto - Auto mode enabled, will execute all steps`);
+        return {
+          handled: true,
+          shouldReturn: false,
+          // Don't change stage for auto
+        };
+      }
+
       case 'verbose_info':
       case 'verbose-info': {
         // Get current verboseInfo and display it in webview
@@ -687,6 +892,153 @@ export class HarmonyAssistant {
         return {
           handled: true,
           shouldReturn: true,
+        };
+      }
+
+      case 'convert': {
+        // Convert DOCX/PDF file to markdown
+        // Flow: chat (verify file, create plan) -> assumptions (pass through) -> implementation (execute)
+        const currentStage = this.harmonyClient.getCurrentStage();
+        
+        // Parse: @cmd:convert filename.docx [targetType]
+        // Example: @cmd:convert file.docx markdown
+        // Example: @cmd:convert file.docx (defaults to markdown)
+        const trimmed = remainingMessage.trim();
+        
+        // Match filename (with extension) and optional target type
+        // Pattern: filename.ext [targetType]
+        const match = trimmed.match(/^([\w.-\/\\]+\.(?:docx|pdf))(?:\s+(\w+))?$/i);
+        if (!match) {
+          return {
+            handled: true,
+            shouldReturn: true,
+            message: 'Usage: @cmd:convert filename.docx [targetType]\nExample: @cmd:convert file.docx markdown\n(If targetType is omitted, defaults to markdown)',
+          };
+        }
+
+        const filename = match[1];
+        const targetType = (match[2] || 'markdown').toLowerCase();
+
+        // Chat stage: Verify file exists and create default plan
+        if (currentStage === 'chat') {
+          // Verify file exists using FileReader (lightweight check without reading file content)
+          const fileExists = await this.fileReader.checkFileExists(filename);
+          if (!fileExists) {
+            return {
+              handled: true,
+              shouldReturn: true,
+              message: `❌ Error: File "${filename}" not found. Please check the file path.`,
+            };
+          }
+
+          // Check if conversion is supported
+          if (!FileReader.isSupportedFile(filename)) {
+            return {
+              handled: true,
+              shouldReturn: true,
+              message: `❌ Error: File "${filename}" is not supported. Only .docx and .pdf files are supported.`,
+            };
+          }
+
+          // Check if MCP tool is available
+          const sourceType = filename.toLowerCase().endsWith('.docx') ? 'docx' : 'pdf';
+          const toolName = this.getConversionToolName(sourceType, targetType);
+          if (!toolName) {
+            return {
+              handled: true,
+              shouldReturn: true,
+              message: `❌ Error: Conversion from ${sourceType} to ${targetType} is not supported.`,
+            };
+          }
+
+          const serverName = this.mcpManager.findToolServer(toolName);
+          if (!serverName) {
+            return {
+              handled: true,
+              shouldReturn: true,
+              message: `❌ Error: MCP tool "${toolName}" not available. File conversion requires a configured MCP server with this tool.`,
+            };
+          }
+
+          // Create default plan automatically
+          // The plan will be created by the assumptions stage handler when it processes the message
+          // Transition to assumptions stage with the convert command preserved
+          if (!this.stageStateMachine.canTransition(currentStage, 'assumptions')) {
+            return {
+              handled: true,
+              shouldReturn: true,
+              message: `Cannot transition to assumptions stage from ${currentStage}`,
+            };
+          }
+
+          // Preserve convert command for assumptions stage (which will pass through to implementation)
+          const convertCommand = `@cmd:convert ${trimmed}`;
+          return {
+            handled: true,
+            shouldReturn: false,
+            newStage: 'assumptions',
+            modifiedMessage: convertCommand, // Preserve command for processing in assumptions stage
+          };
+        }
+
+        // Assumptions stage: Detect command, verify MCP tool, transform message for LLM
+        if (currentStage === 'assumptions') {
+          // Verify MCP tool is still available (safety check)
+          const sourceType = filename.toLowerCase().endsWith('.docx') ? 'docx' : 'pdf';
+          const toolName = this.getConversionToolName(sourceType, targetType);
+          if (!toolName) {
+            return {
+              handled: true,
+              shouldReturn: true,
+              message: `❌ Error: Conversion from ${sourceType} to ${targetType} is not supported.`,
+            };
+          }
+
+          const serverName = this.mcpManager.findToolServer(toolName);
+          if (!serverName) {
+            return {
+              handled: true,
+              shouldReturn: true,
+              message: `❌ Error: MCP tool "${toolName}" not available. File conversion requires a configured MCP server with this tool.`,
+            };
+          }
+
+          // Transform command to natural language for LLM
+          // Remove @cmd:convert syntax and convert to natural language
+          const naturalLanguageMessage = `Convert ${filename} to ${targetType} format`;
+          
+          return {
+            handled: true,
+            shouldReturn: false,
+            modifiedMessage: naturalLanguageMessage, // Use natural language for assumptions stage planning
+          };
+        }
+
+        // Implementation stage: Execute conversion
+        if (currentStage === 'implementation') {
+          const result = await this.executeConversion(filename, targetType);
+          return {
+            handled: true,
+            shouldReturn: true,
+            message: result.message,
+          };
+        }
+
+        // Unknown stage - try to transition to implementation
+        if (this.stageStateMachine.canTransition(currentStage, 'implementation')) {
+          const result = await this.executeConversion(filename, targetType);
+          return {
+            handled: true,
+            shouldReturn: true,
+            newStage: 'implementation',
+            message: result.message,
+          };
+        }
+
+        return {
+          handled: true,
+          shouldReturn: true,
+          message: `Cannot transition to implementation stage from ${currentStage}`,
         };
       }
 
@@ -832,6 +1184,7 @@ export class HarmonyAssistant {
   public clearConversationHistory(): void {
     this.conversationManager.clear();
     this.confirmationManager.clear();
+    this.isAutoMode = false; // Clear auto mode when clearing conversation
     console.log(`[Harmony] Conversation history and confirmations cleared`);
   }
 
