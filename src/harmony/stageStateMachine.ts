@@ -306,14 +306,15 @@ You are in the **Chat/Clarification** stage. Your goal is to:
 You are in the **Implementation** stage. Your goal is to:
 - **Follow the plan** created in the Assumptions/Analysis stage
 - **Generate code snippets** - Create the actual code content for each file
-- **Call create_file or replace_file tool** to create/modify files
-- Use create_file for new files, replace_file for modifying existing files
-- All tools are available, including file modification tools
+- **Call create_file, replace_file, or exec_terminal tools** to implement the plan
+- Use create_file for new files, replace_file for modifying existing files, and exec_terminal for terminal commands
+- All tools are available, including file modification tools and terminal tools
 
 **Implementation stage will:**
 - Follow your plan from the Assumptions stage
 - Generate code snippets with actual implementation
 - Create/update files using tool calls
+- Run terminal commands when needed (installations, builds, tests, etc.)
 
 **IMPORTANT**:
 - Your response MUST include a tool call (create_file or replace_file)
@@ -321,9 +322,11 @@ You are in the **Implementation** stage. Your goal is to:
 - **DO NOT try to read files that should be created** - If a file doesn't exist yet, just create it directly
 - Follow the numbered steps from the plan created in Assumptions stage
 - Keep responses concise - focus on executing the file creation
-- Example: <tool_call name="create_file" args='{"file_path": "hello.py", "content": "print(\\\"Hello!\\\")"}' />
+- Example: 
+  <tool_call name="create_file" args='{"file_path": "hello.py", "content": "print(\\\"Hello!\\\")"}' />
+  <tool_call name="exec_terminal" args='{"command": "npm run compile"}' />
 
-**Note**: The Assumptions stage provides the plan and analysis. Your job is to implement it by generating actual code and creating files.`
+**Note**: The Assumptions stage provides the plan and analysis. Your job is to implement it by generating actual code and creating files, or running commands.`
 
       };
 

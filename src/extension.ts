@@ -601,8 +601,9 @@ export class HarmonyAssistant {
 
       // Check if we're in auto mode and should continue to next step
       if (this.isAutoMode && currentStage === 'implementation') {
-        const isComplete = cleanedResponse.verboseInfo?.isComplete === true;
-        if (!isComplete) {
+        // Check plan completion status directly (more reliable than verboseInfo.isComplete)
+        const isPlanCompleted = this.harmonyClient.isProgressPlanCompleted();
+        if (!isPlanCompleted) {
           // There are more steps - continue processing
           console.log(`[Harmony] @cmd:auto - Step completed, continuing to next step...`);
           // Use setTimeout to avoid blocking and allow the response to be displayed first

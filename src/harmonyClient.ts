@@ -716,7 +716,8 @@ export class HarmonyClient {
                 error: tc.result?.isError ? (tc.result?.content?.[0]?.text || 'Unknown error') : undefined
               }))
             );
-            verboseInfo.isComplete = true;
+            // Don't override isComplete - VerboseInfoBuilder already calculates it correctly
+            // based on whether the plan is actually completed
             delete verboseInfo.step;
             delete verboseInfo.maxSteps;
             
@@ -1053,30 +1054,34 @@ export class HarmonyClient {
             try {
               const originalPrompt = context.originalPrompt || prompt;
               if (originalPrompt) {
+                // Ensure AssumptionsManager is initialized
+                if (!this.assumptionsManager.getState()) {
+                  this.assumptionsManager.initialize();
+                }
+                
                 // Check if a plan already exists in the context (created by stage handler for convert commands)
                 const existingContext = this.contextManager.getContext();
-                if (existingContext?.progressPlan) {
-                  // Plan already exists (created by stage handler), set taskId in AssumptionsManager
-                  this.assumptionsManager.setTaskId(existingContext.progressPlan.taskId);
-                  console.log(`[Harmony] Assumptions stage: Using existing plan from context (taskId: ${existingContext.progressPlan.taskId})`);
-                } else {
-                  // Ensure AssumptionsManager is initialized
-                  if (!this.assumptionsManager.getState()) {
-                    this.assumptionsManager.initialize();
-                  }
-                  
-                  // Use AssumptionsManager to create/update plan (centralized logic)
-                  const plan = this.assumptionsManager.createOrUpdatePlan(
-                    content,
-                    originalPrompt,
-                    parsed.reasoning,
-                    toolCalls
-                  );
-                  
-                  if (plan) {
-                    this.contextManager.setProgressPlan(plan);
-                    console.log(`[Harmony] Assumptions stage: Created ProgressPlan with ${plan.totalSteps} step(s) (complexity: ${plan.complexity}), taskId: ${plan.taskId}`);
-                  }
+                const existingTaskId = existingContext?.progressPlan?.taskId;
+                if (existingTaskId) {
+                  // Plan already exists, set taskId in AssumptionsManager so createOrUpdatePlan can update it
+                  this.assumptionsManager.setTaskId(existingTaskId);
+                  console.log(`[Harmony] Assumptions stage: Plan exists, will update with new steps (taskId: ${existingTaskId})`);
+                }
+                
+                // Always call createOrUpdatePlan - it will update existing plans or create new ones
+                // This ensures the plan is updated with the latest steps from the assumptions response
+                // Pass existingTaskId explicitly to support cases where plan exists in context but not in AssumptionsManager state
+                const plan = this.assumptionsManager.createOrUpdatePlan(
+                  content,
+                  originalPrompt,
+                  parsed.reasoning,
+                  toolCalls,
+                  existingTaskId
+                );
+                
+                if (plan) {
+                  this.contextManager.setProgressPlan(plan);
+                  console.log(`[Harmony] Assumptions stage: ${existingContext?.progressPlan ? 'Updated' : 'Created'} ProgressPlan with ${plan.totalSteps} step(s) (complexity: ${plan.complexity}), taskId: ${plan.taskId}`);
                 }
               }
             } catch (error) {
@@ -1249,6 +1254,21 @@ export class HarmonyClient {
                 console.log(
                   `[Harmony] ProgressPlan: All steps completed! Plan "${plan.taskId}" is now complete.`
                 );
+              } else {
+                // Step was completed - advance to next step and generate its step file
+                const nextStep = this.implementationManager.advanceToNextStep();
+                if (nextStep && this.nativeToolsManager) {
+                  // Generate step file for the newly advanced step
+                  const codeContexts = this.contextManager.getCodeContexts() || [];
+                  const filteredCodeContexts = this.implementationManager.filterCodeContextsForStep(codeContexts, nextStep);
+                  await this.implementationManager.generateImplementationStepFile(
+                    nextStep.stepNumber,
+                    filteredCodeContexts,
+                    this.nativeToolsManager,
+                    this.contextManager
+                  );
+                  console.log(`[Harmony] Advanced to step ${nextStep.stepNumber} and generated implementation_step_${nextStep.stepNumber}.json`);
+                }
               }
             }
           }
@@ -1603,7 +1623,16 @@ export class HarmonyClient {
         : currentStage === 'assumptions'
         ? VerboseInfoBuilder.forAssumptionStage(finalContextForVerbose, undefined, conversationHistory)
         : VerboseInfoBuilder.forImplementationStage(finalContextForVerbose, this.progressPlanManager);
-      verboseInfo.isComplete = true;
+      
+      // Don't override isComplete - VerboseInfoBuilder already calculates it correctly
+      // For implementation stage, it checks if the plan is actually completed
+      // Only set isComplete = true for non-implementation stages or when explicitly needed
+      if (currentStage !== 'implementation') {
+        verboseInfo.isComplete = true;
+      }
+      // For implementation stage, keep the value calculated by VerboseInfoBuilder.forImplementationStage
+      // which correctly checks if the plan is completed (plan.completedAt or all steps completed)
+      
       delete verboseInfo.step;
       delete verboseInfo.maxSteps;
 
@@ -1896,6 +1925,25 @@ export class HarmonyClient {
     } else {
       return VerboseInfoBuilder.forImplementationStage(context, this.progressPlanManager);
     }
+  }
+
+  /**
+   * Check if the current progress plan is completed
+   * Returns true if plan exists and all steps are completed, false otherwise
+   */
+  isProgressPlanCompleted(): boolean {
+    const context = this.contextManager.getContext();
+    if (!context?.progressPlan) {
+      return false;
+    }
+
+    const plan = this.progressPlanManager.getPlan(context.progressPlan.taskId);
+    if (!plan) {
+      return false;
+    }
+
+    // Plan is completed if completedAt is set OR all steps are completed
+    return !!plan.completedAt || plan.steps.every(s => s.status === 'completed');
   }
 
   /**

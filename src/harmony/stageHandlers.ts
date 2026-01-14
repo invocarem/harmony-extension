@@ -301,8 +301,15 @@ class ImplementationStageHandler implements StageHandler {
       filteredCodeContexts = this.implementationManager.filterCodeContextsForStep(codeContexts, currentStepForFilter);
       console.log(`[StageHandler:Implementation] Filtered ${codeContexts.length} code context(s) to ${filteredCodeContexts.length} matching step ${currentStepForFilter.stepNumber}`);
       
-      // Generate diagnostic file for this step if next_step command was used
-      if (isNextStepRequest) {
+      // Generate diagnostic file for this step if:
+      // 1. next_step command was used, OR
+      // 2. step is in_progress AND it's step 1 (first step when entering implementation)
+      //    Note: Step files for subsequent steps are generated in harmonyClient.ts when advancing,
+      //    so we only generate here for step 1 or when explicitly requested via @cmd:next_step
+      const stepFileName = `implementation_step_${currentStepForFilter.stepNumber}.json`;
+      const stepFileExists = contextManager?.getCodeContexts()?.some(cc => cc.name === stepFileName) || false;
+      
+      if (isNextStepRequest || (currentStepForFilter.status === 'in_progress' && currentStepForFilter.stepNumber === 1 && !stepFileExists)) {
         await this.implementationManager.generateImplementationStepFile(
           currentStepForFilter.stepNumber,
           filteredCodeContexts,
@@ -456,6 +463,11 @@ class ImplementationStageHandler implements StageHandler {
       return;
     }
 
+    // If step is not in_progress, nothing to do
+    if (currentStep.status !== 'in_progress') {
+      return;
+    }
+
     // Check if step requires file creation tools
     const fileCreationTools = ['create_file', 'replace_file', 'write_file', 'update_file'];
     const needsFileCreation = currentStep.tools?.some(tool => 
@@ -472,6 +484,21 @@ class ImplementationStageHandler implements StageHandler {
     if (!needsFileCreation && !hasFileCreationToolCalls) {
       this.implementationManager.completeStep(currentStep.stepNumber);
       console.log(`[StageHandler:Implementation] ProgressPlan: Marked step ${currentStep.stepNumber} (${currentStep.goal}) as completed after LLM response (step doesn't require file creation)`);
+      
+      // After completing a step, advance to next step and generate its step file
+      const nextStep = this.implementationManager.advanceToNextStep();
+      if (nextStep && nativeToolsManager && contextManager) {
+        // Generate step file for the newly advanced step
+        const codeContexts = contextManager.getCodeContexts() || [];
+        const filteredCodeContexts = this.implementationManager.filterCodeContextsForStep(codeContexts, nextStep);
+        await this.implementationManager.generateImplementationStepFile(
+          nextStep.stepNumber,
+          filteredCodeContexts,
+          nativeToolsManager,
+          contextManager
+        );
+        console.log(`[StageHandler:Implementation] Advanced to step ${nextStep.stepNumber} and generated implementation_step_${nextStep.stepNumber}.json`);
+      }
     }
   }
 }

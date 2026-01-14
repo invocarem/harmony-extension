@@ -512,12 +512,23 @@ export class VerboseInfoBuilder {
     // Only include step/maxSteps when there's a ProgressPlan (real multi-step task)
     // For simple tasks without a plan, don't show misleading step counts
     const hasProgressPlan = !!context?.progressPlan;
+    
+    // Check if plan is actually completed (not just based on step count)
+    let isPlanCompleted = false;
+    if (hasProgressPlan && context?.progressPlan) {
+      const plan = progressPlanManager.getPlan(context.progressPlan.taskId);
+      if (plan) {
+        // Plan is completed if completedAt is set OR all steps are completed
+        isPlanCompleted = !!plan.completedAt || plan.steps.every(s => s.status === 'completed');
+      }
+    }
+    
     const verboseInfo: ImplementationVerboseInfo = {
       stage: 'implementation',
       stageTransition: context?.lastStageTransition,
       step: hasProgressPlan && context ? context.currentStep : undefined,
       maxSteps: hasProgressPlan && context ? context.maxSteps : undefined,
-      isComplete: !context || (hasProgressPlan ? context.currentStep >= context.maxSteps : true),
+      isComplete: !context || (hasProgressPlan ? isPlanCompleted : true),
     };
 
     // Add plan progress with file operation linking

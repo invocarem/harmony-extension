@@ -68,7 +68,27 @@ export class PromptBuilder {
             });
           }
           
-          stageInstructions += `\n**FOCUS**: Complete the current step (${currentStep.goal}) by creating the necessary files. After completing this step, you will move to the next step automatically.`;
+          // Determine the appropriate action based on step requirements
+          const fileCreationTools = ['create_file', 'replace_file', 'write_file', 'update_file'];
+          const needsFileCreation = currentStep.tools?.some(tool => fileCreationTools.includes(tool)) || false;
+          const needsCommandExecution = currentStep.tools?.includes('exec_terminal') || false;
+          
+          // Check step goal/description for hints about what action is needed
+          const stepText = `${currentStep.goal} ${currentStep.description || ''}`.toLowerCase();
+          const mentionsExecution = /\b(execute|run|command|terminal|script|python|npm|node|bash|sh)\b/i.test(stepText);
+          const mentionsFileCreation = /\b(create|write|generate|file|code|content)\b/i.test(stepText);
+          
+          let actionInstruction: string;
+          if (needsCommandExecution || mentionsExecution) {
+            actionInstruction = 'by making a tool call to exec_terminal with the command. DO NOT describe the result - actually call the tool. Your response MUST include: <tool_call name="exec_terminal" args=\'{"command": "..."}\' />';
+          } else if (needsFileCreation || mentionsFileCreation) {
+            actionInstruction = 'by creating or updating the necessary files using create_file or replace_file tool calls';
+          } else {
+            // Generic instruction that works for both
+            actionInstruction = 'by making the appropriate tool call (use create_file/replace_file for files, exec_terminal for commands). DO NOT just describe actions - actually make the tool call';
+          }
+          
+          stageInstructions += `\n**FOCUS**: Complete the current step (${currentStep.goal}) ${actionInstruction}. After completing this step, you will move to the next step automatically.`;
         } else if (plan.completedAt) {
           stageInstructions += `\n\n**PROGRESS PLAN**: All steps completed! ✅`;
         } else {

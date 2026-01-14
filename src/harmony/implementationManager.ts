@@ -195,9 +195,24 @@ export class ImplementationManager {
     const fileModificationTools = ['create_file', 'replace_file', 'write_file', 'update_file'];
     const allFileModToolCalls = toolCalls.filter(tc => fileModificationTools.includes(tc.name));
     const successfulFileMods = allFileModToolCalls.filter(tc => !tc.result?.isError);
+    
+    // Filter out diagnostic files from successfulFileMods (they shouldn't count for step completion)
+    const nonDiagnosticSuccessfulMods = successfulFileMods.filter(tc => {
+      const filePath = tc.arguments?.file_path || tc.arguments?.filePath;
+      return filePath && !filePath.startsWith('implementation_step_') && 
+             filePath !== 'assumption_data.json' && 
+             filePath !== 'aggregated_prompt.json';
+    });
 
-    // If there were file modification tool calls but all failed, revert step to pending
-    if (allFileModToolCalls.length > 0 && successfulFileMods.length === 0) {
+    // If there were file modification tool calls but all non-diagnostic ones failed, revert step to pending
+    const nonDiagnosticFileModCalls = allFileModToolCalls.filter(tc => {
+      const filePath = tc.arguments?.file_path || tc.arguments?.filePath;
+      return filePath && !filePath.startsWith('implementation_step_') && 
+             filePath !== 'assumption_data.json' && 
+             filePath !== 'aggregated_prompt.json';
+    });
+    
+    if (nonDiagnosticFileModCalls.length > 0 && nonDiagnosticSuccessfulMods.length === 0) {
       if (currentStep.status === 'in_progress') {
         this.progressPlanManager.updateStepStatus(this.state.taskId, currentStep.stepNumber, 'pending');
         console.log(`[ImplementationManager] Reverted step ${currentStep.stepNumber} to pending due to tool call failures`);
@@ -205,15 +220,24 @@ export class ImplementationManager {
       return undefined;
     }
 
-    if (successfulFileMods.length === 0) {
+    if (nonDiagnosticSuccessfulMods.length === 0) {
       return undefined;
     }
 
     // Record all file creations and filter files to only those that match the current step
+    // Use non-diagnostic successful mods to avoid completing steps with diagnostic files
     const filesForCurrentStep: string[] = [];
-    for (const toolCall of successfulFileMods) {
+    for (const toolCall of nonDiagnosticSuccessfulMods) {
       const filePath = toolCall.arguments?.file_path || toolCall.arguments?.filePath;
       if (filePath) {
+        // Skip diagnostic files - they should not complete steps
+        if (filePath.startsWith('implementation_step_') || filePath === 'assumption_data.json' || filePath === 'aggregated_prompt.json') {
+          // Still record the file creation, but don't use it for step completion
+          const status = toolCall.name === 'replace_file' ? 'replaced' : 'created';
+          this.recordFileCreated(filePath, currentStep.stepNumber, status);
+          continue;
+        }
+        
         // Always record the file creation (even if it doesn't match the step)
         const status = toolCall.name === 'replace_file' ? 'replaced' : 'created';
         this.recordFileCreated(filePath, currentStep.stepNumber, status);

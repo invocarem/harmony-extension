@@ -185,12 +185,15 @@ export class AssumptionsManager {
   /**
    * Create or update a plan based on assumptions stage response
    * This is the central place for plan creation during assumptions stage
+   * 
+   * @param existingTaskId - Optional taskId of an existing plan to update (e.g., from context manager)
    */
   createOrUpdatePlan(
     content: string,
     originalPrompt: string,
     reasoning?: string,
-    toolCalls?: any[]
+    toolCalls?: any[],
+    existingTaskId?: string
   ): ProgressPlan | null {
     if (!originalPrompt) {
       return null;
@@ -212,19 +215,26 @@ export class AssumptionsManager {
     );
 
     // Use existing plan if available, otherwise create new one
+    // Priority: 1. existingTaskId parameter, 2. this.state?.taskId, 3. create new
     let plan: ProgressPlan;
-    if (this.state?.taskId) {
-      const existingPlan = this.progressPlanManager.getPlan(this.state.taskId);
+    const taskIdToUse = existingTaskId || this.state?.taskId;
+    
+    if (taskIdToUse) {
+      const existingPlan = this.progressPlanManager.getPlan(taskIdToUse);
       if (existingPlan) {
         // Update existing plan
         this.progressPlanManager.updatePlanSteps(
-          this.state.taskId,
+          taskIdToUse,
           steps,
           true // preserveStatus
         );
-        plan = this.progressPlanManager.getPlan(this.state.taskId)!;
+        plan = this.progressPlanManager.getPlan(taskIdToUse)!;
+        // Ensure taskId is set in state if it wasn't already
+        if (!this.state?.taskId) {
+          this.setTaskId(taskIdToUse);
+        }
       } else {
-        // Create new plan
+        // Plan not found, create new plan
         const taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         plan = this.progressPlanManager.createPlan(
           taskId,

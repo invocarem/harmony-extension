@@ -158,6 +158,7 @@ export class ConversationContextManager {
   /**
    * Set the progress plan
    * If context doesn't exist, creates a minimal context to store the plan
+   * Also synchronizes maxSteps with the plan's totalSteps
    */
   setProgressPlan(plan: ProgressPlan): void {
     if (!this.context) {
@@ -167,12 +168,14 @@ export class ConversationContextManager {
         currentStage: 'chat',
         stageHistory: [{ stage: 'chat', enteredAt: Date.now() }],
         steps: [],
-        maxSteps: 5,
+        maxSteps: plan.totalSteps, // Synchronize with plan's totalSteps
         currentStep: 1,
         progressPlan: plan,
       };
     } else {
       this.context.progressPlan = plan;
+      // Synchronize maxSteps with plan's totalSteps when plan is updated
+      this.context.maxSteps = plan.totalSteps;
     }
   }
 

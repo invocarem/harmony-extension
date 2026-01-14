@@ -647,5 +647,168 @@ describe('HarmonyClient - VerboseInfo Tests', () => {
       }
     });
   });
+
+  describe('isProgressPlanCompleted', () => {
+    it('should return false when no plan exists', () => {
+      expect(client.isProgressPlanCompleted()).toBe(false);
+    });
+
+    it('should return false when plan exists but steps are not all completed', () => {
+      // Create a plan with some steps incomplete
+      const taskId = 'test-task-123';
+      const plan = client['progressPlanManager'].createPlan(
+        taskId,
+        'Test task',
+        'hard',
+        [
+          { goal: 'Step 1', description: 'First step' },
+          { goal: 'Step 2', description: 'Second step' },
+          { goal: 'Step 3', description: 'Third step' },
+        ]
+      );
+
+      // Initialize context if it doesn't exist
+      if (!client['contextManager'].hasContext()) {
+        client['contextManager'].initialize('test', 'chat');
+      }
+      // Set progress plan
+      client['contextManager'].setProgressPlan(plan);
+
+      // Mark only first step as completed
+      client['progressPlanManager'].updateStepStatus(taskId, 1, 'completed');
+      client['progressPlanManager'].updateStepStatus(taskId, 2, 'in_progress');
+      client['progressPlanManager'].updateStepStatus(taskId, 3, 'pending');
+
+      expect(client.isProgressPlanCompleted()).toBe(false);
+    });
+
+    it('should return true when all steps are completed', () => {
+      // Create a plan and mark all steps as completed
+      const taskId = 'test-task-456';
+      const plan = client['progressPlanManager'].createPlan(
+        taskId,
+        'Test task',
+        'hard',
+        [
+          { goal: 'Step 1', description: 'First step' },
+          { goal: 'Step 2', description: 'Second step' },
+        ]
+      );
+
+      // Initialize context if it doesn't exist
+      if (!client['contextManager'].hasContext()) {
+        client['contextManager'].initialize('test', 'chat');
+      }
+      // Set progress plan
+      client['contextManager'].setProgressPlan(plan);
+
+      // Mark all steps as completed
+      client['progressPlanManager'].updateStepStatus(taskId, 1, 'completed');
+      client['progressPlanManager'].updateStepStatus(taskId, 2, 'completed');
+
+      expect(client.isProgressPlanCompleted()).toBe(true);
+    });
+
+    it('should return true when plan has completedAt timestamp', () => {
+      // Create a plan and mark it as completed
+      const taskId = 'test-task-789';
+      const plan = client['progressPlanManager'].createPlan(
+        taskId,
+        'Test task',
+        'hard',
+        [
+          { goal: 'Step 1', description: 'First step' },
+        ]
+      );
+
+      // Initialize context if it doesn't exist
+      if (!client['contextManager'].hasContext()) {
+        client['contextManager'].initialize('test', 'chat');
+      }
+      // Set progress plan
+      client['contextManager'].setProgressPlan(plan);
+
+      // Mark plan as completed
+      client['progressPlanManager'].completePlan(taskId);
+
+      expect(client.isProgressPlanCompleted()).toBe(true);
+    });
+  });
+
+  describe('verboseInfo.isComplete for implementation stage with progress plan', () => {
+    it('should set isComplete to false when plan has incomplete steps', () => {
+      // Create a plan with incomplete steps
+      const taskId = 'test-task-incomplete';
+      const plan = client['progressPlanManager'].createPlan(
+        taskId,
+        'Test task',
+        'hard',
+        [
+          { goal: 'Step 1', description: 'First step' },
+          { goal: 'Step 2', description: 'Second step' },
+          { goal: 'Step 3', description: 'Third step' },
+        ]
+      );
+
+      // Mark only first step as completed
+      client['progressPlanManager'].updateStepStatus(taskId, 1, 'completed');
+      client['progressPlanManager'].updateStepStatus(taskId, 2, 'in_progress');
+      client['progressPlanManager'].updateStepStatus(taskId, 3, 'pending');
+
+      // Initialize context and set progress plan
+      if (!client['contextManager'].hasContext()) {
+        client['contextManager'].initialize('test', 'chat');
+      }
+      client['contextManager'].setProgressPlan(plan);
+      client['contextManager'].updateStage('implementation', 'test');
+
+      // Get verbose info
+      const verboseInfo = client.getCurrentVerboseInfo();
+
+      expect(verboseInfo.stage).toBe('implementation');
+      if (verboseInfo.stage === 'implementation') {
+        // isComplete should be false because not all steps are completed
+        expect(verboseInfo.isComplete).toBe(false);
+        expect(verboseInfo.planProgress).toBeDefined();
+        expect(verboseInfo.planProgress?.planCompleted).toBe(false);
+      }
+    });
+
+    it('should set isComplete to true when all steps are completed', () => {
+      // Create a plan and mark all steps as completed
+      const taskId = 'test-task-complete';
+      const plan = client['progressPlanManager'].createPlan(
+        taskId,
+        'Test task',
+        'hard',
+        [
+          { goal: 'Step 1', description: 'First step' },
+          { goal: 'Step 2', description: 'Second step' },
+        ]
+      );
+
+      // Mark all steps as completed
+      client['progressPlanManager'].updateStepStatus(taskId, 1, 'completed');
+      client['progressPlanManager'].updateStepStatus(taskId, 2, 'completed');
+
+      // Initialize context and set progress plan
+      if (!client['contextManager'].hasContext()) {
+        client['contextManager'].initialize('test', 'chat');
+      }
+      client['contextManager'].setProgressPlan(plan);
+      client['contextManager'].updateStage('implementation', 'test');
+
+      // Get verbose info
+      const verboseInfo = client.getCurrentVerboseInfo();
+
+      expect(verboseInfo.stage).toBe('implementation');
+      if (verboseInfo.stage === 'implementation') {
+        // isComplete should be true because all steps are completed
+        expect(verboseInfo.isComplete).toBe(true);
+        expect(verboseInfo.planProgress).toBeDefined();
+        expect(verboseInfo.planProgress?.planCompleted).toBe(true);
+      }
+    });
+  });
 });
 

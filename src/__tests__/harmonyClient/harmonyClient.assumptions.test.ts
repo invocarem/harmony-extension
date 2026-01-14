@@ -475,5 +475,189 @@ describe('HarmonyClient - Assumptions Stage', () => {
       }
     });
   });
+
+  describe('Plan Updates', () => {
+    it('should update existing plan when new steps are provided in assumptions stage', async () => {
+      const contextManager = (client as any).contextManager;
+      const assumptionsManager = (client as any).assumptionsManager;
+      const progressPlanManager = client.getProgressPlanManager();
+      
+      // Initialize context in assumptions stage
+      contextManager.initialize('test task', 'assumptions');
+      
+      // Create an initial plan with 3 steps (old plan)
+      const initialTaskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const initialPlan = progressPlanManager.createPlan(
+        initialTaskId,
+        'test task',
+        'hard',
+        [
+          { goal: 'Step 1: Analyze requirements', description: 'Understand the task requirements' },
+          { goal: 'Step 2: Design solution', description: 'Plan the implementation approach' },
+          { goal: 'Step 3: Implement solution', description: 'Execute the implementation' }
+        ]
+      );
+      
+      // Set the plan in context
+      contextManager.setProgressPlan(initialPlan);
+      assumptionsManager.setTaskId(initialTaskId);
+      
+      // Verify initial plan has 3 steps
+      expect(initialPlan.totalSteps).toBe(3);
+      expect(initialPlan.steps.length).toBe(3);
+      const contextBefore = contextManager.getContext();
+      expect(contextBefore?.progressPlan?.totalSteps).toBe(3);
+      expect(contextBefore?.maxSteps).toBe(3); // Should be synchronized
+      
+      // Now simulate a new assumptions response with 2 steps
+      const newContent = 'Step 1: Execute calc.py with a valid operation (e.g., addition of 5 and 3) and capture the printed result.\nStep 2: Execute calc.py with an invalid operation name "multi" (using the same numeric arguments) and capture the error message printed by the script.';
+      
+      // Mock the response for assumptions stage
+      const mockResponse = {
+        status: 200,
+        data: {
+          choices: [{ text: `<|channel|>final<|message|>${newContent}<|end|>` }],
+        },
+      };
+      
+      mockedAxios.post.mockResolvedValueOnce(mockResponse);
+      
+      const parseResult: HarmonyParseResult = {
+        content: newContent,
+        rawToolCalls: [],
+        reasoning: 'Plan (complexity: simple – two execution steps):\n1. Step 1: Execute calc.py with a valid operation...\n2. Step 2: Execute calc.py with an invalid operation...',
+      };
+      
+      mockHarmonyProcessor.parseResponse.mockReturnValueOnce(parseResult);
+      mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
+      
+      // Call server in assumptions stage - this should update the plan
+      await client.callServer(
+        'analyze the task',
+        'assumptions',
+        undefined,
+        false,
+        []
+      );
+      
+      // Verify the plan was updated to 2 steps
+      const updatedPlan = progressPlanManager.getPlan(initialTaskId);
+      expect(updatedPlan).toBeDefined();
+      expect(updatedPlan?.totalSteps).toBe(2);
+      expect(updatedPlan?.steps.length).toBe(2);
+      
+      // Verify context's plan is updated
+      const contextAfter = contextManager.getContext();
+      expect(contextAfter?.progressPlan).toBeDefined();
+      expect(contextAfter?.progressPlan?.totalSteps).toBe(2);
+      expect(contextAfter?.progressPlan?.taskId).toBe(initialTaskId); // Same taskId
+      
+      // Verify maxSteps is synchronized with the updated plan
+      expect(contextAfter?.maxSteps).toBe(2);
+      
+      // Verify the steps match the new content
+      if (updatedPlan && updatedPlan.steps.length >= 2) {
+        expect(updatedPlan.steps[0].goal).toContain('Execute calc.py');
+        expect(updatedPlan.steps[1].goal).toContain('Execute calc.py');
+      }
+    });
+
+    it('should update plan even when plan already exists in context', async () => {
+      const contextManager = (client as any).contextManager;
+      const assumptionsManager = (client as any).assumptionsManager;
+      const progressPlanManager = client.getProgressPlanManager();
+      
+      // Initialize context in assumptions stage
+      contextManager.initialize('test task', 'assumptions');
+      
+      // Create an initial plan with 3 steps and set it in context
+      const initialTaskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const initialPlan = progressPlanManager.createPlan(
+        initialTaskId,
+        'test task',
+        'hard',
+        [
+          { goal: 'Step 1: Analyze requirements', description: 'Understand the task requirements' },
+          { goal: 'Step 2: Design solution', description: 'Plan the implementation approach' },
+          { goal: 'Step 3: Implement solution', description: 'Execute the implementation' }
+        ]
+      );
+      
+      // Set the plan in context (simulating existing plan)
+      contextManager.setProgressPlan(initialPlan);
+      
+      // Verify initial state
+      expect(initialPlan.totalSteps).toBe(3);
+      const contextBefore = contextManager.getContext();
+      expect(contextBefore?.progressPlan?.totalSteps).toBe(3);
+      
+      // Now call createOrUpdatePlan with new content (2 steps)
+      // This simulates what happens when assumptions response has different steps
+      // Get the existing taskId from context to pass to createOrUpdatePlan
+      // This tests the scenario where plan exists in context but not in AssumptionsManager state
+      const newContent = 'Step 1: Create file1.py\nStep 2: Create file2.py';
+      const existingTaskIdFromContext = contextBefore?.progressPlan?.taskId;
+      const updatedPlan = assumptionsManager.createOrUpdatePlan(
+        newContent,
+        'test task',
+        undefined,
+        [],
+        existingTaskIdFromContext // Pass existing taskId from context to update the plan
+      );
+      
+      // Verify the plan was updated
+      expect(updatedPlan).toBeDefined();
+      expect(updatedPlan?.totalSteps).toBe(2);
+      expect(updatedPlan?.taskId).toBe(initialTaskId); // Same taskId
+      
+      // Verify context is updated
+      contextManager.setProgressPlan(updatedPlan!);
+      const contextAfter = contextManager.getContext();
+      expect(contextAfter?.progressPlan?.totalSteps).toBe(2);
+      expect(contextAfter?.maxSteps).toBe(2); // Should be synchronized
+    });
+
+    it('should synchronize maxSteps when plan is updated via setProgressPlan', async () => {
+      const contextManager = (client as any).contextManager;
+      const progressPlanManager = client.getProgressPlanManager();
+      
+      // Initialize context
+      contextManager.initialize('test task', 'assumptions');
+      
+      // Create a plan with 3 steps
+      const taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const plan1 = progressPlanManager.createPlan(
+        taskId,
+        'test task',
+        'hard',
+        [
+          { goal: 'Step 1', description: 'First step' },
+          { goal: 'Step 2', description: 'Second step' },
+          { goal: 'Step 3', description: 'Third step' }
+        ]
+      );
+      
+      // Set plan - maxSteps should be 3
+      contextManager.setProgressPlan(plan1);
+      const context1 = contextManager.getContext();
+      expect(context1?.maxSteps).toBe(3);
+      expect(context1?.progressPlan?.totalSteps).toBe(3);
+      
+      // Update plan to 2 steps
+      progressPlanManager.updatePlanSteps(taskId, [
+        { goal: 'Step 1', description: 'First step' },
+        { goal: 'Step 2', description: 'Second step' }
+      ]);
+      
+      const updatedPlan = progressPlanManager.getPlan(taskId);
+      expect(updatedPlan?.totalSteps).toBe(2);
+      
+      // Set updated plan - maxSteps should be updated to 2
+      contextManager.setProgressPlan(updatedPlan!);
+      const context2 = contextManager.getContext();
+      expect(context2?.maxSteps).toBe(2);
+      expect(context2?.progressPlan?.totalSteps).toBe(2);
+    });
+  });
 });
 
