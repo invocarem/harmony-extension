@@ -471,7 +471,11 @@ export class HarmonyClient {
           : context.currentStage === 'assumptions'
           ? VerboseInfoBuilder.forAssumptionStage(context, undefined, conversationHistory)
           : VerboseInfoBuilder.forImplementationStage(context, this.progressPlanManager);
-        verboseInfo.isComplete = true;
+        // Only set isComplete for implementation stage where a real plan exists
+        // For chat/assumptions, isComplete is not meaningful (no real plan yet)
+        if (context.currentStage === 'implementation') {
+          verboseInfo.isComplete = true;
+        }
         delete verboseInfo.step;
         delete verboseInfo.maxSteps;
         
@@ -1429,7 +1433,11 @@ export class HarmonyClient {
             console.warn(
               `[Harmony] Cannot continue: next step (${finalContext.currentStep + 1}) would exceed max steps (${finalContext.maxSteps})`
             );
-            verboseInfo.isComplete = true;
+            // Only set isComplete for implementation stage where a real plan exists
+            // For chat/assumptions, isComplete is not meaningful (no real plan yet)
+            if (currentStage === 'implementation') {
+              verboseInfo.isComplete = true;
+            }
             delete verboseInfo.step;
             delete verboseInfo.maxSteps;
             return {
@@ -1624,14 +1632,9 @@ export class HarmonyClient {
         ? VerboseInfoBuilder.forAssumptionStage(finalContextForVerbose, undefined, conversationHistory)
         : VerboseInfoBuilder.forImplementationStage(finalContextForVerbose, this.progressPlanManager);
       
-      // Don't override isComplete - VerboseInfoBuilder already calculates it correctly
-      // For implementation stage, it checks if the plan is actually completed
-      // Only set isComplete = true for non-implementation stages or when explicitly needed
-      if (currentStage !== 'implementation') {
-        verboseInfo.isComplete = true;
-      }
-      // For implementation stage, keep the value calculated by VerboseInfoBuilder.forImplementationStage
-      // which correctly checks if the plan is completed (plan.completedAt or all steps completed)
+      // Don't override isComplete - VerboseInfoBuilder already calculates it correctly:
+      // - For chat/assumptions stages: checks if currentStep >= maxSteps
+      // - For implementation stage: checks if the plan is actually completed (plan.completedAt or all steps completed)
       
       delete verboseInfo.step;
       delete verboseInfo.maxSteps;

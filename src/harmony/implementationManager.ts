@@ -252,6 +252,9 @@ export class ImplementationManager {
         return currentStep.stepNumber;
       }
     } else {
+      // Files were created but don't match current step
+      // Don't change step status - plan runs step by step, no jumps
+      // If files don't match current step, it's a workflow issue, not something to handle gracefully
       console.log(
         `[ImplementationManager] Created file(s) but none match current step ${currentStep.stepNumber} (${currentStep.goal}), not completing step`
       );

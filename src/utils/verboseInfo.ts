@@ -398,7 +398,8 @@ export class VerboseInfoBuilder {
       stageTransition: context?.lastStageTransition,
       step: context ? context.currentStep : undefined,
       maxSteps: context ? context.maxSteps : undefined,
-      isComplete: !context || context.currentStep >= context.maxSteps,
+      // isComplete is not meaningful for chat stage - no real plan exists yet
+      // The real plan is only created when moving to implementation stage
     };
 
     // Add problem summary if we have original query or restatement
@@ -447,7 +448,8 @@ export class VerboseInfoBuilder {
       stageTransition: context?.lastStageTransition,
       step: context ? context.currentStep : undefined,
       maxSteps: context ? context.maxSteps : undefined,
-      isComplete: !context || context.currentStep >= context.maxSteps,
+      // isComplete is not meaningful for assumptions stage - no real plan exists yet
+      // The real plan is only created when moving to implementation stage
     };
 
     // Add problem summary if we have original query

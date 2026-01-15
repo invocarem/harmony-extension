@@ -919,6 +919,9 @@ describe('ImplementationManager', () => {
     });
 
     it('should NOT complete step 1 when hello.test.py is created', () => {
+      // Set step 1 to in_progress first (simulating that we've started working on it)
+      progressPlanManager.updateStepStatus('test-task', 1, 'in_progress');
+      
       const toolCalls = [
         {
           name: 'create_file',
@@ -931,6 +934,8 @@ describe('ImplementationManager', () => {
 
       expect(completedStep).toBeUndefined();
       const plan = manager.getProgressPlan();
+      // Step 1 should remain in_progress (not change) since files don't match
+      // Plan runs step by step - if files don't match current step, status doesn't change
       expect(plan?.steps[0].status).toBe('in_progress');
     });
 
