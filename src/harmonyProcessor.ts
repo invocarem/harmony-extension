@@ -727,6 +727,27 @@ export class HarmonyProcessor {
    * Uses IntentionDetector to prevent false positives (e.g., when user asks to explain code)
    */
   private extractFileUpdateFromContent(content: string): { raw: string; name: string; arguments: { file_path: string; content: string } } | null {
+    // Exclude tool results sections from file extraction to prevent false positives
+    // Tool results are formatted output and should not be parsed as file operations
+    // This prevents exec_terminal results from triggering unwanted file operations
+    if (content.includes('**Tool Results:**') || content.includes('Tool Results:')) {
+      // Find the tool results section and exclude it from extraction
+      const toolResultsPattern = /(?:\*\*)?Tool Results(?::)?(?:\*\*)?/i;
+      const toolResultsMatch = content.match(toolResultsPattern);
+      if (toolResultsMatch && toolResultsMatch.index !== undefined) {
+        // Only process content before the tool results section
+        const contentBeforeToolResults = content.substring(0, toolResultsMatch.index);
+        if (!contentBeforeToolResults.trim()) {
+          // If all content is in tool results, don't extract anything
+          console.log(`[HarmonyProcessor] Content is only in Tool Results section, skipping file extraction`);
+          return null;
+        }
+        // Process only the content before tool results
+        content = contentBeforeToolResults;
+        console.log(`[HarmonyProcessor] Excluding Tool Results section from file extraction`);
+      }
+    }
+    
     // Check user intent if prompt is available
     // This prevents extracting files when user asks to explain/review code
     if (this.currentUserPrompt) {

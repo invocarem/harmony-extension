@@ -1098,4 +1098,121 @@ export const app = "updated";
       }
     });
   });
+
+  describe("File extraction exclusion from Tool Results section", () => {
+    it("should NOT extract file operations from Tool Results section", () => {
+      // This simulates the bug where exec_terminal results trigger unwanted file operations
+      // Tool results should not be parsed for file operations
+      const response = `<|channel|>final<|message|>Script executed successfully.
+
+**Tool Results:**
+
+**exec_terminal**:
+Command executed successfully. Output:
+Hello, World!
+
+**replace_file**:
+Successfully replaced file: hello.py
+
+The script works correctly.<|end|>`;
+
+      const result = processor.parseResponse(response);
+
+      // Should NOT extract replace_file from Tool Results section
+      // Even though it mentions "replace_file" and "hello.py", these are in tool results
+      expect(result.rawToolCalls).toEqual([]);
+      
+      // Content should still contain the message text
+      expect(result.content).toContain("Script executed successfully");
+    });
+
+    it("should extract file operations from content BEFORE Tool Results section", () => {
+      // File operations before Tool Results should still be extracted
+      const response = `<|channel|>final<|message|>I've updated the file:
+
+**File:** \`src/app.ts\`
+
+\`\`\`typescript
+export const app = "updated";
+\`\`\`
+
+**Tool Results:**
+
+**exec_terminal**:
+Command executed successfully.
+
+**replace_file**:
+Successfully replaced file: hello.py
+<|end|>`;
+
+      const result = processor.parseResponse(response);
+
+      // Should extract the file operation from the actual content (before Tool Results)
+      expect(result.rawToolCalls?.length).toBeGreaterThan(0);
+      const toolCalls = processor.extractToolCalls(result.rawToolCalls || []);
+      expect(toolCalls.length).toBeGreaterThan(0);
+      expect(toolCalls[0].name).toBe("replace_file");
+      expect(toolCalls[0].arguments).toBeDefined();
+      if (toolCalls[0].arguments) {
+        // Should extract src/app.ts, NOT hello.py from Tool Results
+        expect(toolCalls[0].arguments.file_path).toBe("src/app.ts");
+        expect(toolCalls[0].arguments.file_path).not.toBe("hello.py");
+        expect(toolCalls[0].arguments.content).toContain("export const app");
+      }
+    });
+
+    it("should NOT extract when all content is in Tool Results section", () => {
+      // If entire content is just tool results, nothing should be extracted
+      const content = `**Tool Results:**
+
+**exec_terminal**:
+Hello, World!
+
+**File:** \`test.py\`
+
+\`\`\`python
+print("test")
+\`\`\``;
+
+      const result = processor.parseResponse(content);
+
+      // Should NOT extract anything since all content is in Tool Results
+      expect(result.rawToolCalls).toEqual([]);
+    });
+
+    it("should handle Tool Results: format (without bold)", () => {
+      // Test the format without markdown bold
+      const response = `<|channel|>final<|message|>Script executed.
+
+Tool Results:
+
+replace_file:
+Successfully replaced file: hello.py
+
+The execution was successful.<|end|>`;
+
+      const result = processor.parseResponse(response);
+
+      // Should NOT extract replace_file from Tool Results
+      expect(result.rawToolCalls).toEqual([]);
+    });
+
+    it("should handle Tool Results section in plain text response", () => {
+      // Test with plain text (no Harmony tokens)
+      const content = `Script executed successfully.
+
+**Tool Results:**
+
+**exec_terminal**:
+Hello, World!
+
+**replace_file**:
+Successfully replaced file: hello.py`;
+
+      const result = processor.parseResponse(content);
+
+      // Should NOT extract file operations from Tool Results
+      expect(result.rawToolCalls).toEqual([]);
+    });
+  });
 });
