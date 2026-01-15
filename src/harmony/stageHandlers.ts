@@ -237,6 +237,24 @@ class ImplementationStageHandler implements StageHandler {
       const currentStep = this.implementationManager.getCurrentStep();
 
       if (currentStep) {
+        // If step is still pending and not explicitly requested (via @cmd:next_step), 
+        // skip execution and just show the plan is ready
+        if (currentStep.status === 'pending' && !isNextStepRequest) {
+          console.log(`[StageHandler:Implementation] Step ${currentStep.stepNumber} is pending - plan is ready, waiting for explicit step execution request`);
+          return {
+            shouldSkipLLM: true,
+            response: {
+              content: `✅ Plan generated with ${plan.totalSteps} step(s). Ready to begin implementation. Use @cmd:next_step or ask to proceed with step ${currentStep.stepNumber}: "${currentStep.goal}"`,
+              verboseInfo: {
+                stage: 'implementation' as const,
+                planReady: true,
+                totalSteps: plan.totalSteps,
+                currentStep: currentStep.stepNumber
+              }
+            }
+          };
+        }
+
         // Check if step needs file creation tools
         const fileCreationTools = ['create_file', 'replace_file', 'write_file', 'update_file'];
         const needsFileCreation = currentStep.tools?.some(tool => 
@@ -246,7 +264,7 @@ class ImplementationStageHandler implements StageHandler {
         console.log(`[StageHandler:Implementation] ProgressPlan: Current step ${currentStep.stepNumber} - goal: "${currentStep.goal}", needsFileCreation: ${needsFileCreation}, hasCodeContext: ${codeContexts.length > 0}`);
 
         if (needsFileCreation && codeContexts.length > 0) {
-          // Step needs file creation and we have CodeContext - use CodeContext
+          // Step needs file creation and we have CodeContext - use CodeContext to create files
           shouldUseCodeContext = true;
           console.log(`[StageHandler:Implementation] ProgressPlan: Step requires file creation, using CodeContext (no LLM call needed)`);
         } else if (needsFileCreation && codeContexts.length === 0) {
@@ -254,15 +272,10 @@ class ImplementationStageHandler implements StageHandler {
           shouldCallLLM = true;
           console.log(`[StageHandler:Implementation] ProgressPlan: Step requires file creation but no CodeContext, calling LLM to generate tool calls`);
         } else {
-          // Step doesn't explicitly need file creation or unclear - call LLM to determine action
-          // Also use CodeContext if available (even if step doesn't explicitly require file creation)
-          if (codeContexts.length > 0) {
-            shouldUseCodeContext = true;
-            console.log(`[StageHandler:Implementation] ProgressPlan: Using CodeContext (no LLM call needed)`);
-          } else {
-            shouldCallLLM = true;
-            console.log(`[StageHandler:Implementation] ProgressPlan: Step doesn't require file creation, calling LLM to determine action`);
-          }
+          // Step doesn't explicitly need file creation (e.g., "draft", "present", "verify")
+          // Always call LLM even if CodeContext exists - the step is meant to draft/present, not create files
+          shouldCallLLM = true;
+          console.log(`[StageHandler:Implementation] ProgressPlan: Step doesn't require file creation (goal: "${currentStep.goal}"), calling LLM to draft/present code`);
         }
       } else {
         // No active step - call LLM to determine next action
@@ -301,15 +314,12 @@ class ImplementationStageHandler implements StageHandler {
       filteredCodeContexts = this.implementationManager.filterCodeContextsForStep(codeContexts, currentStepForFilter);
       console.log(`[StageHandler:Implementation] Filtered ${codeContexts.length} code context(s) to ${filteredCodeContexts.length} matching step ${currentStepForFilter.stepNumber}`);
       
-      // Generate diagnostic file for this step if:
-      // 1. next_step command was used, OR
-      // 2. step is in_progress AND it's step 1 (first step when entering implementation)
-      //    Note: Step files for subsequent steps are generated in harmonyClient.ts when advancing,
-      //    so we only generate here for step 1 or when explicitly requested via @cmd:next_step
+      // Generate diagnostic file for this step only when explicitly requested via @cmd:next_step
+      // Note: Step files for subsequent steps are generated in harmonyClient.ts when advancing
       const stepFileName = `implementation_step_${currentStepForFilter.stepNumber}.json`;
       const stepFileExists = contextManager?.getCodeContexts()?.some(cc => cc.name === stepFileName) || false;
       
-      if (isNextStepRequest || (currentStepForFilter.status === 'in_progress' && currentStepForFilter.stepNumber === 1 && !stepFileExists)) {
+      if (isNextStepRequest && !stepFileExists) {
         await this.implementationManager.generateImplementationStepFile(
           currentStepForFilter.stepNumber,
           filteredCodeContexts,

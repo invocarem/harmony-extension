@@ -286,6 +286,17 @@ export class NativeToolsManager {
       return filePath;
     }
 
+    // Get workspace root - check dynamically if not set in constructor
+    let workspaceRoot = this.workspaceRoot;
+    if (!workspaceRoot) {
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      if (workspaceFolders && workspaceFolders.length > 0) {
+        workspaceRoot = workspaceFolders[0].uri.fsPath;
+        // Update instance variable for future calls
+        this.workspaceRoot = workspaceRoot;
+      }
+    }
+
     // Handle "." as current directory - use current editor's directory if available
     if (filePath === "." || filePath === "./") {
       if (useCurrentEditor) {
@@ -294,18 +305,38 @@ export class NativeToolsManager {
           return path.dirname(editor.document.fileName);
         }
       }
-      // Fall back to workspace root or cwd
-      if (this.workspaceRoot) {
-        return this.workspaceRoot;
+      // Fall back to workspace root or editor directory
+      if (workspaceRoot) {
+        return workspaceRoot;
       }
+      // Try to use active editor's directory as fallback
+      const editor = vscode.window.activeTextEditor;
+      if (editor && editor.document && !editor.document.isUntitled) {
+        return path.dirname(editor.document.fileName);
+      }
+      // Last resort: use process.cwd() but log a warning
+      console.warn(
+        `[NativeTools] No workspace root found, using process.cwd(): ${process.cwd()}`
+      );
       return process.cwd();
     }
 
     // Otherwise, resolve relative to workspace root
-    if (this.workspaceRoot) {
-      return path.resolve(this.workspaceRoot, filePath);
+    if (workspaceRoot) {
+      return path.resolve(workspaceRoot, filePath);
     }
-    // Fallback: resolve relative to current working directory
+
+    // Try to use active editor's directory as fallback
+    const editor = vscode.window.activeTextEditor;
+    if (editor && editor.document && !editor.document.isUntitled) {
+      const editorDir = path.dirname(editor.document.fileName);
+      return path.resolve(editorDir, filePath);
+    }
+
+    // Last resort: use process.cwd() but log a warning
+    console.warn(
+      `[NativeTools] No workspace root found, resolving "${filePath}" relative to process.cwd(): ${process.cwd()}`
+    );
     return path.resolve(filePath);
   }
 
@@ -316,8 +347,23 @@ export class NativeToolsManager {
       if (editor && editor.document && !editor.document.isUntitled) {
         return path.dirname(editor.document.fileName);
       }
-      // Fall back to workspace root
-      return this.workspaceRoot || process.cwd();
+      // Get workspace root - check dynamically if not set in constructor
+      let workspaceRoot = this.workspaceRoot;
+      if (!workspaceRoot) {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (workspaceFolders && workspaceFolders.length > 0) {
+          workspaceRoot = workspaceFolders[0].uri.fsPath;
+          this.workspaceRoot = workspaceRoot;
+        }
+      }
+      // Fall back to workspace root or process.cwd() with warning
+      if (workspaceRoot) {
+        return workspaceRoot;
+      }
+      console.warn(
+        `[NativeTools] No workspace root found, using process.cwd(): ${process.cwd()}`
+      );
+      return process.cwd();
     }
     return this.resolvePath(directoryPath, true);
   }

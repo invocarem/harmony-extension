@@ -481,4 +481,126 @@ describe("NativeToolsManager", () => {
       expect(manager).toBeDefined();
     });
   });
+
+  describe("path resolution with missing workspace root", () => {
+    it("should dynamically resolve workspace root when not set in constructor", async () => {
+      // Create manager without workspace folders initially
+      (mockVscode.workspace as any).workspaceFolders = undefined;
+      const manager = new NativeToolsManager();
+
+      // Now set workspace folders (simulating workspace being opened later)
+      (mockVscode.workspace as any).workspaceFolders = [
+        {
+          uri: {
+            fsPath: workspaceRoot,
+          },
+        },
+      ];
+
+      // Set up active editor to simulate a file in the workspace
+      (mockVscode.window as any).activeTextEditor = {
+        document: {
+          fileName: path.join(workspaceRoot, "src", "test.ts"),
+          isUntitled: false,
+        },
+      };
+
+      const filePath = "test.txt";
+      const content = "Test content";
+      const resolvedPath = path.resolve(workspaceRoot, filePath);
+
+      (mockFs.promises.readFile as jest.Mock).mockResolvedValue(content);
+
+      const result = await manager.callTool("read_file", {
+        file_path: filePath,
+      });
+
+      // Should resolve relative to workspace root, not process.cwd()
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toBe(content);
+      expect(mockFs.promises.readFile).toHaveBeenCalledWith(
+        resolvedPath,
+        "utf-8"
+      );
+    });
+
+    it("should use active editor directory as fallback when workspace root is missing", async () => {
+      // Create manager without workspace folders
+      (mockVscode.workspace as any).workspaceFolders = undefined;
+      const manager = new NativeToolsManager();
+
+      // Set up active editor with a file path
+      const editorDir = "/some/editor/directory";
+      const editorFile = path.join(editorDir, "file.ts");
+      (mockVscode.window as any).activeTextEditor = {
+        document: {
+          fileName: editorFile,
+          isUntitled: false,
+        },
+      };
+
+      const filePath = "test.txt";
+      const content = "Test content";
+      const resolvedPath = path.resolve(editorDir, filePath);
+
+      (mockFs.promises.readFile as jest.Mock).mockResolvedValue(content);
+
+      const result = await manager.callTool("read_file", {
+        file_path: filePath,
+      });
+
+      // Should resolve relative to editor's directory, not process.cwd()
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toBe(content);
+      expect(mockFs.promises.readFile).toHaveBeenCalledWith(
+        resolvedPath,
+        "utf-8"
+      );
+    });
+
+    it("should not resolve to process.cwd() when workspace root becomes available", async () => {
+      // Simulate scenario where workspace root is not available at construction
+      (mockVscode.workspace as any).workspaceFolders = undefined;
+      const manager = new NativeToolsManager();
+
+      // Mock process.cwd() to return a user roaming folder path
+      const originalCwd = process.cwd;
+      const roamingFolder = "C:\\Users\\TestUser\\AppData\\Roaming";
+      (process as any).cwd = jest.fn(() => roamingFolder);
+
+      // Now workspace root becomes available
+      (mockVscode.workspace as any).workspaceFolders = [
+        {
+          uri: {
+            fsPath: workspaceRoot,
+          },
+        },
+      ];
+
+      const filePath = "config.json";
+      const content = "{}";
+      const resolvedPath = path.resolve(workspaceRoot, filePath);
+
+      (mockFs.promises.readFile as jest.Mock).mockResolvedValue(content);
+
+      const result = await manager.callTool("read_file", {
+        file_path: filePath,
+      });
+
+      // Should resolve to workspace root, NOT the roaming folder
+      expect(result.isError).toBeUndefined();
+      expect(mockFs.promises.readFile).toHaveBeenCalledWith(
+        resolvedPath,
+        "utf-8"
+      );
+      // Verify it's NOT the roaming folder
+      expect(mockFs.promises.readFile).not.toHaveBeenCalledWith(
+        path.resolve(roamingFolder, filePath),
+        "utf-8"
+      );
+
+      // Restore original cwd
+      (process as any).cwd = originalCwd;
+    });
+  });
 });

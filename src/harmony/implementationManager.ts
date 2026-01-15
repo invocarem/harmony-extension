@@ -60,17 +60,8 @@ export class ImplementationManager {
     };
     console.log(`[ImplementationManager] Initialized implementation state${taskId ? ` for task: ${taskId}` : ''}`);
     
-    // When initializing, set the first pending step to in_progress
-    if (taskId) {
-      const plan = this.progressPlanManager.getPlan(taskId);
-      if (plan) {
-        const firstPendingStep = plan.steps.find(step => step.status === 'pending');
-        if (firstPendingStep) {
-          this.progressPlanManager.updateStepStatus(taskId, firstPendingStep.stepNumber, 'in_progress');
-          console.log(`[ImplementationManager] Set step ${firstPendingStep.stepNumber} to in_progress on initialization`);
-        }
-      }
-    }
+    // Note: Steps remain 'pending' until explicitly started (e.g., via @cmd:next_step)
+    // This allows "move to implementation" to just transition without auto-executing step 1
   }
 
   /**

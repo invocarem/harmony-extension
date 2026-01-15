@@ -69,22 +69,39 @@ export class PromptBuilder {
           }
           
           // Determine the appropriate action based on step requirements
+          // Priority: explicit tools array > keyword analysis
           const fileCreationTools = ['create_file', 'replace_file', 'write_file', 'update_file'];
           const needsFileCreation = currentStep.tools?.some(tool => fileCreationTools.includes(tool)) || false;
           const needsCommandExecution = currentStep.tools?.includes('exec_terminal') || false;
           
           // Check step goal/description for hints about what action is needed
+          // Use more specific patterns to avoid false positives
           const stepText = `${currentStep.goal} ${currentStep.description || ''}`.toLowerCase();
-          const mentionsExecution = /\b(execute|run|command|terminal|script|python|npm|node|bash|sh)\b/i.test(stepText);
-          const mentionsFileCreation = /\b(create|write|generate|file|code|content)\b/i.test(stepText);
+          
+          // More specific execution patterns - look for command execution context
+          const mentionsExecution = /\b(execute|run|command|terminal).*(?:python|npm|node|bash|sh|calc\.py|\.py\s|\.js\s|\.sh\s)/i.test(stepText) ||
+                                   /\b(execute|run)\s+(?:the\s+)?(?:script|command|program|calc)/i.test(stepText) ||
+                                   (/\b(python|npm|node|bash|sh)\s+/.test(stepText) && /\b(execute|run|command)/i.test(stepText));
+          
+          // More specific file creation patterns - avoid matching "create script to execute"
+          const mentionsFileCreation = /\b(create|write|generate)\s+(?:a\s+)?(?:file|code|content|\.py|\.js|\.ts|\.md|\.txt)/i.test(stepText) ||
+                                       /\b(create|write|generate)\s+(?:the|new|an?)\s+(?:file|code)/i.test(stepText);
           
           let actionInstruction: string;
-          if (needsCommandExecution || mentionsExecution) {
+          
+          // Priority: explicit tools array takes precedence
+          if (needsCommandExecution) {
             actionInstruction = 'by making a tool call to exec_terminal with the command. DO NOT describe the result - actually call the tool. Your response MUST include: <tool_call name="exec_terminal" args=\'{"command": "..."}\' />';
-          } else if (needsFileCreation || mentionsFileCreation) {
+          } else if (needsFileCreation) {
+            actionInstruction = 'by creating or updating the necessary files using create_file or replace_file tool calls';
+          } else if (mentionsExecution && !mentionsFileCreation) {
+            // Only use keyword-based detection if tools array is not set and execution is clearly indicated
+            actionInstruction = 'by making a tool call to exec_terminal with the command. DO NOT describe the result - actually call the tool. Your response MUST include: <tool_call name="exec_terminal" args=\'{"command": "..."}\' />';
+          } else if (mentionsFileCreation && !mentionsExecution) {
+            // Only use keyword-based detection if tools array is not set and file creation is clearly indicated
             actionInstruction = 'by creating or updating the necessary files using create_file or replace_file tool calls';
           } else {
-            // Generic instruction that works for both
+            // Generic instruction that works for both - use when ambiguous
             actionInstruction = 'by making the appropriate tool call (use create_file/replace_file for files, exec_terminal for commands). DO NOT just describe actions - actually make the tool call';
           }
           
