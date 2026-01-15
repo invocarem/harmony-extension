@@ -34,7 +34,7 @@ export class HarmonyAssistant {
   private confirmationManager: ConfirmationManager;
   private lastActiveTextEditor: vscode.TextEditor | undefined;
   private editorChangeDisposable: vscode.Disposable | undefined;
-  private isAutoMode: boolean = false;
+  // Auto mode is now tracked via trigger detection in state machine, no flag needed
 
   constructor(context: vscode.ExtensionContext) {
     this.config = loadConfig();
@@ -292,11 +292,8 @@ export class HarmonyAssistant {
           }
           
           // Use cleaned message for remaining processing
-          // For next_step and auto commands, remaining text should be ignored (command is self-contained)
-          if (command.command === 'next_step' || command.command === 'auto') {
-            text = '';  // Empty message - ImplementationStageHandler will detect this as next_step/auto request
-            console.log(`[CommandExtractor] ${command.command} command - ignoring remaining text, using empty prompt`);
-          } else if (commandResult.modifiedMessage !== undefined) {
+          // Commands are now handled by state machine, so pass through the cleaned message
+          if (commandResult.modifiedMessage !== undefined) {
             // Use modified message if provided (e.g., to preserve command for later processing)
             text = commandResult.modifiedMessage;
             console.log(`[CommandExtractor] Using modified message from command handler`);
@@ -599,27 +596,32 @@ export class HarmonyAssistant {
 
       await this.webviewManager.sendMessage(cleanedResponse);
 
-      // Check if we're in auto mode and should continue to next step
-      if (this.isAutoMode && currentStage === 'implementation') {
-        // Check plan completion status directly (more reliable than verboseInfo.isComplete)
-        const isPlanCompleted = this.harmonyClient.isProgressPlanCompleted();
-        if (!isPlanCompleted) {
-          // There are more steps - continue processing
-          console.log(`[Harmony] @cmd:auto - Step completed, continuing to next step...`);
-          // Use setTimeout to avoid blocking and allow the response to be displayed first
-          setTimeout(async () => {
-            await this.handleChatMessage('');
-          }, 100);
-        } else {
-          // All steps completed - clear auto mode flag
-          console.log(`[Harmony] @cmd:auto - All steps completed`);
-          this.isAutoMode = false;
+      // Check if we should continue in auto mode (trigger was 'auto' and plan not completed)
+      // This happens after a step completes in implementation stage
+      const implementationStage = this.harmonyClient.getCurrentStage();
+      if (implementationStage === 'implementation') {
+        // Check if the original message contained auto trigger
+        const textLower = text.toLowerCase();
+        const isAutoTrigger = /@cmd:auto|auto\s+mode|execute\s+all/i.test(textLower);
+        
+        if (isAutoTrigger) {
+          // Check plan completion status
+          const isPlanCompleted = this.harmonyClient.isProgressPlanCompleted();
+          if (!isPlanCompleted) {
+            // There are more steps - continue processing
+            console.log(`[Harmony] Auto mode: Step completed, continuing to next step...`);
+            // Use setTimeout to avoid blocking and allow the response to be displayed first
+            setTimeout(async () => {
+              await this.handleChatMessage('@cmd:auto');
+            }, 100);
+          } else {
+            // All steps completed
+            console.log(`[Harmony] Auto mode: All steps completed`);
+          }
         }
       }
     } catch (error: any) {
       console.error(`[Harmony] Error in handleChatMessage:`, error);
-      // Clear auto mode flag on error
-      this.isAutoMode = false;
       await this.webviewManager.sendMessage({
         content: `❌ Error: ${error.message}`,
       });
@@ -832,69 +834,9 @@ export class HarmonyAssistant {
         };
       }
 
-      case 'next_step': {
-        // next_step command - handled in ImplementationStageHandler
-        const currentStage = this.harmonyClient.getCurrentStage();
-        if (currentStage !== 'implementation') {
-          return {
-            handled: true,
-            shouldReturn: true,
-            message: 'next_step command is only available in implementation stage',
-          };
-        }
-        // For next_step, remaining text should be ignored (command is self-contained)
-        // Return handled=true with special marker to replace message with empty string
-        // The ImplementationStageHandler will detect empty prompt as next_step request
-        return {
-          handled: true,
-          shouldReturn: false,
-          // Don't change stage for next_step
-        };
-      }
-
-      case 'auto': {
-        // auto command - executes all steps until completion
-        const currentStage = this.harmonyClient.getCurrentStage();
-        if (currentStage !== 'implementation') {
-          return {
-            handled: true,
-            shouldReturn: true,
-            message: 'auto command is only available in implementation stage',
-          };
-        }
-        // Set auto mode flag and process first step (similar to next_step)
-        this.isAutoMode = true;
-        console.log(`[CommandHandler] @cmd:auto - Auto mode enabled, will execute all steps`);
-        return {
-          handled: true,
-          shouldReturn: false,
-          // Don't change stage for auto
-        };
-      }
-
-      case 'verbose_info':
-      case 'verbose-info': {
-        // Get current verboseInfo and display it in webview
-        // This will return minimal chat stage verboseInfo if no context exists
-        // Pass conversation history so problem summary includes all user queries
-        const conversationHistory = this.conversationManager.getHistory();
-        const verboseInfo = this.harmonyClient.getCurrentVerboseInfo(conversationHistory);
-        
-        // Format verboseInfo as content text so it appears in the main message area
-        // (in addition to the verbose info section)
-        const formattedVerboseInfo = VerboseInfoFormatter.format(verboseInfo);
-        
-        // Send verboseInfo to webview with formatted content
-        await this.webviewManager.sendMessage({
-          content: formattedVerboseInfo,
-          verboseInfo: verboseInfo,
-        });
-        
-        return {
-          handled: true,
-          shouldReturn: true,
-        };
-      }
+      // next_step, auto, and verbose_info are now handled by state machine as events
+      // They are detected by StageStateMachine.detectTrigger() and handled in stage handlers
+      // No command handling needed here - pass through to state machine
 
       case 'convert': {
         // Convert DOCX/PDF file to markdown
@@ -1185,7 +1127,7 @@ export class HarmonyAssistant {
   public clearConversationHistory(): void {
     this.conversationManager.clear();
     this.confirmationManager.clear();
-    this.isAutoMode = false; // Clear auto mode when clearing conversation
+    // Auto mode is now tracked via trigger detection, no flag to clear
     console.log(`[Harmony] Conversation history and confirmations cleared`);
   }
 

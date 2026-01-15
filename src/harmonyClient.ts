@@ -527,6 +527,13 @@ export class HarmonyClient {
 
       logApiRequest(endpoint, prompt, 100);
 
+      // Detect trigger from state machine (for event handling like next_step, auto, verbose_info)
+      const detectedTrigger = this.stageStateMachine.detectTrigger(
+        prompt,
+        currentStage,
+        undefined // confirmationManager not available here
+      );
+
       // Use stage handler for pre-processing (table-based, no if-else)
       const preStageHandler = this.stageHandlerRegistry.getHandler(currentStage);
       if (preStageHandler.handlePreProcessing) {
@@ -535,7 +542,9 @@ export class HarmonyClient {
           prompt,
           this.nativeToolsManager,
           this.contextManager,
-          this.progressPlanManager
+          this.progressPlanManager,
+          detectedTrigger,
+          this // Pass harmonyClient instance for verboseInfo generation
         );
         
         if (preProcessResult.shouldSkipLLM && preProcessResult.response) {

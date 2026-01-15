@@ -12,22 +12,27 @@ const mockedAxios = axios as jest.Mocked<typeof axios>;
 /**
  * Transition HarmonyClient from current stage to assumptions stage
  * Uses explicit "move to assumptions" command
+ * Returns a response with steps to ensure a plan is created
  */
 export async function transitionToAssumptions(
   client: HarmonyClient,
   mockHarmonyProcessor: jest.Mocked<HarmonyProcessor>
 ): Promise<void> {
+  // Return a response with steps so a plan gets created
+  // This is needed because implementation stage requires a plan
+  // The steps should mention file creation to ensure needsFileCreation is true
+  const contentWithSteps = 'Here is the plan:\nStep 1: Create the file using create_file\nStep 2: Verify the file';
   const mockResponse = {
     status: 200,
     data: {
-      choices: [{ text: '<|channel|>final<|message|>Moving to assumptions stage<|end|>' }],
+      choices: [{ text: `<|channel|>final<|message|>${contentWithSteps}<|end|>` }],
     },
   };
 
   mockedAxios.post.mockResolvedValueOnce(mockResponse);
 
   const parseResult: HarmonyParseResult = {
-    content: 'Moving to assumptions stage',
+    content: contentWithSteps,
     rawToolCalls: [],
   };
 
@@ -40,26 +45,32 @@ export async function transitionToAssumptions(
 /**
  * Transition HarmonyClient from assumptions stage to implementation stage
  * Uses explicit "move to implementation" command
+ * 
+ * Note: When "move to implementation" is called, it first processes in assumptions stage
+ * to generate/complete the plan, then transitions to implementation stage.
+ * This helper mocks both the assumptions stage LLM call and the transition.
  */
 export async function transitionToImplementation(
   client: HarmonyClient,
   mockHarmonyProcessor: jest.Mocked<HarmonyProcessor>
 ): Promise<void> {
-  const mockResponse = {
+  // First, mock the assumptions stage LLM call that happens when "move to implementation" is called
+  // This call processes the command in assumptions stage to generate/complete the plan
+  const assumptionsStageResponse = {
     status: 200,
     data: {
-      choices: [{ text: '<|channel|>final<|message|>Moving to implementation stage<|end|>' }],
+      choices: [{ text: '<|channel|>final<|message|>Here is the complete plan:\nStep 1: Create the file\nStep 2: Verify the file<|end|>' }],
     },
   };
 
-  mockedAxios.post.mockResolvedValueOnce(mockResponse);
+  mockedAxios.post.mockResolvedValueOnce(assumptionsStageResponse);
 
-  const parseResult: HarmonyParseResult = {
-    content: 'Moving to implementation stage',
+  const assumptionsParseResult: HarmonyParseResult = {
+    content: 'Here is the complete plan:\nStep 1: Create the file\nStep 2: Verify the file',
     rawToolCalls: [],
   };
 
-  mockHarmonyProcessor.parseResponse.mockReturnValueOnce(parseResult);
+  mockHarmonyProcessor.parseResponse.mockReturnValueOnce(assumptionsParseResult);
   mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
 
   await client.callServer('move to implementation');

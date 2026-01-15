@@ -23,37 +23,28 @@ async function setupImplementationStage(
   mockHarmonyProcessor: jest.Mocked<HarmonyProcessor>,
   mockNativeToolsManager: jest.Mocked<NativeToolsManager>
 ): Promise<void> {
-  // Use shared helpers to transition through assumptions to implementation
-  await transitionToAssumptions(client, mockHarmonyProcessor);
-  
-  // Set up default mock for diagnostic file creation
+  // Set up default mock for diagnostic file creation during transition
   // aggregated_prompt.json is auto-generated when transitioning to assumptions stage
   // assumption_data.json is auto-generated when transitioning to implementation stage
-  // Use mockResolvedValue to handle any number of diagnostic file calls
-  // Tests can then chain mockResolvedValueOnce for their specific calls
   const defaultDiagnosticMock = {
     content: [{ type: 'text', text: 'Successfully created diagnostic file' }],
     isError: false,
   };
   
-  // Set up default mock that will be used for any calls not specifically mocked
-  // This handles diagnostic files and provides a fallback
+  // Set up default mock for diagnostic files created during transition
   mockNativeToolsManager.callTool.mockResolvedValue(defaultDiagnosticMock);
   
-  // Now transition to implementation stage
-  const implementationResponse = {
-    status: 200,
-    data: {
-      choices: [{ text: '<|channel|>final<|message|>Ready to implement<|end|>' }],
-    },
-  };
-  mockedAxios.post.mockResolvedValueOnce(implementationResponse);
-  mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
-    content: 'Ready to implement',
-    rawToolCalls: [],
-  });
-  mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
-  await client.callServer('move to implementation');
+  // Use shared helpers to transition through assumptions to implementation
+  await transitionToAssumptions(client, mockHarmonyProcessor);
+  
+  // Now transition to implementation stage using the helper
+  // This helper properly mocks the assumptions stage LLM call that happens
+  // when "move to implementation" is called
+  await transitionToImplementation(client, mockHarmonyProcessor);
+  
+  // After transition, clear the mock history
+  // Tests should set up their own mocks completely
+  mockNativeToolsManager.callTool.mockClear();
 }
 
 describe('HarmonyClient - Implementation Stage', () => {
@@ -132,7 +123,29 @@ describe('HarmonyClient - Implementation Stage', () => {
       // First, transition to implementation stage using explicit command
       await setupImplementationStage(client, mockHarmonyProcessor, mockNativeToolsManager);
 
+      // Verify we're in implementation stage
+      expect(client.getCurrentStage()).toBe('implementation');
+
+      // Ensure the plan step has tools field set so needsFileCreation is true
+      // This is needed because assumptions stage doesn't create code blocks,
+      // so implementation stage needs to make an LLM call to generate tool calls
+      const progressPlanManager = client.getProgressPlanManager();
+      const context = (client as any).contextManager?.getContext();
+      const taskId = context?.progressPlan?.taskId;
+      if (taskId) {
+        const plan = progressPlanManager.getPlan(taskId);
+        if (plan && plan.steps.length > 0) {
+          // Update the first step to include tools field
+          progressPlanManager.updatePlanSteps(taskId, [
+            { goal: plan.steps[0].goal, tools: ['create_file'] },
+            ...plan.steps.slice(1).map(s => ({ goal: s.goal }))
+          ], true); // preserve status
+        }
+      }
+
       // Now test the fallback in implementation stage
+      // Since assumptions stage doesn't create code blocks, implementation stage needs to
+      // make an LLM call first to generate code blocks/tool calls before creating files
       const mockResponse = {
         status: 200,
         data: {

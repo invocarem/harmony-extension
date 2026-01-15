@@ -218,6 +218,7 @@ export class ImplementationManager {
     // Record all file creations and filter files to only those that match the current step
     // Use non-diagnostic successful mods to avoid completing steps with diagnostic files
     const filesForCurrentStep: string[] = [];
+    const allCreatedFiles: string[] = [];
     for (const toolCall of nonDiagnosticSuccessfulMods) {
       const filePath = toolCall.arguments?.file_path || toolCall.arguments?.filePath;
       if (filePath) {
@@ -232,6 +233,7 @@ export class ImplementationManager {
         // Always record the file creation (even if it doesn't match the step)
         const status = toolCall.name === 'replace_file' ? 'replaced' : 'created';
         this.recordFileCreated(filePath, currentStep.stepNumber, status);
+        allCreatedFiles.push(filePath);
         
         // Check if file matches current step using filterCodeContextsForStep
         const tempCodeContext = new CodeContext(filePath, ['']);
@@ -250,6 +252,37 @@ export class ImplementationManager {
           `[ImplementationManager] Completed step ${currentStep.stepNumber} (${currentStep.goal}) after creating file(s): ${filesForCurrentStep.join(', ')}`
         );
         return currentStep.stepNumber;
+      }
+    } else if (allCreatedFiles.length === 1) {
+      // Fallback: If only one file was created and it doesn't explicitly match,
+      // but the step mentions importing/using a file (not creating a specific file),
+      // consider it a match. This handles cases like "Import from X.py" where
+      // a test file is created that imports from X.py.
+      const stepText = `${currentStep.goal} ${currentStep.description || ''}`.toLowerCase();
+      // Match patterns like "import from calc.py", "use X.py", "from `file.py`", etc.
+      // Handle backticks, quotes, and various formats. Look for "from X.py" or "import X.py" patterns
+      const mentionsImport = /(?:from|import|use)\s+[`'"]?[\w\-\.]+\.(?:py|js|ts|java|go|rs)[`'"]?/i.test(stepText);
+      // Match patterns like "create file.py", "write X.py", "make file.py", etc.
+      // This checks if the step explicitly names a file to create (not just import from)
+      const mentionsCreateSpecificFile = /(?:create|write|make|generate)\s+[`'"]?[\w\-\.]+\.(?:py|js|ts|java|go|rs)[`'"]?/i.test(stepText);
+      
+      // If step mentions importing/using a file but doesn't specify which file to create,
+      // and only one file was created, consider it a match
+      if (mentionsImport && !mentionsCreateSpecificFile) {
+        const success = this.completeStep(currentStep.stepNumber);
+        if (success) {
+          console.log(
+            `[ImplementationManager] Completed step ${currentStep.stepNumber} (${currentStep.goal}) after creating file: ${allCreatedFiles[0]} (fallback match: step mentions importing/using a file)`
+          );
+          return currentStep.stepNumber;
+        }
+      } else {
+        // Files were created but don't match current step
+        // Don't change step status - plan runs step by step, no jumps
+        // If files don't match current step, it's a workflow issue, not something to handle gracefully
+        console.log(
+          `[ImplementationManager] Created file(s) but none match current step ${currentStep.stepNumber} (${currentStep.goal}), not completing step`
+        );
       }
     } else {
       // Files were created but don't match current step

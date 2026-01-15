@@ -19,6 +19,9 @@ export type TransitionTrigger =
   | 'error_recovery'
   | 'regenerate_code'
   | 'clarification_request'
+  | 'next_step'        // Execute one step, stay in implementation
+  | 'auto'             // Execute one step, stay in implementation (auto mode)
+  | 'verbose_info'     // Generate verboseInfo, stay in current stage (works from any stage)
   | 'none';
 
 /**
@@ -57,6 +60,16 @@ const TRANSITION_TABLE: TransitionRule[] = [
   // Clarification requests
   { from: 'implementation', trigger: 'clarification_request', to: 'chat', priority: 60 },
   
+  // Implementation stage self-loops (execute step, stay in stage)
+  { from: 'implementation', trigger: 'next_step', to: 'implementation', priority: 100 },
+  { from: 'implementation', trigger: 'auto', to: 'implementation', priority: 100 },
+  
+  // All stages self-loops (generate verboseInfo, stay in stage)
+  { from: 'init', trigger: 'verbose_info', to: 'init', priority: 100 },
+  { from: 'chat', trigger: 'verbose_info', to: 'chat', priority: 100 },
+  { from: 'assumptions', trigger: 'verbose_info', to: 'assumptions', priority: 100 },
+  { from: 'implementation', trigger: 'verbose_info', to: 'implementation', priority: 100 },
+  
   // Chat -> Assumptions transitions (DISABLED: Auto-transition removed, requires explicit "move to assumptions")
   // { from: 'chat', trigger: 'code_keywords', to: 'assumptions', priority: 50 },
   // { from: 'chat', trigger: 'file_operations_without_ext', to: 'assumptions', priority: 50 },
@@ -90,9 +103,9 @@ export class StageStateMachine {
   }
 
   /**
-   * Detect trigger from prompt
+   * Detect trigger from prompt (public method to get detected trigger)
    */
-  private detectTrigger(
+  detectTrigger(
     prompt: string,
     currentStage: WorkflowStage,
     confirmationManager?: ConfirmationManager
@@ -135,8 +148,24 @@ export class StageStateMachine {
       return 'explicit_implementation_command';
     }
 
+    // Detect verbose_info command (works from any stage) - check before stage-specific triggers
+    if (/@cmd:verbose[_-]?info|verbose\s+info|show\s+info|display\s+info/i.test(promptLower)) {
+      return 'verbose_info';
+    }
+
     // Error recovery and clarification (from implementation)
     if (currentStage === 'implementation') {
+      // Detect next_step and auto commands (only in implementation stage)
+      // Check for @cmd:next_step or natural language equivalents
+      if (/@cmd:next[_-]?step|next\s+step|continue|proceed|advance/i.test(promptLower)) {
+        return 'next_step';
+      }
+      
+      // Check for @cmd:auto or natural language equivalents
+      if (/@cmd:auto|auto\s+mode|execute\s+all/i.test(promptLower)) {
+        return 'auto';
+      }
+      
       const clarificationKeywords = /\b(what|how|why|clarify|explain|understand|confused|error|wrong|doesn'?t\s+work|not\s+working)\b/i;
       if (clarificationKeywords.test(promptLower)) {
         return 'clarification_request';
@@ -172,6 +201,7 @@ export class StageStateMachine {
   /**
    * Determine next stage using transition table
    * Returns the target stage, or null if should stay in current stage
+   * For self-loop transitions (same stage), returns the current stage
    */
   determineNextStage(
     currentStage: WorkflowStage,
@@ -203,6 +233,13 @@ export class StageStateMachine {
     if (!this.canTransition(currentStage, transition.to)) {
       console.log(`[StageStateMachine] Transition rejected: ${currentStage} -> ${transition.to} (invalid per state machine rules)`);
       return null;
+    }
+
+    // For self-loop transitions (same stage), return the current stage
+    // This indicates an event occurred (next_step, auto, verbose_info) without stage change
+    if (currentStage === transition.to) {
+      console.log(`[StageStateMachine] ✅ Event detected: ${currentStage} (trigger: ${trigger}) - staying in same stage`);
+      return currentStage;
     }
 
     console.log(`[StageStateMachine] ✅ Transition approved: ${currentStage} -> ${transition.to} (trigger: ${trigger})`);

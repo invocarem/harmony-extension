@@ -1,4 +1,4 @@
-import { WorkflowStage } from "./stageStateMachine";
+import { WorkflowStage, TransitionTrigger } from "./stageStateMachine";
 import { ConversationContext } from "./conversationContext";
 import { CodeContext } from "./codeContext";
 import { NativeToolsManager } from "../nativeToolManager";
@@ -10,6 +10,7 @@ import { HarmonyParseResult } from "../harmonyProcessor";
 import { MCPToolCall } from "../mcpClient";
 import { ChatManager } from "./chatManager";
 import { ChatMessage } from "../conversationManager";
+import { VerboseInfoFormatter } from "../utils/verboseInfo";
 import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
@@ -27,7 +28,9 @@ export interface StageHandler {
     prompt: string,
     nativeToolsManager?: NativeToolsManager,
     contextManager?: ConversationContextManager,
-    progressPlanManager?: ProgressPlanManager
+    progressPlanManager?: ProgressPlanManager,
+    trigger?: TransitionTrigger,
+    harmonyClient?: any // HarmonyClient instance for verboseInfo generation
   ): Promise<{ shouldSkipLLM: boolean; response?: any }>;
 
   /**
@@ -150,8 +153,24 @@ class ImplementationStageHandler implements StageHandler {
     prompt: string,
     nativeToolsManager?: NativeToolsManager,
     contextManager?: ConversationContextManager,
-    progressPlanManager?: ProgressPlanManager
+    progressPlanManager?: ProgressPlanManager,
+    trigger?: TransitionTrigger,
+    harmonyClient?: any
   ): Promise<{ shouldSkipLLM: boolean; response?: any }> {
+    // Handle verbose_info trigger (works from any stage, but we're in implementation stage)
+    if (trigger === 'verbose_info' && harmonyClient) {
+      // conversationHistory is not stored in context, pass undefined and let getCurrentVerboseInfo handle it
+      const verboseInfo = harmonyClient.getCurrentVerboseInfo();
+      const formattedVerboseInfo = VerboseInfoFormatter.format(verboseInfo);
+      return {
+        shouldSkipLLM: true,
+        response: {
+          content: formattedVerboseInfo,
+          verboseInfo: verboseInfo
+        }
+      };
+    }
+
     if (!context || !nativeToolsManager || !progressPlanManager || !this.implementationManager) {
       return { shouldSkipLLM: false };
     }
@@ -163,12 +182,12 @@ class ImplementationStageHandler implements StageHandler {
       this.implementationManager.initialize(plan.taskId);
     }
 
-    // Check for @cmd:next_step command (processed earlier, but prompt might be empty or contain other text)
-    // For Phase 1, we detect if prompt is empty or just whitespace after command extraction
-    // This indicates next_step command was used
+    // Check for next_step or auto trigger (detected by state machine)
+    // Also support legacy empty prompt detection for backward compatibility
     const promptTrimmed = prompt.trim();
-    const isNextStepRequest = promptTrimmed.length === 0 || 
-                              /^\s*(next\s+step|continue|proceed|advance)\s*$/i.test(promptTrimmed);
+    const isNextStepRequest = trigger === 'next_step' || trigger === 'auto' ||
+                              (promptTrimmed.length === 0 || 
+                               /^\s*(next\s+step|continue|proceed|advance)\s*$/i.test(promptTrimmed));
     
     const codeContexts = contextManager?.getCodeContexts() || [];
     let shouldUseCodeContext = false;
@@ -256,10 +275,14 @@ class ImplementationStageHandler implements StageHandler {
         }
 
         // Check if step needs file creation tools
+        // Check both the tools field and the step goal text for file creation keywords
         const fileCreationTools = ['create_file', 'replace_file', 'write_file', 'update_file'];
+        const stepGoalText = `${currentStep.goal} ${currentStep.description || ''}`.toLowerCase();
+        const hasFileCreationInGoal = /(?:create|write|make|implement|add|generate)\s+(?:file|\.py|\.js|\.ts|\.txt|\.json|\.md)/i.test(stepGoalText) ||
+                                      fileCreationTools.some(tool => stepGoalText.includes(tool));
         const needsFileCreation = currentStep.tools?.some(tool => 
           fileCreationTools.includes(tool)
-        ) || false;
+        ) || hasFileCreationInGoal;
 
         console.log(`[StageHandler:Implementation] ProgressPlan: Current step ${currentStep.stepNumber} - goal: "${currentStep.goal}", needsFileCreation: ${needsFileCreation}, hasCodeContext: ${codeContexts.length > 0}`);
 
@@ -314,12 +337,12 @@ class ImplementationStageHandler implements StageHandler {
       filteredCodeContexts = this.implementationManager.filterCodeContextsForStep(codeContexts, currentStepForFilter);
       console.log(`[StageHandler:Implementation] Filtered ${codeContexts.length} code context(s) to ${filteredCodeContexts.length} matching step ${currentStepForFilter.stepNumber}`);
       
-      // Generate diagnostic file for this step only when explicitly requested via @cmd:next_step
+      // Generate diagnostic file for this step only when explicitly requested via next_step/auto trigger
       // Note: Step files for subsequent steps are generated in harmonyClient.ts when advancing
       const stepFileName = `implementation_step_${currentStepForFilter.stepNumber}.json`;
       const stepFileExists = contextManager?.getCodeContexts()?.some(cc => cc.name === stepFileName) || false;
       
-      if (isNextStepRequest && !stepFileExists) {
+      if ((trigger === 'next_step' || trigger === 'auto' || isNextStepRequest) && !stepFileExists) {
         await this.implementationManager.generateImplementationStepFile(
           currentStepForFilter.stepNumber,
           filteredCodeContexts,
@@ -479,7 +502,11 @@ class ImplementationStageHandler implements StageHandler {
     }
 
     // Check if step requires file creation tools
+    // Check both the tools field and the step goal text for file creation keywords
     const fileCreationTools = ['create_file', 'replace_file', 'write_file', 'update_file'];
+    const stepGoalText = `${currentStep.goal} ${currentStep.description || ''}`.toLowerCase();
+    const hasFileCreationInGoal = /(?:create|write|make|implement|add|generate)\s+(?:file|\.py|\.js|\.ts|\.txt|\.json|\.md)/i.test(stepGoalText) ||
+                                  fileCreationTools.some(tool => stepGoalText.includes(tool));
     const needsFileCreation = currentStep.tools?.some(tool => 
       fileCreationTools.includes(tool)
     ) || false;
@@ -522,8 +549,24 @@ class AssumptionsStageHandler implements StageHandler {
     prompt: string,
     nativeToolsManager?: NativeToolsManager,
     contextManager?: ConversationContextManager,
-    progressPlanManager?: ProgressPlanManager
+    progressPlanManager?: ProgressPlanManager,
+    trigger?: TransitionTrigger,
+    harmonyClient?: any
   ): Promise<{ shouldSkipLLM: boolean; response?: any }> {
+    // Handle verbose_info trigger
+    if (trigger === 'verbose_info' && harmonyClient) {
+      // conversationHistory is not stored in context, pass undefined and let getCurrentVerboseInfo handle it
+      const verboseInfo = harmonyClient.getCurrentVerboseInfo();
+      const formattedVerboseInfo = VerboseInfoFormatter.format(verboseInfo);
+      return {
+        shouldSkipLLM: true,
+        response: {
+          content: formattedVerboseInfo,
+          verboseInfo: verboseInfo
+        }
+      };
+    }
+
     // No special handling for convert command - let LLM generate the plan naturally
     // The improved step extraction logic will properly extract execution steps from LLM's response
     return { shouldSkipLLM: false };
@@ -568,6 +611,32 @@ class ChatStageHandler implements StageHandler {
 
   constructor(chatManager: ChatManager) {
     this.chatManager = chatManager;
+  }
+
+  async handlePreProcessing(
+    context: ConversationContext | null,
+    prompt: string,
+    nativeToolsManager?: NativeToolsManager,
+    contextManager?: ConversationContextManager,
+    progressPlanManager?: ProgressPlanManager,
+    trigger?: TransitionTrigger,
+    harmonyClient?: any
+  ): Promise<{ shouldSkipLLM: boolean; response?: any }> {
+    // Handle verbose_info trigger
+    if (trigger === 'verbose_info' && harmonyClient) {
+      // conversationHistory is not stored in context, pass undefined and let getCurrentVerboseInfo handle it
+      const verboseInfo = harmonyClient.getCurrentVerboseInfo();
+      const formattedVerboseInfo = VerboseInfoFormatter.format(verboseInfo);
+      return {
+        shouldSkipLLM: true,
+        response: {
+          content: formattedVerboseInfo,
+          verboseInfo: verboseInfo
+        }
+      };
+    }
+
+    return { shouldSkipLLM: false };
   }
 
   /**
@@ -727,7 +796,32 @@ class ChatStageHandler implements StageHandler {
  * Init stage handler (minimal - just pass-through, will transition to chat)
  */
 class InitStageHandler implements StageHandler {
-  // Init stage doesn't need special processing, transitions to chat immediately
+  async handlePreProcessing(
+    context: ConversationContext | null,
+    prompt: string,
+    nativeToolsManager?: NativeToolsManager,
+    contextManager?: ConversationContextManager,
+    progressPlanManager?: ProgressPlanManager,
+    trigger?: TransitionTrigger,
+    harmonyClient?: any
+  ): Promise<{ shouldSkipLLM: boolean; response?: any }> {
+    // Handle verbose_info trigger
+    if (trigger === 'verbose_info' && harmonyClient) {
+      // conversationHistory is not stored in context, pass undefined and let getCurrentVerboseInfo handle it
+      const verboseInfo = harmonyClient.getCurrentVerboseInfo();
+      const formattedVerboseInfo = VerboseInfoFormatter.format(verboseInfo);
+      return {
+        shouldSkipLLM: true,
+        response: {
+          content: formattedVerboseInfo,
+          verboseInfo: verboseInfo
+        }
+      };
+    }
+
+    // Init stage doesn't need special processing, transitions to chat immediately
+    return { shouldSkipLLM: false };
+  }
 }
 
 /**
