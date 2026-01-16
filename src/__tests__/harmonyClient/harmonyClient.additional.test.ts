@@ -351,7 +351,19 @@ describe('HarmonyClient - Additional Test Cases', () => {
       // Mock NativeToolsManager to ensure it doesn't have the tool
       mockNativeToolsManager.getAvailableTools.mockReturnValue([]);
 
-      // Simple call - remove the stage transition complexity
+      // Transition to implementation stage so write_file isn't blocked
+      client['contextManager'].initialize('Test', 'implementation');
+      client['contextManager'].setProgressPlan({
+        taskId: 'test-task',
+        totalSteps: 1,
+        currentStep: 1,
+        steps: [{ stepNumber: 1, description: 'test', status: 'pending' }],
+        status: 'in_progress',
+        isComplete: false,
+        complexity: 'low'
+      } as any);
+
+      // Simple call
       const result = await client.callServer('Write file with special characters');
 
       expect(result.toolCalls?.length).toBe(1);

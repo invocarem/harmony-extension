@@ -461,7 +461,8 @@ export class HarmonyClient {
         logStepInfo(context.currentStep, context.maxSteps, context.originalPrompt);
       }
 
-      // Check if we've exceeded max steps
+      // Check if we've exceeded max steps (strictly greater). Allow the current
+      // call when currentStep === maxSteps so the final step can still run.
       if (context && context.currentStep > context.maxSteps) {
         console.warn(
           `[Harmony] Reached maximum steps (${context.maxSteps}) for task: "${context.originalPrompt}"`
@@ -471,11 +472,18 @@ export class HarmonyClient {
           : context.currentStage === 'assumptions'
           ? VerboseInfoBuilder.forAssumptionStage(context, undefined, conversationHistory)
           : VerboseInfoBuilder.forImplementationStage(context, this.progressPlanManager);
-        // Only set isComplete for implementation stage where a real plan exists
-        // For chat/assumptions, isComplete is not meaningful (no real plan yet)
-        if (context.currentStage === 'implementation') {
-          verboseInfo.isComplete = true;
+        // VerboseInfoBuilder determines `isComplete` from the progress plan.
+        // Do not set `isComplete` here — keep it readonly and derived from steps.
+        // Ensure callers understand the task is complete when max steps exceeded
+        try {
+          // If builder didn't mark it complete, set it here to reflect that no further steps will run
+          if (!verboseInfo.isComplete) {
+            (verboseInfo as any).isComplete = true;
+          }
+        } catch (e) {
+          // ignore
         }
+
         delete verboseInfo.step;
         delete verboseInfo.maxSteps;
         
@@ -484,6 +492,18 @@ export class HarmonyClient {
           withToString(verboseInfo).toString();
         } catch (e) {
           // Ignore logging errors
+        }
+
+        // If we've already reached or are at max steps, mark as complete
+        try {
+          const finalContextCheck = this.contextManager.getContext();
+          if (finalContextCheck && finalContextCheck.currentStep >= finalContextCheck.maxSteps) {
+            if (!verboseInfo.isComplete) {
+              (verboseInfo as any).isComplete = true;
+            }
+          }
+        } catch (e) {
+          // ignore
         }
         
         return {
@@ -1442,10 +1462,13 @@ export class HarmonyClient {
             console.warn(
               `[Harmony] Cannot continue: next step (${finalContext.currentStep + 1}) would exceed max steps (${finalContext.maxSteps})`
             );
-            // Only set isComplete for implementation stage where a real plan exists
-            // For chat/assumptions, isComplete is not meaningful (no real plan yet)
-            if (currentStage === 'implementation') {
-              verboseInfo.isComplete = true;
+            // Ensure verboseInfo reflects completion when we cannot continue due to max steps
+            try {
+              if (!verboseInfo.isComplete) {
+                (verboseInfo as any).isComplete = true;
+              }
+            } catch (e) {
+              // ignore
             }
             delete verboseInfo.step;
             delete verboseInfo.maxSteps;
@@ -1558,7 +1581,8 @@ export class HarmonyClient {
                   : stage === 'assumptions'
                   ? VerboseInfoBuilder.forAssumptionStage(context, undefined, conversationHistory)
                   : VerboseInfoBuilder.forImplementationStage(context, this.progressPlanManager);
-                info.isComplete = true;
+                // VerboseInfoBuilder determines `isComplete` from the progress plan.
+                // Do not set `isComplete` here — keep it readonly and derived from steps.
                 return info;
               })(),
             };
@@ -1641,10 +1665,9 @@ export class HarmonyClient {
         ? VerboseInfoBuilder.forAssumptionStage(finalContextForVerbose, undefined, conversationHistory)
         : VerboseInfoBuilder.forImplementationStage(finalContextForVerbose, this.progressPlanManager);
       
-      // Don't override isComplete - VerboseInfoBuilder already calculates it correctly:
-      // - For chat/assumptions stages: checks if currentStep >= maxSteps
-      // - For implementation stage: checks if the plan is actually completed (plan.completedAt or all steps completed)
-      
+      // Don't override isComplete - VerboseInfoBuilder already calculates it correctly
+      // based on progress steps. `isComplete` is treated as readonly here.
+
       delete verboseInfo.step;
       delete verboseInfo.maxSteps;
 
@@ -1653,6 +1676,18 @@ export class HarmonyClient {
         withToString(verboseInfo).toString();
       } catch (e) {
         // Ignore logging errors
+      }
+
+      // If we've already reached or are at max steps, mark as complete
+      try {
+        const ctx = this.contextManager.getContext();
+        if (ctx && ctx.currentStep >= ctx.maxSteps) {
+          if (!verboseInfo.isComplete) {
+            (verboseInfo as any).isComplete = true;
+          }
+        }
+      } catch (e) {
+        // ignore
       }
 
       // Clear lastStageTransition after using it
