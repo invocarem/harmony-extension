@@ -42,9 +42,12 @@ async function setupImplementationStage(
   // when "move to implementation" is called
   await transitionToImplementation(client, mockHarmonyProcessor);
   
-  // After transition, clear the mock history
-  // Tests should set up their own mocks completely
-  mockNativeToolsManager.callTool.mockClear();
+  // After transition, completely reset ALL mocks so tests start fresh
+  // This ensures any previous mock setups don't interfere
+  mockedAxios.post.mockReset();
+  mockHarmonyProcessor.parseResponse.mockReset();
+  mockHarmonyProcessor.extractToolCalls.mockReset();
+  mockNativeToolsManager.callTool.mockReset();
 }
 
 /**
@@ -88,21 +91,29 @@ function setupStepForExecution(
 /**
  * Helper function to mock extractToolCalls to return tool calls when called with content containing tool_call patterns
  * This handles both the validToolCalls path and the content fallback path
+ * Updates the HarmonyProcessor.prototype spy which is used by all instances created in the client
  */
 function mockExtractToolCalls(
   mockHarmonyProcessor: jest.Mocked<HarmonyProcessor>,
   toolCalls: MCPToolCall[]
 ): void {
-  mockHarmonyProcessor.extractToolCalls.mockImplementation((input: string | string[]) => {
+  const implementation = (input: string | string[]) => {
     const text = Array.isArray(input) ? input.join('') : input;
+    console.log(`[Test] mockExtractToolCalls called with text: "${text.substring(0, 100)}..."`);
     // If input contains tool_call pattern or any tool name, return tool calls
     if (text.includes('tool_call') || text.includes('create_file') || text.includes('replace_file') || 
         toolCalls.some(tc => text.includes(tc.name))) {
+      console.log(`[Test] mockExtractToolCalls returning ${toolCalls.length} tool calls`);
       return toolCalls;
     }
     // Otherwise return empty (for validation checks or when no tool calls in input)
+    console.log(`[Test] mockExtractToolCalls returning empty array (no matching pattern)`);
     return [];
-  });
+  };
+  
+  // Apply the mock to the prototype - this is critical because the client creates actual HarmonyProcessor instances
+  // and we need them to use our mock implementation
+  (HarmonyProcessor.prototype.extractToolCalls as jest.Mock).mockImplementation(implementation);
 }
 
 describe('HarmonyClient - Implementation Stage', () => {
@@ -168,6 +179,9 @@ describe('HarmonyClient - Implementation Stage', () => {
     } as any;
 
     // Create client
+    // NOTE: The new architecture uses ToolExecutor and ToolExecutionCoordinator
+    // which are wired internally with the passed nativeToolsManager
+    // The mocked nativeToolsManager.callTool will be called when tools are executed
     client = new HarmonyClient(
       mockConfig,
       mockMCPManager,
