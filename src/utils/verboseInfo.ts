@@ -530,7 +530,10 @@ export class VerboseInfoBuilder {
       stageTransition: context?.lastStageTransition,
       step: hasProgressPlan && context ? context.currentStep : undefined,
       maxSteps: hasProgressPlan && context ? context.maxSteps : undefined,
-      isComplete: !context || (hasProgressPlan ? isPlanCompleted : true),
+      // isComplete is only meaningful when there's a real progress plan.
+      // For implementation without a plan, leave isComplete undefined instead of
+      // assuming the task is complete after a single response.
+      isComplete: hasProgressPlan ? isPlanCompleted : undefined,
     };
 
     // Add plan progress with file operation linking

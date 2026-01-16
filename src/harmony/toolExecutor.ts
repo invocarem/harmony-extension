@@ -34,42 +34,46 @@ export class ToolExecutor {
           
           if (isNativeTool) {
             console.log(`[Harmony] Executing native tool "${toolCall.name}"`);
-            let result = await this.nativeToolsManager.callTool(
+            const rawResult = await this.nativeToolsManager.callTool(
               toolCall.name,
               toolCall.arguments || {}
             );
-            
-            // Auto-fallback: If create_file fails because file exists, automatically use replace_file
-            if (toolCall.name === "create_file" && result?.isError) {
-              const errorText = result?.content?.[0]?.text || "";
-              if (errorText.includes("already exists") || errorText.includes("Use replace_file")) {
-                console.log(`[Harmony] File already exists, automatically retrying with replace_file`);
-                result = await this.nativeToolsManager.callTool(
-                  "replace_file",
-                  toolCall.arguments || {}
-                );
-                results.push({
-                  name: "replace_file",
-                  arguments: toolCall.arguments || {},
-                  result: {
-                    content: result?.content || [],
-                    isError: result?.isError || false,
-                  },
-                });
-                continue;
-              }
-            }
-            
-            const mcpResult: MCPToolResult = {
-              content: result?.content || [],
-              isError: result?.isError || false,
+
+            const attemptedResult: MCPToolResult = {
+              content: rawResult?.content || [],
+              isError: rawResult?.isError || false,
             };
-            
+
+            // Always record the initial native tool attempt
             results.push({
               name: toolCall.name,
               arguments: toolCall.arguments || {},
-              result: mcpResult,
+              result: attemptedResult,
             });
+
+            // Auto-fallback: If create_file fails because file exists, automatically use replace_file
+            if (toolCall.name === "create_file" && attemptedResult?.isError) {
+              const errorText = attemptedResult?.content?.[0]?.text || "";
+              if (errorText.includes("already exists") || errorText.includes("Use replace_file")) {
+                console.log(`[Harmony] File already exists, automatically retrying with replace_file`);
+                const replaceRaw = await this.nativeToolsManager.callTool(
+                  "replace_file",
+                  toolCall.arguments || {}
+                );
+
+                const replaceResult: MCPToolResult = {
+                  content: replaceRaw?.content || [],
+                  isError: replaceRaw?.isError || false,
+                };
+
+                results.push({
+                  name: "replace_file",
+                  arguments: toolCall.arguments || {},
+                  result: replaceResult,
+                });
+              }
+            }
+
             continue;
           }
         }
