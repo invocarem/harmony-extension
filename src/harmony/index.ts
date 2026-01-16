@@ -26,4 +26,7 @@ export { ImplementationManager } from './implementationManager';
 export type { ImplementationState, ImplementationFile } from './implementationManager';
 export { ConfirmationManager } from './confirmationManager';
 export type { PendingConfirmation } from './confirmationManager';
+export { StateTransitionManager } from './stateTransitionManager';
+export { ResponseProcessor } from './responseProcessor';
+export { ToolExecutionCoordinator } from './toolExecutionCoordinator';
 
