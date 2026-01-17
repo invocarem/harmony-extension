@@ -928,6 +928,65 @@ export class NativeToolsManager {
     return regex.test(filename);
   }
 
+  private async enhanceCommandWithVenv(
+    command: string,
+    cwd: string
+  ): Promise<string> {
+    // Check if command targets Python
+    const pythonTargetRegex =
+      /\bpython\d*(\.\d+)?(\s+|$|'|")|\.py(\s+|'|"|$)|pipenv|poetry/i;
+
+    if (!pythonTargetRegex.test(command)) {
+      // Not a Python command, return as is
+      return command;
+    }
+
+    // Look for virtual environment in the working directory
+    const venvPaths = [
+      path.join(cwd, "venv"),
+      path.join(cwd, ".venv"),
+      path.join(cwd, "env"),
+      path.join(cwd, ".env"),
+    ];
+
+    for (const venvPath of venvPaths) {
+      try {
+        const stats = await stat(venvPath);
+        if (stats.isDirectory()) {
+          // Check if it's a valid venv (has bin/activate or Scripts/activate)
+          const activatePath = path.join(venvPath, "bin", "activate");
+          const activateWindowsPath = path.join(venvPath, "Scripts", "activate");
+
+          try {
+            await stat(activatePath);
+            // Unix-style venv found
+            console.log(`[NativeTools] Found venv at ${venvPath}`);
+            return `source "${activatePath}" && ${command}`;
+          } catch {
+            try {
+              await stat(activateWindowsPath);
+              // Windows-style venv found
+              console.log(`[NativeTools] Found venv at ${venvPath}`);
+              return `"${activateWindowsPath}" && ${command}`;
+            } catch {
+              // Continue to next venv path
+              continue;
+            }
+          }
+        }
+      } catch {
+        // Continue to next venv path
+        continue;
+      }
+    }
+
+    // No venv found, return original command
+    console.log(
+      `[NativeTools] No venv found for Python command, using system Python`
+    );
+    return command;
+  }
+
   private async executeTerminalCommand(
     command: string,
     workingDirectory?: string
@@ -942,12 +1001,15 @@ export class NativeToolsManager {
         `[NativeTools] Executing command: "${command}" in directory: "${cwd}"`
       );
 
+      // Check if command targets Python and use venv if available
+      const enhancedCommand = await this.enhanceCommandWithVenv(command, cwd);
+
       // Use promisify to convert exec to promise-based
       const execAsync = promisify(exec);
 
       // Execute command with timeout (30 seconds default)
       const timeout = 30000; // 30 seconds
-      const execPromise = execAsync(command, {
+      const execPromise = execAsync(enhancedCommand, {
         cwd: cwd,
         maxBuffer: 1024 * 1024 * 10, // 10MB buffer for output
         timeout: timeout,

@@ -603,4 +603,243 @@ describe("NativeToolsManager", () => {
       (process as any).cwd = originalCwd;
     });
   });
+
+  describe("enhanceCommandWithVenv", () => {
+    it("should detect Python commands (python)", async () => {
+      const mockStat = mockFs.promises.stat as jest.Mock;
+      mockStat.mockRejectedValue(new Error("ENOENT"));
+
+      const result = await manager.callTool("exec_terminal", {
+        command: "python script.py",
+        working_directory: "/workspace",
+      });
+
+      // Command should have been enhanced but no venv found
+      expect(result.isError).toBeUndefined();
+      expect(mockExecAsync).toHaveBeenCalled();
+    });
+
+    it("should detect Python commands (python3)", async () => {
+      const mockStat = mockFs.promises.stat as jest.Mock;
+      mockStat.mockRejectedValue(new Error("ENOENT"));
+
+      const result = await manager.callTool("exec_terminal", {
+        command: "python3 --version",
+        working_directory: "/workspace",
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(mockExecAsync).toHaveBeenCalled();
+    });
+
+    it("should detect Python commands (specific version)", async () => {
+      const mockStat = mockFs.promises.stat as jest.Mock;
+      mockStat.mockRejectedValue(new Error("ENOENT"));
+
+      const result = await manager.callTool("exec_terminal", {
+        command: "python3.11 -m pip list",
+        working_directory: "/workspace",
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(mockExecAsync).toHaveBeenCalled();
+    });
+
+    it("should detect .py file extensions", async () => {
+      const mockStat = mockFs.promises.stat as jest.Mock;
+      mockStat.mockRejectedValue(new Error("ENOENT"));
+
+      const result = await manager.callTool("exec_terminal", {
+        command: "./script.py",
+        working_directory: "/workspace",
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(mockExecAsync).toHaveBeenCalled();
+    });
+
+    it("should detect pipenv commands", async () => {
+      const mockStat = mockFs.promises.stat as jest.Mock;
+      mockStat.mockRejectedValue(new Error("ENOENT"));
+
+      const result = await manager.callTool("exec_terminal", {
+        command: "pipenv install",
+        working_directory: "/workspace",
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(mockExecAsync).toHaveBeenCalled();
+    });
+
+    it("should detect poetry commands", async () => {
+      const mockStat = mockFs.promises.stat as jest.Mock;
+      mockStat.mockRejectedValue(new Error("ENOENT"));
+
+      const result = await manager.callTool("exec_terminal", {
+        command: "poetry install",
+        working_directory: "/workspace",
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(mockExecAsync).toHaveBeenCalled();
+    });
+
+    it("should skip non-Python commands", async () => {
+      const mockStat = mockFs.promises.stat as jest.Mock;
+      mockStat.mockRejectedValue(new Error("ENOENT"));
+
+      const result = await manager.callTool("exec_terminal", {
+        command: "npm install",
+        working_directory: "/workspace",
+      });
+
+      expect(result.isError).toBeUndefined();
+      // Should execute npm command as-is
+      expect(mockExecAsync).toHaveBeenCalled();
+      const callArgs = (mockExecAsync as jest.Mock).mock.calls[0];
+      expect(callArgs[0]).toBe("npm install");
+    });
+
+    it("should find and use venv on Unix", async () => {
+      const mockStat = mockFs.promises.stat as jest.Mock;
+
+      // Mock: venv exists
+      mockStat.mockResolvedValueOnce({ isDirectory: () => true });
+      // Mock: bin/activate exists
+      mockStat.mockResolvedValueOnce({ isDirectory: () => true });
+
+      const result = await manager.callTool("exec_terminal", {
+        command: "python script.py",
+        working_directory: "/workspace",
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(mockExecAsync).toHaveBeenCalled();
+
+      const callArgs = (mockExecAsync as jest.Mock).mock.calls[0];
+      const command = callArgs[0];
+      expect(command).toContain("source");
+      expect(command).toContain("venv/bin/activate");
+      expect(command).toContain("python script.py");
+    });
+
+    it("should find and use .venv on Unix", async () => {
+      const mockStat = mockFs.promises.stat as jest.Mock;
+
+      // Mock: venv does not exist
+      mockStat.mockRejectedValueOnce(new Error("ENOENT"));
+      // Mock: .venv exists
+      mockStat.mockResolvedValueOnce({ isDirectory: () => true });
+      // Mock: bin/activate exists
+      mockStat.mockResolvedValueOnce({ isDirectory: () => true });
+
+      const result = await manager.callTool("exec_terminal", {
+        command: "python script.py",
+        working_directory: "/workspace",
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(mockExecAsync).toHaveBeenCalled();
+
+      const callArgs = (mockExecAsync as jest.Mock).mock.calls[0];
+      const command = callArgs[0];
+      expect(command).toContain("source");
+      expect(command).toContain(".venv/bin/activate");
+      expect(command).toContain("python script.py");
+    });
+
+    it("should find and use venv on Windows", async () => {
+      const mockStat = mockFs.promises.stat as jest.Mock;
+
+      // Mock: venv exists
+      mockStat.mockResolvedValueOnce({ isDirectory: () => true });
+      // Mock: bin/activate does not exist
+      mockStat.mockRejectedValueOnce(new Error("ENOENT"));
+      // Mock: Scripts/activate exists
+      mockStat.mockResolvedValueOnce({ isDirectory: () => true });
+
+      const result = await manager.callTool("exec_terminal", {
+        command: "python script.py",
+        working_directory: "/workspace",
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(mockExecAsync).toHaveBeenCalled();
+
+      const callArgs = (mockExecAsync as jest.Mock).mock.calls[0];
+      const command = callArgs[0];
+      expect(command).toContain("Scripts/activate");
+      expect(command).toContain("python script.py");
+    });
+
+    it("should try multiple venv paths in order", async () => {
+      const mockStat = mockFs.promises.stat as jest.Mock;
+
+      // Mock: venv does not exist
+      mockStat.mockRejectedValueOnce(new Error("ENOENT"));
+      // Mock: .venv does not exist
+      mockStat.mockRejectedValueOnce(new Error("ENOENT"));
+      // Mock: env exists
+      mockStat.mockResolvedValueOnce({ isDirectory: () => true });
+      // Mock: bin/activate exists
+      mockStat.mockResolvedValueOnce({ isDirectory: () => true });
+
+      const result = await manager.callTool("exec_terminal", {
+        command: "python script.py",
+        working_directory: "/workspace",
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(mockExecAsync).toHaveBeenCalled();
+
+      const callArgs = (mockExecAsync as jest.Mock).mock.calls[0];
+      const command = callArgs[0];
+      expect(command).toContain("env/bin/activate");
+      expect(command).toContain("python script.py");
+    });
+
+    it("should fall back to system Python when no venv found", async () => {
+      const mockStat = mockFs.promises.stat as jest.Mock;
+
+      // Mock: all venv paths do not exist
+      mockStat.mockRejectedValue(new Error("ENOENT"));
+
+      const result = await manager.callTool("exec_terminal", {
+        command: "python script.py",
+        working_directory: "/workspace",
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(mockExecAsync).toHaveBeenCalled();
+
+      const callArgs = (mockExecAsync as jest.Mock).mock.calls[0];
+      const command = callArgs[0];
+      // Should be the original command without venv activation
+      expect(command).toBe("python script.py");
+    });
+
+    it("should handle invalid venv directory (not a directory)", async () => {
+      const mockStat = mockFs.promises.stat as jest.Mock;
+
+      // Mock: venv path exists but is not a directory
+      mockStat.mockResolvedValueOnce({ isDirectory: () => false });
+      // Mock: .venv exists and is a directory
+      mockStat.mockResolvedValueOnce({ isDirectory: () => true });
+      // Mock: bin/activate exists
+      mockStat.mockResolvedValueOnce({ isDirectory: () => true });
+
+      const result = await manager.callTool("exec_terminal", {
+        command: "python script.py",
+        working_directory: "/workspace",
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(mockExecAsync).toHaveBeenCalled();
+
+      const callArgs = (mockExecAsync as jest.Mock).mock.calls[0];
+      const command = callArgs[0];
+      // Should skip invalid venv and find .venv
+      expect(command).toContain(".venv/bin/activate");
+    });
+  });
 });
