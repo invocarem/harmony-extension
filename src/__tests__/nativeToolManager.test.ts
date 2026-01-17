@@ -294,6 +294,7 @@ describe("NativeToolsManager", () => {
         command,
         expect.objectContaining({
           cwd: workspaceRoot,
+          shell: '/bin/bash',
           maxBuffer: 1024 * 1024 * 10,
           timeout: 30000,
         })

@@ -837,6 +837,12 @@ export class HarmonyAssistant {
       // next_step, auto, and verbose_info are now handled by state machine as events
       // They are detected by StageStateMachine.detectTrigger() and handled in stage handlers
       // No command handling needed here - pass through to state machine
+      case 'next_step':
+      case 'auto':
+      case 'verbose_info':
+        // These commands are passed through to the state machine as triggers
+        // They will be detected by StageStateMachine.detectTrigger() and handled in stage handlers
+        return { handled: false, shouldReturn: false };
 
       case 'convert': {
         // Convert DOCX/PDF file to markdown

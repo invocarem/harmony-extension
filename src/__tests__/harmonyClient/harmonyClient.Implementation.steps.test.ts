@@ -892,5 +892,178 @@ describe("HarmonyClient - Implementation Stage: steps", () => {
       }
     });
 
+    it("should stop auto command when all steps are completed", async () => {
+      // Transition to implementation stage first
+      await setupImplementationStage(
+        client,
+        mockHarmonyProcessor,
+        mockNativeToolsManager
+      );
+
+      // Get the taskId from ImplementationManager and update the plan with 2 steps
+      const implementationManager = (client as any).implementationManager;
+      const taskId = implementationManager.getTaskId();
+      expect(taskId).toBeDefined();
+
+      const progressPlanManager = client.getProgressPlanManager();
+      progressPlanManager.updatePlanSteps(
+        taskId!,
+        [
+          { goal: "Step 1: Create config.py", tools: ["create_file"] },
+          { goal: "Step 2: Create main.py", tools: ["create_file"] },
+        ],
+        false
+      ); // Don't preserve status - start fresh with pending
+
+      // Reinitialize ImplementationManager to ensure it's aware of the updated plan
+      implementationManager.clear();
+      implementationManager.initialize(taskId!);
+
+      const createFileTool = {
+        name: "create_file",
+        description: "Create a file",
+        inputSchema: {
+          type: "object",
+          properties: {
+            file_path: { type: "string" },
+            content: { type: "string" },
+          },
+          required: ["file_path", "content"],
+        },
+      } as any;
+
+      mockNativeToolsManager.getAvailableTools.mockReturnValue([
+        createFileTool,
+      ]);
+
+      // Setup for step 1 execution via @cmd:auto
+      const response1 = {
+        status: 200,
+        data: {
+          choices: [
+            {
+              text: '<|channel|>tool_use<|tool_name|>create_file<|tool_args|>{"file_path": "config.py", "content": "config_code"}<|end|>',
+            },
+          ],
+        },
+      };
+
+      mockedAxios.post.mockResolvedValueOnce(response1);
+
+      const toolCall1: MCPToolCall = {
+        name: "create_file",
+        arguments: { file_path: "config.py", content: "config_code" },
+      };
+
+      mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
+        content: "",
+        rawToolCalls: [JSON.stringify(toolCall1)],
+      });
+
+      mockHarmonyProcessor.extractToolCalls
+        .mockReturnValueOnce([toolCall1]) // First call with validToolCalls
+        .mockReturnValueOnce([]); // Fallback call with content
+
+      // Mock diagnostic file and create_file for step 1
+      mockNativeToolsManager.callTool
+        .mockResolvedValueOnce({
+          content: [
+            {
+              type: "text",
+              text: "Successfully created diagnostic file: implementation_step_1.json",
+            },
+          ],
+          isError: false,
+        })
+        .mockResolvedValueOnce({
+          content: [{ type: "text", text: "Success" }],
+          isError: false,
+        })
+        .mockResolvedValueOnce({
+          content: [
+            {
+              type: "text",
+              text: "Successfully created diagnostic file: implementation_step_2.json",
+            },
+          ],
+          isError: false,
+        });
+
+      // Execute step 1 via @cmd:auto
+      await client.callServer("@cmd:auto");
+
+      // Verify step 1 is completed and step 2 is in_progress
+      let plan = progressPlanManager.getPlan(taskId!);
+      expect(plan?.steps[0].status).toBe("completed");
+      expect(plan?.steps[1].status).toBe("in_progress");
+      expect(plan?.completedAt).toBeUndefined(); // Plan not completed yet
+
+      // Setup for step 2 execution via @cmd:auto
+      const response2 = {
+        status: 200,
+        data: {
+          choices: [
+            {
+              text: '<|channel|>tool_use<|tool_name|>create_file<|tool_args|>{"file_path": "main.py", "content": "main_code"}<|end|>',
+            },
+          ],
+        },
+      };
+
+      mockedAxios.post.mockResolvedValueOnce(response2);
+
+      const toolCall2: MCPToolCall = {
+        name: "create_file",
+        arguments: { file_path: "main.py", content: "main_code" },
+      };
+
+      mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
+        content: "",
+        rawToolCalls: [JSON.stringify(toolCall2)],
+      });
+
+      mockExtractToolCalls(mockHarmonyProcessor, [toolCall2]);
+
+      // Mock create_file for step 2
+      mockNativeToolsManager.callTool.mockResolvedValueOnce({
+        content: [{ type: "text", text: "Success" }],
+        isError: false,
+      });
+
+      // Execute step 2 via @cmd:auto
+      await client.callServer("@cmd:auto");
+
+      // Verify step 2 is completed and plan is now complete
+      plan = progressPlanManager.getPlan(taskId!);
+      expect(plan?.steps[0].status).toBe("completed");
+      expect(plan?.steps[1].status).toBe("completed");
+      expect(plan?.completedAt).toBeDefined();
+      expect(plan?.completedAt).toBeGreaterThan(0);
+
+      // Reset mocks to ensure we start fresh for the final auto call
+      mockedAxios.post.mockReset();
+      mockHarmonyProcessor.parseResponse.mockReset();
+      mockHarmonyProcessor.extractToolCalls.mockReset();
+      mockNativeToolsManager.callTool.mockReset();
+
+      // Now call @cmd:auto again - it should stop and NOT call the LLM
+      // (handlePreProcessing should return early with "All steps completed")
+      const apiCallsBefore = mockedAxios.post.mock.calls.length;
+
+      const response = await client.callServer("@cmd:auto");
+
+      // Verify the response indicates completion
+      expect(response).toBeDefined();
+      expect(response?.content).toContain("completed");
+
+      // Verify NO new LLM API call was made (proof that it didn't continue to step 5 or loop)
+      const apiCallsAfter = mockedAxios.post.mock.calls.length;
+      expect(apiCallsAfter).toBe(apiCallsBefore);
+
+      // Verify the plan is still marked as complete
+      plan = progressPlanManager.getPlan(taskId!);
+      expect(plan?.completedAt).toBeGreaterThan(0);
+    });
+
   });
 });

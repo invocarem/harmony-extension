@@ -211,10 +211,14 @@ class ImplementationStageHandler implements StageHandler {
 
     // Ensure ImplementationManager is initialized with taskId if we have a plan
     const updatedContext = contextManager?.getContext() || context;
-    const plan = updatedContext.progressPlan;
-    if (plan && !this.implementationManager.getTaskId()) {
-      this.implementationManager.initialize(plan.taskId);
+    const contextPlan = updatedContext.progressPlan;
+    if (contextPlan && !this.implementationManager.getTaskId()) {
+      this.implementationManager.initialize(contextPlan.taskId);
     }
+
+    // IMPORTANT: Always get the fresh plan from ImplementationManager/progressPlanManager
+    // Do NOT use the context's progressPlan as it may be stale
+    const plan = this.implementationManager.getProgressPlan() || contextPlan;
 
     // Check for next_step or auto trigger (detected by state machine)
     // Also support legacy empty prompt detection for backward compatibility

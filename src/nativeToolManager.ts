@@ -1011,6 +1011,7 @@ export class NativeToolsManager {
       const timeout = 30000; // 30 seconds
       const execPromise = execAsync(enhancedCommand, {
         cwd: cwd,
+        shell: '/bin/bash',
         maxBuffer: 1024 * 1024 * 10, // 10MB buffer for output
         timeout: timeout,
       });
