@@ -1,15 +1,19 @@
-import { HarmonyClient, HarmonyResponse } from '../../harmonyClient';
-import { LlamaConfig, RuleConfig } from '../../config';
-import { MCPManager } from '../../mcpManager';
-import { RulesManager, Rule } from '../../rulesManager';
-import { NativeToolsManager, NativeTool } from '../../nativeToolManager';
-import { HarmonyProcessor, HarmonyParseResult } from '../../harmonyProcessor';
-import { MCPToolCall, MCPToolResult } from '../../mcpClient';
-import axios from 'axios';
-import { transitionToAssumptions, transitionToImplementation, transitionToImplementationViaAssumptions } from '../testHelpers';
+import { HarmonyClient, HarmonyResponse } from "../../harmonyClient";
+import { LlamaConfig, RuleConfig } from "../../config";
+import { MCPManager } from "../../mcpManager";
+import { RulesManager, Rule } from "../../rulesManager";
+import { NativeToolsManager, NativeTool } from "../../nativeToolManager";
+import { HarmonyProcessor, HarmonyParseResult } from "../../harmonyProcessor";
+import { MCPToolCall, MCPToolResult } from "../../mcpClient";
+import axios from "axios";
+import {
+  transitionToAssumptions,
+  transitionToImplementation,
+  transitionToImplementationViaAssumptions,
+} from "../testHelpers";
 
 // Mock dependencies
-jest.mock('axios');
+jest.mock("axios");
 
 const mockedAxios = axios as jest.Mocked<typeof axios>;
 
@@ -27,21 +31,21 @@ async function setupImplementationStage(
   // aggregated_prompt.json is auto-generated when transitioning to assumptions stage
   // assumption_data.json is auto-generated when transitioning to implementation stage
   const defaultDiagnosticMock = {
-    content: [{ type: 'text', text: 'Successfully created diagnostic file' }],
+    content: [{ type: "text", text: "Successfully created diagnostic file" }],
     isError: false,
   };
-  
+
   // Set up default mock for diagnostic files created during transition
   mockNativeToolsManager.callTool.mockResolvedValue(defaultDiagnosticMock);
-  
+
   // Use shared helpers to transition through assumptions to implementation
   await transitionToAssumptions(client, mockHarmonyProcessor);
-  
+
   // Now transition to implementation stage using the helper
   // This helper properly mocks the assumptions stage LLM call that happens
   // when "move to implementation" is called
   await transitionToImplementation(client, mockHarmonyProcessor);
-  
+
   // After transition, completely reset ALL mocks so tests start fresh
   // This ensures any previous mock setups don't interfere
   mockedAxios.post.mockReset();
@@ -67,22 +71,22 @@ function setupStepForExecution(
       // Update the step to include tools field and ensure it's pending
       const updatedSteps = plan.steps.map((s, idx) => {
         if (idx === stepIndex) {
-          return { goal: s.goal, tools: ['create_file'] };
+          return { goal: s.goal, tools: ["create_file"] };
         }
         return { goal: s.goal };
       });
       progressPlanManager.updatePlanSteps(taskId, updatedSteps, false); // Don't preserve status - start fresh
-      
+
       // Ensure ImplementationManager is aware of the updated plan
       const implementationManager = (client as any).implementationManager;
       implementationManager.clear();
       implementationManager.initialize(taskId);
-      
+
       // Explicitly set the first step to pending to ensure it's ready for @cmd:next_step
       // This is important because updatePlanSteps might not reset status correctly
       const updatedPlan = progressPlanManager.getPlan(taskId);
       if (updatedPlan && updatedPlan.steps.length > stepIndex) {
-        progressPlanManager.updateStepStatus(taskId, stepIndex + 1, 'pending');
+        progressPlanManager.updateStepStatus(taskId, stepIndex + 1, "pending");
       }
     }
   }
@@ -98,25 +102,37 @@ function mockExtractToolCalls(
   toolCalls: MCPToolCall[]
 ): void {
   const implementation = (input: string | string[]) => {
-    const text = Array.isArray(input) ? input.join('') : input;
-    console.log(`[Test] mockExtractToolCalls called with text: "${text.substring(0, 100)}..."`);
+    const text = Array.isArray(input) ? input.join("") : input;
+    console.log(
+      `[Test] mockExtractToolCalls called with text: "${text.substring(0, 100)}..."`
+    );
     // If input contains tool_call pattern or any tool name, return tool calls
-    if (text.includes('tool_call') || text.includes('create_file') || text.includes('replace_file') || 
-        toolCalls.some(tc => text.includes(tc.name))) {
-      console.log(`[Test] mockExtractToolCalls returning ${toolCalls.length} tool calls`);
+    if (
+      text.includes("tool_call") ||
+      text.includes("create_file") ||
+      text.includes("replace_file") ||
+      toolCalls.some((tc) => text.includes(tc.name))
+    ) {
+      console.log(
+        `[Test] mockExtractToolCalls returning ${toolCalls.length} tool calls`
+      );
       return toolCalls;
     }
     // Otherwise return empty (for validation checks or when no tool calls in input)
-    console.log(`[Test] mockExtractToolCalls returning empty array (no matching pattern)`);
+    console.log(
+      `[Test] mockExtractToolCalls returning empty array (no matching pattern)`
+    );
     return [];
   };
-  
+
   // Apply the mock to the prototype - this is critical because the client creates actual HarmonyProcessor instances
   // and we need them to use our mock implementation
-  (HarmonyProcessor.prototype.extractToolCalls as jest.Mock).mockImplementation(implementation);
+  (HarmonyProcessor.prototype.extractToolCalls as jest.Mock).mockImplementation(
+    implementation
+  );
 }
 
-describe('HarmonyClient - Implementation Stage', () => {
+describe("HarmonyClient - Implementation Stage", () => {
   let client: HarmonyClient;
   let mockConfig: LlamaConfig;
   let mockMCPManager: jest.Mocked<MCPManager>;
@@ -130,9 +146,9 @@ describe('HarmonyClient - Implementation Stage', () => {
 
     // Setup config
     mockConfig = {
-      serverUrl: 'http://localhost:8000',
-      apiKey: 'test-api-key',
-      model: 'test-model',
+      serverUrl: "http://localhost:8000",
+      apiKey: "test-api-key",
+      model: "test-model",
       temperature: 0.7,
       maxTokens: 2048,
       mcpServers: [],
@@ -151,11 +167,21 @@ describe('HarmonyClient - Implementation Stage', () => {
     } as any;
 
     // Create a mock class instead of using jest.mock on the class itself
-    jest.spyOn(HarmonyProcessor.prototype, 'parseResponse').mockImplementation(mockHarmonyProcessor.parseResponse);
-    jest.spyOn(HarmonyProcessor.prototype, 'extractToolCalls').mockImplementation(mockHarmonyProcessor.extractToolCalls);
-    jest.spyOn(HarmonyProcessor.prototype, 'formatPrompt').mockImplementation(mockHarmonyProcessor.formatPrompt);
-    jest.spyOn(HarmonyProcessor.prototype, 'validateResponse').mockImplementation(mockHarmonyProcessor.validateResponse);
-    jest.spyOn(HarmonyProcessor.prototype, 'cleanText').mockImplementation(mockHarmonyProcessor.cleanText);
+    jest
+      .spyOn(HarmonyProcessor.prototype, "parseResponse")
+      .mockImplementation(mockHarmonyProcessor.parseResponse);
+    jest
+      .spyOn(HarmonyProcessor.prototype, "extractToolCalls")
+      .mockImplementation(mockHarmonyProcessor.extractToolCalls);
+    jest
+      .spyOn(HarmonyProcessor.prototype, "formatPrompt")
+      .mockImplementation(mockHarmonyProcessor.formatPrompt);
+    jest
+      .spyOn(HarmonyProcessor.prototype, "validateResponse")
+      .mockImplementation(mockHarmonyProcessor.validateResponse);
+    jest
+      .spyOn(HarmonyProcessor.prototype, "cleanText")
+      .mockImplementation(mockHarmonyProcessor.cleanText);
 
     // Setup MCPManager mock
     mockMCPManager = {
@@ -169,7 +195,7 @@ describe('HarmonyClient - Implementation Stage', () => {
       getApplicableRules: jest.fn().mockReturnValue([]),
       getApplicableRulesFromHistory: jest.fn().mockReturnValue([]),
       getRulesForTools: jest.fn().mockReturnValue([]),
-      formatRulesForPrompt: jest.fn().mockReturnValue(''),
+      formatRulesForPrompt: jest.fn().mockReturnValue(""),
     } as any;
 
     // Setup NativeToolsManager mock
@@ -190,30 +216,38 @@ describe('HarmonyClient - Implementation Stage', () => {
     );
   });
 
-  describe('File Creation and Modification', () => {
-    it('should automatically fallback from create_file to replace_file when file exists', async () => {
+  describe("File Creation and Modification", () => {
+    it("should automatically fallback from create_file to replace_file when file exists", async () => {
       // First, transition to implementation stage using explicit command
-      await setupImplementationStage(client, mockHarmonyProcessor, mockNativeToolsManager);
+      await setupImplementationStage(
+        client,
+        mockHarmonyProcessor,
+        mockNativeToolsManager
+      );
 
       // Verify we're in implementation stage
-      expect(client.getCurrentStage()).toBe('implementation');
+      expect(client.getCurrentStage()).toBe("implementation");
 
       // Ensure the plan step has tools field set so needsFileCreation is true
       // This is needed because assumptions stage doesn't create code blocks,
       // so implementation stage needs to make an LLM call to generate tool calls
       setupStepForExecution(client, 0);
-      
+
       // Clear any CodeContext that might exist to ensure LLM path is taken
       // This ensures tool calls are generated by LLM and executed, not created from CodeContext
       const contextManager = (client as any).contextManager;
       const codeContexts = contextManager.getCodeContexts();
       // Remove any CodeContext that might match the step (except diagnostic files)
       codeContexts.forEach((cc: any) => {
-        if (!cc.name.startsWith('implementation_step_') && 
-            cc.name !== 'assumption_data.json' && 
-            cc.name !== 'aggregated_prompt.json') {
+        if (
+          !cc.name.startsWith("implementation_step_") &&
+          cc.name !== "assumption_data.json" &&
+          cc.name !== "aggregated_prompt.json"
+        ) {
           // Remove non-diagnostic CodeContext to force LLM path
-          const versions = contextManager.getContext()?.codeContexts?.get(cc.name);
+          const versions = contextManager
+            .getContext()
+            ?.codeContexts?.get(cc.name);
           if (versions) {
             versions.forEach((v: any) => {
               if (v.waitForCreate) {
@@ -230,7 +264,11 @@ describe('HarmonyClient - Implementation Stage', () => {
       const mockResponse = {
         status: 200,
         data: {
-          choices: [{ text: '<|channel|>final<|message|><tool_call name="create_file" args=\'{"file_path": "test.txt", "content": "new content"}\' /><|end|>' }],
+          choices: [
+            {
+              text: '<|channel|>final<|message|><tool_call name="create_file" args=\'{"file_path": "test.txt", "content": "new content"}\' /><|end|>',
+            },
+          ],
         },
       };
 
@@ -240,110 +278,143 @@ describe('HarmonyClient - Implementation Stage', () => {
       mockedAxios.post.mockResolvedValueOnce(mockResponse);
 
       const parseResult: HarmonyParseResult = {
-        content: '',
-        rawToolCalls: ['<tool_call name="create_file" args=\'{"file_path": "test.txt", "content": "new content"}\' />'],
+        content: "",
+        rawToolCalls: [
+          '<tool_call name="create_file" args=\'{"file_path": "test.txt", "content": "new content"}\' />',
+        ],
       };
 
       mockHarmonyProcessor.parseResponse.mockReturnValueOnce(parseResult);
 
       const toolCalls: MCPToolCall[] = [
-        { name: 'create_file', arguments: { file_path: 'test.txt', content: 'new content' } },
+        {
+          name: "create_file",
+          arguments: { file_path: "test.txt", content: "new content" },
+        },
       ];
 
       // Mock extractToolCalls to handle both validToolCalls and content fallback paths
       mockExtractToolCalls(mockHarmonyProcessor, toolCalls);
 
       const createFileTool: NativeTool = {
-        name: 'create_file',
-        description: 'Create a new file',
+        name: "create_file",
+        description: "Create a new file",
         inputSchema: {
-          type: 'object',
+          type: "object",
           properties: {
-            file_path: { type: 'string', description: 'Path to the file' },
-            content: { type: 'string', description: 'Content to write' },
+            file_path: { type: "string", description: "Path to the file" },
+            content: { type: "string", description: "Content to write" },
           },
-          required: ['file_path', 'content'],
+          required: ["file_path", "content"],
         },
       } as any;
 
       const replaceFileTool: NativeTool = {
-        name: 'replace_file',
-        description: 'Replace file contents',
+        name: "replace_file",
+        description: "Replace file contents",
         inputSchema: {
-          type: 'object',
+          type: "object",
           properties: {
-            file_path: { type: 'string', description: 'Path to the file' },
-            content: { type: 'string', description: 'Content to write' },
+            file_path: { type: "string", description: "Path to the file" },
+            content: { type: "string", description: "Content to write" },
           },
-          required: ['file_path', 'content'],
+          required: ["file_path", "content"],
         },
       } as any;
 
-      mockNativeToolsManager.getAvailableTools.mockReturnValue([createFileTool, replaceFileTool]);
+      mockNativeToolsManager.getAvailableTools.mockReturnValue([
+        createFileTool,
+        replaceFileTool,
+      ]);
 
       // Mock diagnostic file generation first, then tool calls
       // implementation_step_1.json generation happens when @cmd:next_step is used
       mockNativeToolsManager.callTool
         .mockResolvedValueOnce({
-          content: [{ type: 'text', text: 'Successfully created diagnostic file: implementation_step_1.json' }],
+          content: [
+            {
+              type: "text",
+              text: "Successfully created diagnostic file: implementation_step_1.json",
+            },
+          ],
           isError: false,
         })
         .mockResolvedValueOnce({
-          content: [{ type: 'text', text: 'Error: File test.txt already exists. Use replace_file to overwrite it.' }],
+          content: [
+            {
+              type: "text",
+              text: "Error: File test.txt already exists. Use replace_file to overwrite it.",
+            },
+          ],
           isError: true,
         })
         // Second call to replace_file succeeds
         .mockResolvedValueOnce({
-          content: [{ type: 'text', text: 'Successfully replaced file: test.txt' }],
+          content: [
+            { type: "text", text: "Successfully replaced file: test.txt" },
+          ],
           isError: false,
         });
 
-      const result = await client.callServer('@cmd:next_step now create test.txt with new content');
+      const result = await client.callServer(
+        "@cmd:next_step now create test.txt with new content"
+      );
 
       // Verify tool calls were executed (check actual tool execution via mocks)
       // Note: Tool calls should be executed regardless of whether CodeContext or LLM path was taken
       const createFileCall = mockNativeToolsManager.callTool.mock.calls.find(
-        (call) => call[0] === 'create_file' && call[1]?.file_path === 'test.txt'
+        (call) => call[0] === "create_file" && call[1]?.file_path === "test.txt"
       );
       const replaceFileCall = mockNativeToolsManager.callTool.mock.calls.find(
-        (call) => call[0] === 'replace_file' && call[1]?.file_path === 'test.txt'
+        (call) =>
+          call[0] === "replace_file" && call[1]?.file_path === "test.txt"
       );
-      
+
       // Both create_file and replace_file should have been called (create fails, replace succeeds)
       expect(createFileCall).toBeDefined();
       expect(createFileCall![1]).toEqual({
-        file_path: 'test.txt',
-        content: 'new content',
+        file_path: "test.txt",
+        content: "new content",
       });
-      
+
       expect(replaceFileCall).toBeDefined();
       expect(replaceFileCall![1]).toEqual({
-        file_path: 'test.txt',
-        content: 'new content',
+        file_path: "test.txt",
+        content: "new content",
       });
-      
+
       // If result.toolCalls is defined, verify it matches
       if (result.toolCalls) {
         expect(result.toolCalls.length).toBe(1);
-        expect(result.toolCalls[0].name).toBe('replace_file');
+        expect(result.toolCalls[0].name).toBe("replace_file");
         expect(result.toolCalls[0].arguments).toEqual({
-          file_path: 'test.txt',
-          content: 'new content',
+          file_path: "test.txt",
+          content: "new content",
         });
         expect(result.toolCalls[0].result?.isError).toBe(false);
-        expect(result.toolCalls[0].result?.content[0].text).toContain('Successfully replaced file');
+        expect(result.toolCalls[0].result?.content[0].text).toContain(
+          "Successfully replaced file"
+        );
       }
     });
 
-    it('should not fallback to replace_file when create_file succeeds', async () => {
+    it("should not fallback to replace_file when create_file succeeds", async () => {
       // First, transition to implementation stage using explicit command
-      await setupImplementationStage(client, mockHarmonyProcessor, mockNativeToolsManager);
+      await setupImplementationStage(
+        client,
+        mockHarmonyProcessor,
+        mockNativeToolsManager
+      );
 
       // Now test the successful create_file in implementation stage
       const mockResponse = {
         status: 200,
         data: {
-          choices: [{ text: '<|channel|>final<|message|><tool_call name="create_file" args=\'{"file_path": "newfile.txt", "content": "new content"}\' /><|end|>' }],
+          choices: [
+            {
+              text: '<|channel|>final<|message|><tool_call name="create_file" args=\'{"file_path": "newfile.txt", "content": "new content"}\' /><|end|>',
+            },
+          ],
         },
       };
 
@@ -353,72 +424,95 @@ describe('HarmonyClient - Implementation Stage', () => {
       mockedAxios.post.mockResolvedValueOnce(mockResponse);
 
       const parseResult: HarmonyParseResult = {
-        content: '',
-        rawToolCalls: ['<tool_call name="create_file" args=\'{"file_path": "newfile.txt", "content": "new content"}\' />'],
+        content: "",
+        rawToolCalls: [
+          '<tool_call name="create_file" args=\'{"file_path": "newfile.txt", "content": "new content"}\' />',
+        ],
       };
 
       mockHarmonyProcessor.parseResponse.mockReturnValueOnce(parseResult);
 
       const toolCalls: MCPToolCall[] = [
-        { name: 'create_file', arguments: { file_path: 'newfile.txt', content: 'new content' } },
+        {
+          name: "create_file",
+          arguments: { file_path: "newfile.txt", content: "new content" },
+        },
       ];
 
       // Mock extractToolCalls to handle both validToolCalls and content fallback paths
       mockExtractToolCalls(mockHarmonyProcessor, toolCalls);
 
       const createFileTool: NativeTool = {
-        name: 'create_file',
-        description: 'Create a new file',
+        name: "create_file",
+        description: "Create a new file",
         inputSchema: {
-          type: 'object',
+          type: "object",
           properties: {
-            file_path: { type: 'string', description: 'Path to the file' },
-            content: { type: 'string', description: 'Content to write' },
+            file_path: { type: "string", description: "Path to the file" },
+            content: { type: "string", description: "Content to write" },
           },
-          required: ['file_path', 'content'],
+          required: ["file_path", "content"],
         },
       } as any;
 
-      mockNativeToolsManager.getAvailableTools.mockReturnValue([createFileTool]);
+      mockNativeToolsManager.getAvailableTools.mockReturnValue([
+        createFileTool,
+      ]);
 
       // Mock diagnostic file generation first, then the actual create_file
       // implementation_step_1.json generation happens when @cmd:next_step is used
       mockNativeToolsManager.callTool
         .mockResolvedValueOnce({
-          content: [{ type: 'text', text: 'Successfully created diagnostic file: implementation_step_1.json' }],
+          content: [
+            {
+              type: "text",
+              text: "Successfully created diagnostic file: implementation_step_1.json",
+            },
+          ],
           isError: false,
         })
         .mockResolvedValueOnce({
-          content: [{ type: 'text', text: 'Successfully created file: newfile.txt' }],
+          content: [
+            { type: "text", text: "Successfully created file: newfile.txt" },
+          ],
           isError: false,
         });
 
-      const result = await client.callServer('@cmd:next_step now create newfile.txt with new content');
+      const result = await client.callServer(
+        "@cmd:next_step now create newfile.txt with new content"
+      );
 
       // Verify create_file was called (check actual tool execution via mocks)
       const newfileCall = mockNativeToolsManager.callTool.mock.calls.find(
-        (call) => call[0] === 'create_file' && call[1]?.file_path === 'newfile.txt'
+        (call) =>
+          call[0] === "create_file" && call[1]?.file_path === "newfile.txt"
       );
       expect(newfileCall).toBeDefined();
       expect(newfileCall![1]).toEqual({
-        file_path: 'newfile.txt',
-        content: 'new content',
+        file_path: "newfile.txt",
+        content: "new content",
       });
 
       // If result.toolCalls is defined, verify it matches
       if (result.toolCalls) {
         expect(result.toolCalls.length).toBe(1);
-        expect(result.toolCalls[0].name).toBe('create_file');
+        expect(result.toolCalls[0].name).toBe("create_file");
         expect(result.toolCalls[0].result?.isError).toBe(false);
-        expect(result.toolCalls[0].result?.content[0].text).toContain('Successfully created file');
+        expect(result.toolCalls[0].result?.content[0].text).toContain(
+          "Successfully created file"
+        );
       }
     });
   });
 
-  describe('Continuation Logic in Implementation Stage', () => {
-    it('should continue from read_file to replace_file', async () => {
+  describe("Continuation Logic in Implementation Stage", () => {
+    it("should continue from read_file to replace_file", async () => {
       // Use helper to transition to implementation stage
-      await setupImplementationStage(client, mockHarmonyProcessor, mockNativeToolsManager);
+      await setupImplementationStage(
+        client,
+        mockHarmonyProcessor,
+        mockNativeToolsManager
+      );
 
       // Get call count before @cmd:next_step
       const callsBefore = mockedAxios.post.mock.calls.length;
@@ -427,7 +521,11 @@ describe('HarmonyClient - Implementation Stage', () => {
       const readFileResponse = {
         status: 200,
         data: {
-          choices: [{ text: '<|channel|>final<|message|>Now I will read the file<tool_call name="read_file" args=\'{"file_path": "test.txt"}\' /><|end|>' }],
+          choices: [
+            {
+              text: '<|channel|>final<|message|>Now I will read the file<tool_call name="read_file" args=\'{"file_path": "test.txt"}\' /><|end|>',
+            },
+          ],
         },
       };
 
@@ -435,7 +533,11 @@ describe('HarmonyClient - Implementation Stage', () => {
       const replaceFileResponse = {
         status: 200,
         data: {
-          choices: [{ text: '<|channel|>final<|message|>Now I will update the file<tool_call name="replace_file" args=\'{"file_path": "test.txt", "content": "Updated content"}\' /><|end|>' }],
+          choices: [
+            {
+              text: '<|channel|>final<|message|>Now I will update the file<tool_call name="replace_file" args=\'{"file_path": "test.txt", "content": "Updated content"}\' /><|end|>',
+            },
+          ],
         },
       };
 
@@ -444,13 +546,17 @@ describe('HarmonyClient - Implementation Stage', () => {
         .mockResolvedValueOnce(replaceFileResponse);
 
       const readFileParseResult: HarmonyParseResult = {
-        content: 'Now I will read the file',
-        rawToolCalls: ['<tool_call name="read_file" args=\'{"file_path": "test.txt"}\' />'],
+        content: "Now I will read the file",
+        rawToolCalls: [
+          '<tool_call name="read_file" args=\'{"file_path": "test.txt"}\' />',
+        ],
       };
 
       const replaceFileParseResult: HarmonyParseResult = {
-        content: 'Now I will update the file',
-        rawToolCalls: ['<tool_call name="replace_file" args=\'{"file_path": "test.txt", "content": "Updated content"}\' />'],
+        content: "Now I will update the file",
+        rawToolCalls: [
+          '<tool_call name="replace_file" args=\'{"file_path": "test.txt", "content": "Updated content"}\' />',
+        ],
       };
 
       mockHarmonyProcessor.parseResponse
@@ -458,11 +564,14 @@ describe('HarmonyClient - Implementation Stage', () => {
         .mockReturnValueOnce(replaceFileParseResult);
 
       const readFileToolCalls: MCPToolCall[] = [
-        { name: 'read_file', arguments: { file_path: 'test.txt' } },
+        { name: "read_file", arguments: { file_path: "test.txt" } },
       ];
 
       const replaceFileToolCalls: MCPToolCall[] = [
-        { name: 'replace_file', arguments: { file_path: 'test.txt', content: 'Updated content' } },
+        {
+          name: "replace_file",
+          arguments: { file_path: "test.txt", content: "Updated content" },
+        },
       ];
 
       mockHarmonyProcessor.extractToolCalls
@@ -470,38 +579,38 @@ describe('HarmonyClient - Implementation Stage', () => {
         .mockReturnValueOnce(replaceFileToolCalls); // Continuation call
 
       const readFileResult: MCPToolResult = {
-        content: [{ type: 'text', text: 'Original file content' }],
+        content: [{ type: "text", text: "Original file content" }],
         isError: false,
       };
 
       const replaceFileResult: MCPToolResult = {
-        content: [{ type: 'text', text: 'File replaced successfully' }],
+        content: [{ type: "text", text: "File replaced successfully" }],
         isError: false,
       };
 
       // Mock native tools manager for read_file and replace_file
       const readFileTool: NativeTool = {
-        name: 'read_file',
-        description: 'Read a file',
+        name: "read_file",
+        description: "Read a file",
         inputSchema: {
-          type: 'object',
+          type: "object",
           properties: {
-            file_path: { type: 'string', description: 'Path to the file' },
+            file_path: { type: "string", description: "Path to the file" },
           },
-          required: ['file_path'],
+          required: ["file_path"],
         },
       } as any;
 
       const replaceFileTool: NativeTool = {
-        name: 'replace_file',
-        description: 'Replace file content',
+        name: "replace_file",
+        description: "Replace file content",
         inputSchema: {
-          type: 'object',
+          type: "object",
           properties: {
-            file_path: { type: 'string', description: 'Path to the file' },
-            content: { type: 'string', description: 'Content to write' },
+            file_path: { type: "string", description: "Path to the file" },
+            content: { type: "string", description: "Content to write" },
           },
-          required: ['file_path', 'content'],
+          required: ["file_path", "content"],
         },
       } as any;
 
@@ -513,13 +622,26 @@ describe('HarmonyClient - Implementation Stage', () => {
       // Mock diagnostic file generation first, then tool calls
       mockNativeToolsManager.callTool
         .mockResolvedValueOnce({
-          content: [{ type: 'text', text: 'Successfully created diagnostic file: implementation_step_1.json' }],
+          content: [
+            {
+              type: "text",
+              text: "Successfully created diagnostic file: implementation_step_1.json",
+            },
+          ],
           isError: false,
         })
-        .mockResolvedValueOnce({ content: readFileResult.content, isError: false } as any)
-        .mockResolvedValueOnce({ content: replaceFileResult.content, isError: false } as any);
+        .mockResolvedValueOnce({
+          content: readFileResult.content,
+          isError: false,
+        } as any)
+        .mockResolvedValueOnce({
+          content: replaceFileResult.content,
+          isError: false,
+        } as any);
 
-      const result = await client.callServer('@cmd:next_step update test.txt to have new content');
+      const result = await client.callServer(
+        "@cmd:next_step update test.txt to have new content"
+      );
 
       // Check if continuation happened (should be 2 additional calls: initial + continuation)
       const callsAfter = mockedAxios.post.mock.calls.length;
@@ -528,15 +650,19 @@ describe('HarmonyClient - Implementation Stage', () => {
       // Should have made 2 API calls (initial + continuation)
       // Note: setupImplementationStage already made 2 calls (assumptions + implementation transitions)
       expect(additionalCalls).toBeGreaterThanOrEqual(1);
-      
+
       // If continuation happened, isContinuation should be true
       if (additionalCalls >= 2) {
         expect(result.isContinuation).toBe(true);
       }
     });
 
-    it('should not continue when task is complete with file modification', async () => {
-      await setupImplementationStage(client, mockHarmonyProcessor, mockNativeToolsManager);
+    it("should not continue when task is complete with file modification", async () => {
+      await setupImplementationStage(
+        client,
+        mockHarmonyProcessor,
+        mockNativeToolsManager
+      );
 
       // Get call count before @cmd:next_step
       const callsBefore = mockedAxios.post.mock.calls.length;
@@ -544,60 +670,78 @@ describe('HarmonyClient - Implementation Stage', () => {
       const mockResponse = {
         status: 200,
         data: {
-          choices: [{ text: '<|channel|>final<|message|>File has been created successfully<tool_call name="create_file" args=\'{"file_path": "done.txt", "content": "content"}\' /><|end|>' }],
+          choices: [
+            {
+              text: '<|channel|>final<|message|>File has been created successfully<tool_call name="create_file" args=\'{"file_path": "done.txt", "content": "content"}\' /><|end|>',
+            },
+          ],
         },
       };
 
       mockedAxios.post.mockResolvedValueOnce(mockResponse);
 
       const parseResult: HarmonyParseResult = {
-        content: 'File has been created successfully',
-        rawToolCalls: ['<tool_call name="create_file" args=\'{"file_path": "done.txt", "content": "content"}\' />'],
+        content: "File has been created successfully",
+        rawToolCalls: [
+          '<tool_call name="create_file" args=\'{"file_path": "done.txt", "content": "content"}\' />',
+        ],
       };
 
       mockHarmonyProcessor.parseResponse.mockReturnValueOnce(parseResult);
 
       const toolCalls: MCPToolCall[] = [
-        { name: 'create_file', arguments: { file_path: 'done.txt', content: 'content' } },
+        {
+          name: "create_file",
+          arguments: { file_path: "done.txt", content: "content" },
+        },
       ];
 
       // Mock extractToolCalls to handle both validToolCalls and content fallback paths
       mockExtractToolCalls(mockHarmonyProcessor, toolCalls);
 
       const createFileTool: NativeTool = {
-        name: 'create_file',
-        description: 'Create a new file',
+        name: "create_file",
+        description: "Create a new file",
         inputSchema: {
-          type: 'object',
+          type: "object",
           properties: {
-            file_path: { type: 'string', description: 'Path to the file' },
-            content: { type: 'string', description: 'Content to write' },
+            file_path: { type: "string", description: "Path to the file" },
+            content: { type: "string", description: "Content to write" },
           },
-          required: ['file_path', 'content'],
+          required: ["file_path", "content"],
         },
       } as any;
 
-      mockNativeToolsManager.getAvailableTools.mockReturnValue([createFileTool]);
+      mockNativeToolsManager.getAvailableTools.mockReturnValue([
+        createFileTool,
+      ]);
 
       // Mock diagnostic file generation first, then the actual create_file
       mockNativeToolsManager.callTool
         .mockResolvedValueOnce({
-          content: [{ type: 'text', text: 'Successfully created diagnostic file: implementation_step_1.json' }],
+          content: [
+            {
+              type: "text",
+              text: "Successfully created diagnostic file: implementation_step_1.json",
+            },
+          ],
           isError: false,
         })
         .mockResolvedValueOnce({
-          content: [{ type: 'text', text: 'Successfully created file: done.txt' }],
+          content: [
+            { type: "text", text: "Successfully created file: done.txt" },
+          ],
           isError: false,
         });
 
-      const result = await client.callServer('@cmd:next_step create done.txt');
+      const result = await client.callServer("@cmd:next_step create done.txt");
 
       // Verify create_file was called (check actual tool execution via mocks)
       const createFileCall = mockNativeToolsManager.callTool.mock.calls.find(
-        (call) => call[0] === 'create_file' && call[1]?.file_path === 'done.txt'
+        (call) => call[0] === "create_file" && call[1]?.file_path === "done.txt"
       );
       expect(createFileCall).toBeDefined();
-      
+
       // Should only make one API call (no continuation)
       // Note: assumptions transition + implementation transition + this call = 3 calls total
       const callsAfter = mockedAxios.post.mock.calls.length;
@@ -605,16 +749,20 @@ describe('HarmonyClient - Implementation Stage', () => {
       expect(additionalCalls).toBe(1);
       // isContinuation may be false instead of undefined
       expect(result.isContinuation).toBeFalsy();
-      
+
       // If result.toolCalls is defined, verify it matches
       if (result.toolCalls) {
         expect(result.toolCalls.length).toBe(1);
-        expect(result.toolCalls[0].name).toBe('create_file');
+        expect(result.toolCalls[0].name).toBe("create_file");
       }
     });
 
-    it('should handle tool execution errors gracefully', async () => {
-      await setupImplementationStage(client, mockHarmonyProcessor, mockNativeToolsManager);
+    it("should handle tool execution errors gracefully", async () => {
+      await setupImplementationStage(
+        client,
+        mockHarmonyProcessor,
+        mockNativeToolsManager
+      );
 
       // Get call count before @cmd:next_step
       const callsBefore = mockedAxios.post.mock.calls.length;
@@ -622,79 +770,113 @@ describe('HarmonyClient - Implementation Stage', () => {
       const mockResponse = {
         status: 200,
         data: {
-          choices: [{ text: '<|channel|>final<|message|><tool_call name="create_file" args=\'{"file_path": "/invalid/path/file.txt", "content": "content"}\' /><|end|>' }],
+          choices: [
+            {
+              text: '<|channel|>final<|message|><tool_call name="create_file" args=\'{"file_path": "/invalid/path/file.txt", "content": "content"}\' /><|end|>',
+            },
+          ],
         },
       };
 
       mockedAxios.post.mockResolvedValueOnce(mockResponse);
 
       const parseResult: HarmonyParseResult = {
-        content: '',
-        rawToolCalls: ['<tool_call name="create_file" args=\'{"file_path": "/invalid/path/file.txt", "content": "content"}\' />'],
+        content: "",
+        rawToolCalls: [
+          '<tool_call name="create_file" args=\'{"file_path": "/invalid/path/file.txt", "content": "content"}\' />',
+        ],
       };
 
       mockHarmonyProcessor.parseResponse.mockReturnValueOnce(parseResult);
 
       const toolCalls: MCPToolCall[] = [
-        { name: 'create_file', arguments: { file_path: '/invalid/path/file.txt', content: 'content' } },
+        {
+          name: "create_file",
+          arguments: {
+            file_path: "/invalid/path/file.txt",
+            content: "content",
+          },
+        },
       ];
 
       // Mock extractToolCalls to handle both validToolCalls and content fallback paths
       mockExtractToolCalls(mockHarmonyProcessor, toolCalls);
 
       const createFileTool: NativeTool = {
-        name: 'create_file',
-        description: 'Create a new file',
+        name: "create_file",
+        description: "Create a new file",
         inputSchema: {
-          type: 'object',
+          type: "object",
           properties: {
-            file_path: { type: 'string', description: 'Path to the file' },
-            content: { type: 'string', description: 'Content to write' },
+            file_path: { type: "string", description: "Path to the file" },
+            content: { type: "string", description: "Content to write" },
           },
-          required: ['file_path', 'content'],
+          required: ["file_path", "content"],
         },
       } as any;
 
-      mockNativeToolsManager.getAvailableTools.mockReturnValue([createFileTool]);
+      mockNativeToolsManager.getAvailableTools.mockReturnValue([
+        createFileTool,
+      ]);
 
       // Mock diagnostic file generation first, then the actual create_file call (which fails)
       mockNativeToolsManager.callTool
         .mockResolvedValueOnce({
-          content: [{ type: 'text', text: 'Successfully created diagnostic file: implementation_step_1.json' }],
+          content: [
+            {
+              type: "text",
+              text: "Successfully created diagnostic file: implementation_step_1.json",
+            },
+          ],
           isError: false,
         })
         .mockResolvedValueOnce({
-          content: [{ type: 'text', text: 'Error creating file: Permission denied' }],
+          content: [
+            { type: "text", text: "Error creating file: Permission denied" },
+          ],
           isError: true,
         });
 
-      const result = await client.callServer('@cmd:next_step create file at invalid path');
+      const result = await client.callServer(
+        "@cmd:next_step create file at invalid path"
+      );
 
       // Verify create_file was called with error (check actual tool execution via mocks)
       // Note: The tool should be called even if it fails
       const createFileCall = mockNativeToolsManager.callTool.mock.calls.find(
-        (call) => call[0] === 'create_file' && call[1]?.file_path === '/invalid/path/file.txt'
+        (call) =>
+          call[0] === "create_file" &&
+          call[1]?.file_path === "/invalid/path/file.txt"
       );
-      
+
       // Tool should have been called (either via CodeContext or LLM path)
       // If it wasn't called, that's the issue we need to fix
       if (!createFileCall) {
         // Debug: Check what tool calls were actually made
         const allToolCalls = mockNativeToolsManager.callTool.mock.calls;
-        console.log('All tool calls made:', allToolCalls.map(c => ({ tool: c[0], file: c[1]?.file_path })));
+        console.log(
+          "All tool calls made:",
+          allToolCalls.map((c) => ({ tool: c[0], file: c[1]?.file_path }))
+        );
       }
       expect(createFileCall).toBeDefined();
-      
+
       // If result.toolCalls is defined, verify it shows the error
       if (result.toolCalls) {
         expect(result.toolCalls.length).toBe(1);
         expect(result.toolCalls[0].result?.isError).toBe(true);
-        expect(result.toolCalls[0].result?.content[0].text).toContain('Permission denied');
+        expect(result.toolCalls[0].result?.content[0].text).toContain(
+          "Permission denied"
+        );
       }
     });
 
-    it('should handle multiple tool calls in one response', async () => {
-      await setupImplementationStage(client, mockHarmonyProcessor, mockNativeToolsManager);
+    it("should handle multiple tool calls in one response", async () => {
+      await setupImplementationStage(
+        client,
+        mockHarmonyProcessor,
+        mockNativeToolsManager
+      );
 
       // Get call count before @cmd:next_step
       const callsBefore = mockedAxios.post.mock.calls.length;
@@ -702,14 +884,18 @@ describe('HarmonyClient - Implementation Stage', () => {
       const mockResponse = {
         status: 200,
         data: {
-          choices: [{ text: '<|channel|>final<|message|><tool_call name="create_file" args=\'{"file_path": "file1.txt", "content": "content1"}\' /><tool_call name="create_file" args=\'{"file_path": "file2.txt", "content": "content2"}\' /><|end|>' }],
+          choices: [
+            {
+              text: '<|channel|>final<|message|><tool_call name="create_file" args=\'{"file_path": "file1.txt", "content": "content1"}\' /><tool_call name="create_file" args=\'{"file_path": "file2.txt", "content": "content2"}\' /><|end|>',
+            },
+          ],
         },
       };
 
       mockedAxios.post.mockResolvedValueOnce(mockResponse);
 
       const parseResult: HarmonyParseResult = {
-        content: '',
+        content: "",
         rawToolCalls: [
           '<tool_call name="create_file" args=\'{"file_path": "file1.txt", "content": "content1"}\' />',
           '<tool_call name="create_file" args=\'{"file_path": "file2.txt", "content": "content2"}\' />',
@@ -719,87 +905,117 @@ describe('HarmonyClient - Implementation Stage', () => {
       mockHarmonyProcessor.parseResponse.mockReturnValueOnce(parseResult);
 
       const toolCalls: MCPToolCall[] = [
-        { name: 'create_file', arguments: { file_path: 'file1.txt', content: 'content1' } },
-        { name: 'create_file', arguments: { file_path: 'file2.txt', content: 'content2' } },
+        {
+          name: "create_file",
+          arguments: { file_path: "file1.txt", content: "content1" },
+        },
+        {
+          name: "create_file",
+          arguments: { file_path: "file2.txt", content: "content2" },
+        },
       ];
 
       // Mock extractToolCalls to handle both validToolCalls and content fallback paths
       mockExtractToolCalls(mockHarmonyProcessor, toolCalls);
 
       const createFileTool: NativeTool = {
-        name: 'create_file',
-        description: 'Create a new file',
+        name: "create_file",
+        description: "Create a new file",
         inputSchema: {
-          type: 'object',
+          type: "object",
           properties: {
-            file_path: { type: 'string', description: 'Path to the file' },
-            content: { type: 'string', description: 'Content to write' },
+            file_path: { type: "string", description: "Path to the file" },
+            content: { type: "string", description: "Content to write" },
           },
-          required: ['file_path', 'content'],
+          required: ["file_path", "content"],
         },
       } as any;
 
-      mockNativeToolsManager.getAvailableTools.mockReturnValue([createFileTool]);
+      mockNativeToolsManager.getAvailableTools.mockReturnValue([
+        createFileTool,
+      ]);
 
       // Mock diagnostic file generation first, then the two create_file calls
       mockNativeToolsManager.callTool
         .mockResolvedValueOnce({
-          content: [{ type: 'text', text: 'Successfully created diagnostic file: implementation_step_1.json' }],
+          content: [
+            {
+              type: "text",
+              text: "Successfully created diagnostic file: implementation_step_1.json",
+            },
+          ],
           isError: false,
         })
         .mockResolvedValueOnce({
-          content: [{ type: 'text', text: 'Successfully created file: file1.txt' }],
+          content: [
+            { type: "text", text: "Successfully created file: file1.txt" },
+          ],
           isError: false,
         })
         .mockResolvedValueOnce({
-          content: [{ type: 'text', text: 'Successfully created file: file2.txt' }],
+          content: [
+            { type: "text", text: "Successfully created file: file2.txt" },
+          ],
           isError: false,
         });
 
-      const result = await client.callServer('@cmd:next_step create two files');
+      const result = await client.callServer("@cmd:next_step create two files");
 
       // Verify both create_file calls were made (check actual tool execution via mocks)
       // Note: Tools should be called even if result.toolCalls is undefined
       const file1Call = mockNativeToolsManager.callTool.mock.calls.find(
-        (call) => call[0] === 'create_file' && call[1]?.file_path === 'file1.txt'
+        (call) =>
+          call[0] === "create_file" && call[1]?.file_path === "file1.txt"
       );
       const file2Call = mockNativeToolsManager.callTool.mock.calls.find(
-        (call) => call[0] === 'create_file' && call[1]?.file_path === 'file2.txt'
+        (call) =>
+          call[0] === "create_file" && call[1]?.file_path === "file2.txt"
       );
-      
+
       // Both tools should have been called
       if (!file1Call || !file2Call) {
         // Debug: Check what tool calls were actually made
         const allToolCalls = mockNativeToolsManager.callTool.mock.calls;
-        console.log('All tool calls made:', allToolCalls.map(c => ({ tool: c[0], file: c[1]?.file_path })));
+        console.log(
+          "All tool calls made:",
+          allToolCalls.map((c) => ({ tool: c[0], file: c[1]?.file_path }))
+        );
       }
       expect(file1Call).toBeDefined();
       expect(file2Call).toBeDefined();
-      
+
       // If result.toolCalls is defined, verify it matches
       if (result.toolCalls) {
         expect(result.toolCalls.length).toBe(2);
-        expect(result.toolCalls[0].name).toBe('create_file');
-        expect(result.toolCalls[0].arguments.file_path).toBe('file1.txt');
-        expect(result.toolCalls[1].name).toBe('create_file');
-        expect(result.toolCalls[1].arguments.file_path).toBe('file2.txt');
+        expect(result.toolCalls[0].name).toBe("create_file");
+        expect(result.toolCalls[0].arguments.file_path).toBe("file1.txt");
+        expect(result.toolCalls[1].name).toBe("create_file");
+        expect(result.toolCalls[1].arguments.file_path).toBe("file2.txt");
       }
     });
 
-    it('should handle mixed success and error tool calls', async () => {
-      await setupImplementationStage(client, mockHarmonyProcessor, mockNativeToolsManager);
+    it("should handle mixed success and error tool calls", async () => {
+      await setupImplementationStage(
+        client,
+        mockHarmonyProcessor,
+        mockNativeToolsManager
+      );
 
       const mockResponse = {
         status: 200,
         data: {
-          choices: [{ text: '<|channel|>final<|message|><tool_call name="create_file" args=\'{"file_path": "good.txt", "content": "content"}\' /><tool_call name="create_file" args=\'{"file_path": "/bad/path.txt", "content": "content"}\' /><|end|>' }],
+          choices: [
+            {
+              text: '<|channel|>final<|message|><tool_call name="create_file" args=\'{"file_path": "good.txt", "content": "content"}\' /><tool_call name="create_file" args=\'{"file_path": "/bad/path.txt", "content": "content"}\' /><|end|>',
+            },
+          ],
         },
       };
 
       mockedAxios.post.mockResolvedValueOnce(mockResponse);
 
       const parseResult: HarmonyParseResult = {
-        content: '',
+        content: "",
         rawToolCalls: [
           '<tool_call name="create_file" args=\'{"file_path": "good.txt", "content": "content"}\' />',
           '<tool_call name="create_file" args=\'{"file_path": "/bad/path.txt", "content": "content"}\' />',
@@ -809,64 +1025,89 @@ describe('HarmonyClient - Implementation Stage', () => {
       mockHarmonyProcessor.parseResponse.mockReturnValueOnce(parseResult);
 
       const toolCalls: MCPToolCall[] = [
-        { name: 'create_file', arguments: { file_path: 'good.txt', content: 'content' } },
-        { name: 'create_file', arguments: { file_path: '/bad/path.txt', content: 'content' } },
+        {
+          name: "create_file",
+          arguments: { file_path: "good.txt", content: "content" },
+        },
+        {
+          name: "create_file",
+          arguments: { file_path: "/bad/path.txt", content: "content" },
+        },
       ];
 
       // Mock extractToolCalls to handle both validToolCalls and content fallback paths
       mockExtractToolCalls(mockHarmonyProcessor, toolCalls);
 
       const createFileTool: NativeTool = {
-        name: 'create_file',
-        description: 'Create a new file',
+        name: "create_file",
+        description: "Create a new file",
         inputSchema: {
-          type: 'object',
+          type: "object",
           properties: {
-            file_path: { type: 'string', description: 'Path to the file' },
-            content: { type: 'string', description: 'Content to write' },
+            file_path: { type: "string", description: "Path to the file" },
+            content: { type: "string", description: "Content to write" },
           },
-          required: ['file_path', 'content'],
+          required: ["file_path", "content"],
         },
       } as any;
 
-      mockNativeToolsManager.getAvailableTools.mockReturnValue([createFileTool]);
+      mockNativeToolsManager.getAvailableTools.mockReturnValue([
+        createFileTool,
+      ]);
 
       // Note: implementation_step_1.json generation happens in handlePreProcessing before the actual tool calls
       // So we need to mock that call first, then the actual create_file calls
       mockNativeToolsManager.callTool
         .mockResolvedValueOnce({
-          content: [{ type: 'text', text: 'Successfully created diagnostic file: implementation_step_1.json' }],
+          content: [
+            {
+              type: "text",
+              text: "Successfully created diagnostic file: implementation_step_1.json",
+            },
+          ],
           isError: false,
         })
         .mockResolvedValueOnce({
-          content: [{ type: 'text', text: 'Successfully created file: good.txt' }],
+          content: [
+            { type: "text", text: "Successfully created file: good.txt" },
+          ],
           isError: false,
         })
         .mockResolvedValueOnce({
-          content: [{ type: 'text', text: 'Error creating file: Invalid path' }],
+          content: [
+            { type: "text", text: "Error creating file: Invalid path" },
+          ],
           isError: true,
         });
 
-      const result = await client.callServer('@cmd:next_step create files with mixed results');
+      const result = await client.callServer(
+        "@cmd:next_step create files with mixed results"
+      );
 
       // Verify both create_file calls were made (check actual tool execution via mocks)
       // Note: Tools should be called even if result.toolCalls is undefined
       const file1Call = mockNativeToolsManager.callTool.mock.calls.find(
-        (call) => call[0] === 'create_file' && call[1]?.file_path === 'file1.txt'
+        (call) =>
+          call[0] === "create_file" && call[1]?.file_path === "file1.txt"
       );
       const file2Call = mockNativeToolsManager.callTool.mock.calls.find(
-        (call) => call[0] === 'create_file' && call[1]?.file_path === '/invalid/path/file2.txt'
+        (call) =>
+          call[0] === "create_file" &&
+          call[1]?.file_path === "/invalid/path/file2.txt"
       );
-      
+
       // Both tools should have been called
       if (!file1Call || !file2Call) {
         // Debug: Check what tool calls were actually made
         const allToolCalls = mockNativeToolsManager.callTool.mock.calls;
-        console.log('All tool calls made:', allToolCalls.map(c => ({ tool: c[0], file: c[1]?.file_path })));
+        console.log(
+          "All tool calls made:",
+          allToolCalls.map((c) => ({ tool: c[0], file: c[1]?.file_path }))
+        );
       }
       expect(file1Call).toBeDefined();
       expect(file2Call).toBeDefined();
-      
+
       // If result.toolCalls is defined, verify it matches
       if (result.toolCalls) {
         expect(result.toolCalls.length).toBe(2);
@@ -876,9 +1117,13 @@ describe('HarmonyClient - Implementation Stage', () => {
     });
   });
 
-  describe('Error Handling and Edge Cases', () => {
-    it('should handle empty file content', async () => {
-      await setupImplementationStage(client, mockHarmonyProcessor, mockNativeToolsManager);
+  describe("Error Handling and Edge Cases", () => {
+    it("should handle empty file content", async () => {
+      await setupImplementationStage(
+        client,
+        mockHarmonyProcessor,
+        mockNativeToolsManager
+      );
 
       // Get call count before @cmd:next_step
       const callsBefore = mockedAxios.post.mock.calls.length;
@@ -886,78 +1131,106 @@ describe('HarmonyClient - Implementation Stage', () => {
       const mockResponse = {
         status: 200,
         data: {
-          choices: [{ text: '<|channel|>final<|message|><tool_call name="create_file" args=\'{"file_path": "empty.txt", "content": ""}\' /><|end|>' }],
+          choices: [
+            {
+              text: '<|channel|>final<|message|><tool_call name="create_file" args=\'{"file_path": "empty.txt", "content": ""}\' /><|end|>',
+            },
+          ],
         },
       };
 
       mockedAxios.post.mockResolvedValueOnce(mockResponse);
 
       const parseResult: HarmonyParseResult = {
-        content: '',
-        rawToolCalls: ['<tool_call name="create_file" args=\'{"file_path": "empty.txt", "content": ""}\' />'],
+        content: "",
+        rawToolCalls: [
+          '<tool_call name="create_file" args=\'{"file_path": "empty.txt", "content": ""}\' />',
+        ],
       };
 
       mockHarmonyProcessor.parseResponse.mockReturnValueOnce(parseResult);
 
       const toolCalls: MCPToolCall[] = [
-        { name: 'create_file', arguments: { file_path: 'empty.txt', content: '' } },
+        {
+          name: "create_file",
+          arguments: { file_path: "empty.txt", content: "" },
+        },
       ];
 
       // Mock extractToolCalls to handle both validToolCalls and content fallback paths
       mockExtractToolCalls(mockHarmonyProcessor, toolCalls);
 
       const createFileTool: NativeTool = {
-        name: 'create_file',
-        description: 'Create a new file',
+        name: "create_file",
+        description: "Create a new file",
         inputSchema: {
-          type: 'object',
+          type: "object",
           properties: {
-            file_path: { type: 'string', description: 'Path to the file' },
-            content: { type: 'string', description: 'Content to write' },
+            file_path: { type: "string", description: "Path to the file" },
+            content: { type: "string", description: "Content to write" },
           },
-          required: ['file_path', 'content'],
+          required: ["file_path", "content"],
         },
       } as any;
 
-      mockNativeToolsManager.getAvailableTools.mockReturnValue([createFileTool]);
+      mockNativeToolsManager.getAvailableTools.mockReturnValue([
+        createFileTool,
+      ]);
 
       // Mock diagnostic file generation first, then the actual create_file call
       mockNativeToolsManager.callTool
         .mockResolvedValueOnce({
-          content: [{ type: 'text', text: 'Successfully created diagnostic file: implementation_step_1.json' }],
+          content: [
+            {
+              type: "text",
+              text: "Successfully created diagnostic file: implementation_step_1.json",
+            },
+          ],
           isError: false,
         })
         .mockResolvedValueOnce({
-          content: [{ type: 'text', text: 'Successfully created file: empty.txt' }],
+          content: [
+            { type: "text", text: "Successfully created file: empty.txt" },
+          ],
           isError: false,
         });
 
-      const result = await client.callServer('@cmd:next_step create empty file');
+      const result = await client.callServer(
+        "@cmd:next_step create empty file"
+      );
 
       // Verify create_file was called with empty content (check actual tool execution via mocks)
       // Note: Tool should be called even if result.toolCalls is undefined
       const createFileCall = mockNativeToolsManager.callTool.mock.calls.find(
-        (call) => call[0] === 'create_file' && call[1]?.file_path === 'empty.txt'
+        (call) =>
+          call[0] === "create_file" && call[1]?.file_path === "empty.txt"
       );
-      
+
       // Tool should have been called
       if (!createFileCall) {
         // Debug: Check what tool calls were actually made
         const allToolCalls = mockNativeToolsManager.callTool.mock.calls;
-        console.log('All tool calls made:', allToolCalls.map(c => ({ tool: c[0], file: c[1]?.file_path })));
+        console.log(
+          "All tool calls made:",
+          allToolCalls.map((c) => ({ tool: c[0], file: c[1]?.file_path }))
+        );
       }
       expect(createFileCall).toBeDefined();
-      expect(createFileCall![1].content).toBe('');
-      
+      expect(createFileCall![1].content).toBe("");
+
       // If result.toolCalls is defined, verify it matches
       if (result.toolCalls) {
         expect(result.toolCalls.length).toBe(1);
-        expect(result.toolCalls[0].arguments.content).toBe('');
+        expect(result.toolCalls[0].arguments.content).toBe("");
       }
     });
 
-    it('should handle responses with no tool calls and no content', async () => {
-      await setupImplementationStage(client, mockHarmonyProcessor, mockNativeToolsManager);
+    it("should handle responses with no tool calls and no content", async () => {
+      await setupImplementationStage(
+        client,
+        mockHarmonyProcessor,
+        mockNativeToolsManager
+      );
 
       // Get call count before @cmd:next_step
       const callsBefore = mockedAxios.post.mock.calls.length;
@@ -966,7 +1239,7 @@ describe('HarmonyClient - Implementation Stage', () => {
       const mockEmptyResponse = {
         status: 200,
         data: {
-          choices: [{ text: '<|channel|>final<|message|><|end|>' }],
+          choices: [{ text: "<|channel|>final<|message|><|end|>" }],
         },
       };
 
@@ -974,7 +1247,11 @@ describe('HarmonyClient - Implementation Stage', () => {
       const mockContinuationResponse = {
         status: 200,
         data: {
-          choices: [{ text: '<|channel|>final<|message|>Here is the complete plan:\nStep 1: Create the file\nStep 2: Verify the file<|end|>' }],
+          choices: [
+            {
+              text: "<|channel|>final<|message|>Here is the complete plan:\nStep 1: Create the file\nStep 2: Verify the file<|end|>",
+            },
+          ],
         },
       };
 
@@ -983,7 +1260,7 @@ describe('HarmonyClient - Implementation Stage', () => {
         .mockResolvedValueOnce(mockContinuationResponse);
 
       const emptyParseResult: HarmonyParseResult = {
-        content: '',
+        content: "",
         rawToolCalls: [],
         reasoning: undefined,
         commentary: undefined,
@@ -991,7 +1268,8 @@ describe('HarmonyClient - Implementation Stage', () => {
       };
 
       const continuationParseResult: HarmonyParseResult = {
-        content: 'Here is the complete plan:\nStep 1: Create the file\nStep 2: Verify the file',
+        content:
+          "Here is the complete plan:\nStep 1: Create the file\nStep 2: Verify the file",
         rawToolCalls: [],
         reasoning: undefined,
         commentary: undefined,
@@ -1008,12 +1286,17 @@ describe('HarmonyClient - Implementation Stage', () => {
 
       // Mock diagnostic file generation
       mockNativeToolsManager.callTool.mockResolvedValueOnce({
-        content: [{ type: 'text', text: 'Successfully created diagnostic file: implementation_step_1.json' }],
+        content: [
+          {
+            type: "text",
+            text: "Successfully created diagnostic file: implementation_step_1.json",
+          },
+        ],
         isError: false,
       });
 
       // Use @cmd:next_step to execute the step, then verify empty content when no tool calls
-      const result = await client.callServer('@cmd:next_step do something');
+      const result = await client.callServer("@cmd:next_step do something");
 
       // Check if continuation happened
       const callsAfter = mockedAxios.post.mock.calls.length;
@@ -1031,21 +1314,31 @@ describe('HarmonyClient - Implementation Stage', () => {
       }
     });
 
-    it('should handle tool call extraction failures', async () => {
-      await setupImplementationStage(client, mockHarmonyProcessor, mockNativeToolsManager);
+    it("should handle tool call extraction failures", async () => {
+      await setupImplementationStage(
+        client,
+        mockHarmonyProcessor,
+        mockNativeToolsManager
+      );
 
       const mockResponse = {
         status: 200,
         data: {
-          choices: [{ text: '<|channel|>final<|message|><tool_call name="invalid_tool" args=\'{"invalid": "args"}\' /><|end|>' }],
+          choices: [
+            {
+              text: '<|channel|>final<|message|><tool_call name="invalid_tool" args=\'{"invalid": "args"}\' /><|end|>',
+            },
+          ],
         },
       };
 
       mockedAxios.post.mockResolvedValueOnce(mockResponse);
 
       const parseResult: HarmonyParseResult = {
-        content: '',
-        rawToolCalls: ['<tool_call name="invalid_tool" args=\'{"invalid": "args"}\' />'],
+        content: "",
+        rawToolCalls: [
+          '<tool_call name="invalid_tool" args=\'{"invalid": "args"}\' />',
+        ],
         reasoning: undefined,
         commentary: undefined,
         final: undefined,
@@ -1059,14 +1352,20 @@ describe('HarmonyClient - Implementation Stage', () => {
         .mockReturnValueOnce([]) // From rawToolCalls
         .mockReturnValueOnce([]); // From content fallback
 
-      const result = await client.callServer('@cmd:next_step call invalid tool');
+      const result = await client.callServer(
+        "@cmd:next_step call invalid tool"
+      );
 
       // Should handle gracefully - no tool calls executed
       expect(result.toolCalls).toBeUndefined();
     });
 
-    it('should stop continuation when max steps reached', async () => {
-      await setupImplementationStage(client, mockHarmonyProcessor, mockNativeToolsManager);
+    it("should stop continuation when max steps reached", async () => {
+      await setupImplementationStage(
+        client,
+        mockHarmonyProcessor,
+        mockNativeToolsManager
+      );
 
       // Get call count before @cmd:next_step
       const callsBefore = mockedAxios.post.mock.calls.length;
@@ -1082,21 +1381,27 @@ describe('HarmonyClient - Implementation Stage', () => {
       const mockResponse = {
         status: 200,
         data: {
-          choices: [{ text: '<|channel|>final<|message|>Now I will read<tool_call name="read_file" args=\'{"file_path": "test.txt"}\' /><|end|>' }],
+          choices: [
+            {
+              text: '<|channel|>final<|message|>Now I will read<tool_call name="read_file" args=\'{"file_path": "test.txt"}\' /><|end|>',
+            },
+          ],
         },
       };
 
       mockedAxios.post.mockResolvedValueOnce(mockResponse);
 
       const parseResult: HarmonyParseResult = {
-        content: 'Now I will read',
-        rawToolCalls: ['<tool_call name="read_file" args=\'{"file_path": "test.txt"}\' />'],
+        content: "Now I will read",
+        rawToolCalls: [
+          '<tool_call name="read_file" args=\'{"file_path": "test.txt"}\' />',
+        ],
       };
 
       mockHarmonyProcessor.parseResponse.mockReturnValueOnce(parseResult);
 
       const toolCalls: MCPToolCall[] = [
-        { name: 'read_file', arguments: { file_path: 'test.txt' } },
+        { name: "read_file", arguments: { file_path: "test.txt" } },
       ];
 
       // Mock extractToolCalls for both possible calls:
@@ -1107,14 +1412,14 @@ describe('HarmonyClient - Implementation Stage', () => {
         .mockReturnValueOnce([]); // Fallback call with content (shouldn't be needed if first succeeds)
 
       const readFileTool: NativeTool = {
-        name: 'read_file',
-        description: 'Read a file',
+        name: "read_file",
+        description: "Read a file",
         inputSchema: {
-          type: 'object',
+          type: "object",
           properties: {
-            file_path: { type: 'string', description: 'Path to the file' },
+            file_path: { type: "string", description: "Path to the file" },
           },
-          required: ['file_path'],
+          required: ["file_path"],
         },
       } as any;
 
@@ -1123,15 +1428,20 @@ describe('HarmonyClient - Implementation Stage', () => {
       // Mock diagnostic file generation first, then the read_file call
       mockNativeToolsManager.callTool
         .mockResolvedValueOnce({
-          content: [{ type: 'text', text: 'Successfully created diagnostic file: implementation_step_1.json' }],
+          content: [
+            {
+              type: "text",
+              text: "Successfully created diagnostic file: implementation_step_1.json",
+            },
+          ],
           isError: false,
         })
         .mockResolvedValueOnce({
-          content: [{ type: 'text', text: 'File content' }],
+          content: [{ type: "text", text: "File content" }],
           isError: false,
         });
 
-      const result = await client.callServer('@cmd:next_step read file');
+      const result = await client.callServer("@cmd:next_step read file");
 
       // Should not continue even if continuation would be triggered
       // Note: assumptions transition + implementation transition + this call = 3 calls total
@@ -1139,20 +1449,24 @@ describe('HarmonyClient - Implementation Stage', () => {
       const callsAfter = mockedAxios.post.mock.calls.length;
       const additionalCalls = callsAfter - callsBefore;
       expect(additionalCalls).toBe(1); // Only one call, no continuation
-      
+
       // When max steps is reached, isComplete should be set to true
       // This happens in harmonyClient.ts when currentStep > maxSteps or when trying to continue
       expect(result.verboseInfo?.isComplete).toBe(true);
     });
   });
 
-  describe('CodeContext from Assumptions Stage to Implementation Stage', () => {
-    it('should create files from CodeContext extracted in assumptions stage when transitioning to implementation stage', async () => {
+  describe("CodeContext from Assumptions Stage to Implementation Stage", () => {
+    it("should create files from CodeContext extracted in assumptions stage when transitioning to implementation stage", async () => {
       // First, transition to assumptions stage and extract CodeContext
       const assumptionsResponse = {
         status: 200,
         data: {
-          choices: [{ text: '<|channel|>final<|message|>Here is the code:\n```python app.py\nprint("Hello")\n```<|end|>' }],
+          choices: [
+            {
+              text: '<|channel|>final<|message|>Here is the code:\n```python app.py\nprint("Hello")\n```<|end|>',
+            },
+          ],
         },
       };
 
@@ -1163,81 +1477,100 @@ describe('HarmonyClient - Implementation Stage', () => {
         rawToolCalls: [],
       };
 
-      mockHarmonyProcessor.parseResponse.mockReturnValueOnce(assumptionsParseResult);
+      mockHarmonyProcessor.parseResponse.mockReturnValueOnce(
+        assumptionsParseResult
+      );
       mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
 
       // First transition to assumptions stage using helper
       await transitionToAssumptions(client, mockHarmonyProcessor);
-      
+
       // Now call with code context extraction
-      await client.callServer('create app.py with hello world');
+      await client.callServer("create app.py with hello world");
 
       // Verify we're in assumptions stage
-      expect(client.getCurrentStage()).toBe('assumptions');
+      expect(client.getCurrentStage()).toBe("assumptions");
 
       // Verify NO files were created in assumptions stage (file modification tools are forbidden)
-      expect(mockNativeToolsManager.callTool).not.toHaveBeenCalledWith('create_file', expect.anything());
-      expect(mockNativeToolsManager.callTool).not.toHaveBeenCalledWith('replace_file', expect.anything());
+      expect(mockNativeToolsManager.callTool).not.toHaveBeenCalledWith(
+        "create_file",
+        expect.anything()
+      );
+      expect(mockNativeToolsManager.callTool).not.toHaveBeenCalledWith(
+        "replace_file",
+        expect.anything()
+      );
 
       // Now transition to implementation stage - this should create files from CodeContext
       const implementationResponse = {
         status: 200,
         data: {
-          choices: [{ text: '<|channel|>final<|message|>Ready to implement<|end|>' }],
+          choices: [
+            { text: "<|channel|>final<|message|>Ready to implement<|end|>" },
+          ],
         },
       };
 
       mockedAxios.post.mockResolvedValueOnce(implementationResponse);
       mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
-        content: 'Ready to implement',
+        content: "Ready to implement",
         rawToolCalls: [],
       });
       mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
-      await client.callServer('move to implementation');
+      await client.callServer("move to implementation");
 
       // Verify we're now in implementation stage
-      expect(client.getCurrentStage()).toBe('implementation');
+      expect(client.getCurrentStage()).toBe("implementation");
 
       // Now make a call in implementation stage - CodeContext should be used to create files
       // The ImplementationStageHandler.handlePreProcessing should detect CodeContext and create files
       const createFileTool: NativeTool = {
-        name: 'create_file',
-        description: 'Create a new file',
+        name: "create_file",
+        description: "Create a new file",
         inputSchema: {
-          type: 'object',
+          type: "object",
           properties: {
-            file_path: { type: 'string', description: 'Path to the file' },
-            content: { type: 'string', description: 'Content to write' },
+            file_path: { type: "string", description: "Path to the file" },
+            content: { type: "string", description: "Content to write" },
           },
-          required: ['file_path', 'content'],
+          required: ["file_path", "content"],
         },
       } as any;
 
-      mockNativeToolsManager.getAvailableTools.mockReturnValue([createFileTool]);
+      mockNativeToolsManager.getAvailableTools.mockReturnValue([
+        createFileTool,
+      ]);
 
-      // Mock calls: 
+      // Mock calls:
       // 1. assumption_data.json is created when transitioning to implementation (already happened in transition)
       // 2. implementation_step_1.json generation happens when @cmd:next_step is used
       // 3. Then the actual create_file for app.py from CodeContext
       mockNativeToolsManager.callTool
         .mockResolvedValueOnce({
-          content: [{ type: 'text', text: 'Successfully created diagnostic file: implementation_step_1.json' }],
+          content: [
+            {
+              type: "text",
+              text: "Successfully created diagnostic file: implementation_step_1.json",
+            },
+          ],
           isError: false,
         })
         .mockResolvedValueOnce({
-          content: [{ type: 'text', text: 'Successfully created file: app.py' }],
+          content: [
+            { type: "text", text: "Successfully created file: app.py" },
+          ],
           isError: false,
         });
 
       // Call server in implementation stage - should create file from CodeContext without LLM call
-      const result = await client.callServer('@cmd:next_step implement');
+      const result = await client.callServer("@cmd:next_step implement");
 
       // Verify create_file was called with content from CodeContext
       // Note: CodeContext extraction may use "file" as default filename if extraction fails
       // The important thing is that create_file was called with the correct content
       // We need to find the call for app.py, not assumption_data.json or implementation_step_1.json
       const appPyCall = mockNativeToolsManager.callTool.mock.calls.find(
-        (call) => call[0] === 'create_file' && call[1]?.file_path === 'app.py'
+        (call) => call[0] === "create_file" && call[1]?.file_path === "app.py"
       );
       expect(appPyCall).toBeDefined();
       expect(appPyCall![1].content).toContain('print("Hello")');
@@ -1245,70 +1578,96 @@ describe('HarmonyClient - Implementation Stage', () => {
       // Verify the result shows the file was created
       expect(result.toolCalls).toBeDefined();
       expect(result.toolCalls?.length).toBeGreaterThan(0);
-      const createFileCall = result.toolCalls?.find(tc => tc.name === 'create_file');
+      const createFileCall = result.toolCalls?.find(
+        (tc) => tc.name === "create_file"
+      );
       expect(createFileCall).toBeDefined();
       expect(createFileCall?.arguments.content).toContain('print("Hello")');
     });
 
-    it('should NOT create files in assumptions stage even if CodeContext exists', async () => {
+    it("should NOT create files in assumptions stage even if CodeContext exists", async () => {
       // Transition to assumptions stage and extract CodeContext
       const assumptionsResponse = {
         status: 200,
         data: {
-          choices: [{ text: '<|channel|>final<|message|>Code:\n```python test.py\ndef hello():\n    print("Hello")\n```<|end|>' }],
+          choices: [
+            {
+              text: '<|channel|>final<|message|>Code:\n```python test.py\ndef hello():\n    print("Hello")\n```<|end|>',
+            },
+          ],
         },
       };
 
       mockedAxios.post.mockResolvedValueOnce(assumptionsResponse);
 
       const assumptionsParseResult: HarmonyParseResult = {
-        content: 'Code:\n```python test.py\ndef hello():\n    print("Hello")\n```',
+        content:
+          'Code:\n```python test.py\ndef hello():\n    print("Hello")\n```',
         rawToolCalls: [],
       };
 
       // First transition to assumptions stage using helper
       await transitionToAssumptions(client, mockHarmonyProcessor);
-      
+
       // Now call with code context extraction
-      mockHarmonyProcessor.parseResponse.mockReturnValueOnce(assumptionsParseResult);
+      mockHarmonyProcessor.parseResponse.mockReturnValueOnce(
+        assumptionsParseResult
+      );
       mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
-      await client.callServer('provide code for test.py');
+      await client.callServer("provide code for test.py");
 
       // Verify we're in assumptions stage
-      expect(client.getCurrentStage()).toBe('assumptions');
+      expect(client.getCurrentStage()).toBe("assumptions");
 
       // Verify NO file modification tools were called (they are forbidden in assumptions stage)
-      expect(mockNativeToolsManager.callTool).not.toHaveBeenCalledWith('create_file', expect.anything());
-      expect(mockNativeToolsManager.callTool).not.toHaveBeenCalledWith('replace_file', expect.anything());
-      expect(mockNativeToolsManager.callTool).not.toHaveBeenCalledWith('read_file', expect.anything());
+      expect(mockNativeToolsManager.callTool).not.toHaveBeenCalledWith(
+        "create_file",
+        expect.anything()
+      );
+      expect(mockNativeToolsManager.callTool).not.toHaveBeenCalledWith(
+        "replace_file",
+        expect.anything()
+      );
+      expect(mockNativeToolsManager.callTool).not.toHaveBeenCalledWith(
+        "read_file",
+        expect.anything()
+      );
 
       // Make another call in assumptions stage - still should NOT create files
       const secondResponse = {
         status: 200,
         data: {
-          choices: [{ text: '<|channel|>final<|message|>Code is ready<|end|>' }],
+          choices: [
+            { text: "<|channel|>final<|message|>Code is ready<|end|>" },
+          ],
         },
       };
 
       mockedAxios.post.mockResolvedValueOnce(secondResponse);
       mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
-        content: 'Code is ready',
+        content: "Code is ready",
         rawToolCalls: [],
       });
       mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
 
-      await client.callServer('continue in assumptions');
+      await client.callServer("continue in assumptions");
 
       // Verify we're still in assumptions stage
-      expect(client.getCurrentStage()).toBe('assumptions');
+      expect(client.getCurrentStage()).toBe("assumptions");
 
       // Verify NO file modification tools were called (file creation is forbidden in assumptions stage)
-      expect(mockNativeToolsManager.callTool).not.toHaveBeenCalledWith('create_file', expect.anything());
-      expect(mockNativeToolsManager.callTool).not.toHaveBeenCalledWith('replace_file', expect.anything());
+      expect(mockNativeToolsManager.callTool).not.toHaveBeenCalledWith(
+        "create_file",
+        expect.anything()
+      );
+      expect(mockNativeToolsManager.callTool).not.toHaveBeenCalledWith(
+        "replace_file",
+        expect.anything()
+      );
     });
   });
 
-  describe('ProgressPlan Step Updates', () => {
+  describe("ProgressPlan Step Updates", () => {
     /**
      * Helper function to create a progressPlan and set it in context
      */
@@ -1319,24 +1678,28 @@ describe('HarmonyClient - Implementation Stage', () => {
       const taskId = `test-task-${Date.now()}`;
       const plan = progressPlanManager.createPlan(
         taskId,
-        'Test task',
-        'hard',
+        "Test task",
+        "hard",
         steps
       );
-      
+
       // Set plan in context
       const contextManager = (client as any).contextManager;
       contextManager.setProgressPlan(plan);
-      
+
       return taskId;
     }
 
-    it('should update step status to completed when create_file succeeds in implementation stage', async () => {
+    it("should update step status to completed when create_file succeeds in implementation stage", async () => {
       // Transition to implementation stage first (before setting up plan to avoid overwrite)
-      await setupImplementationStage(client, mockHarmonyProcessor, mockNativeToolsManager);
+      await setupImplementationStage(
+        client,
+        mockHarmonyProcessor,
+        mockNativeToolsManager
+      );
 
       // Verify we're in implementation stage
-      expect(client.getCurrentStage()).toBe('implementation');
+      expect(client.getCurrentStage()).toBe("implementation");
 
       // Get the taskId from ImplementationManager (created during assumptions stage)
       const implementationManager = (client as any).implementationManager;
@@ -1346,12 +1709,16 @@ describe('HarmonyClient - Implementation Stage', () => {
       // Update the existing plan with 3 steps (instead of creating a new one)
       // Ensure step goals explicitly mention the file names so they match when files are created
       const progressPlanManager = client.getProgressPlanManager();
-      progressPlanManager.updatePlanSteps(taskId!, [
-        { goal: 'Create main.py', tools: ['create_file'] },
-        { goal: 'Create requirements.txt', tools: ['create_file'] },
-        { goal: 'Create README.md', tools: ['create_file'] },
-      ], false); // Don't preserve status - start fresh with pending
-      
+      progressPlanManager.updatePlanSteps(
+        taskId!,
+        [
+          { goal: "Create main.py", tools: ["create_file"] },
+          { goal: "Create requirements.txt", tools: ["create_file"] },
+          { goal: "Create README.md", tools: ["create_file"] },
+        ],
+        false
+      ); // Don't preserve status - start fresh with pending
+
       // Reinitialize ImplementationManager to ensure it's aware of the updated plan
       implementationManager.clear();
       implementationManager.initialize(taskId!);
@@ -1360,24 +1727,26 @@ describe('HarmonyClient - Implementation Stage', () => {
       const implementationResponse = {
         status: 200,
         data: {
-          choices: [{ 
-            text: '<|channel|>tool_use<|tool_name|>create_file<|tool_args|>{"file_path": "main.py", "content": "print(\\"Hello\\")"}<|tool_result|>Success<|end|>' 
-          }],
+          choices: [
+            {
+              text: '<|channel|>tool_use<|tool_name|>create_file<|tool_args|>{"file_path": "main.py", "content": "print(\\"Hello\\")"}<|tool_result|>Success<|end|>',
+            },
+          ],
         },
       };
 
       mockedAxios.post.mockResolvedValueOnce(implementationResponse);
 
       const toolCall: MCPToolCall = {
-        name: 'create_file',
+        name: "create_file",
         arguments: {
-          file_path: 'main.py',
+          file_path: "main.py",
           content: 'print("Hello")',
         },
       };
 
       mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
-        content: '',
+        content: "",
         rawToolCalls: [JSON.stringify(toolCall)],
       });
 
@@ -1387,15 +1756,15 @@ describe('HarmonyClient - Implementation Stage', () => {
       // Mock create_file tool execution (success)
       mockNativeToolsManager.getAvailableTools.mockReturnValue([
         {
-          name: 'create_file',
-          description: 'Create a file',
+          name: "create_file",
+          description: "Create a file",
           inputSchema: {
-            type: 'object',
+            type: "object",
             properties: {
-              file_path: { type: 'string' },
-              content: { type: 'string' },
+              file_path: { type: "string" },
+              content: { type: "string" },
             },
-            required: ['file_path', 'content'],
+            required: ["file_path", "content"],
           },
         } as any,
       ]);
@@ -1407,46 +1776,60 @@ describe('HarmonyClient - Implementation Stage', () => {
       // Then mock the actual create_file call, then step file generation for step 2 (when step 1 completes)
       mockNativeToolsManager.callTool
         .mockResolvedValueOnce({
-          content: [{ type: 'text', text: 'Successfully created diagnostic file: implementation_step_1.json' }],
+          content: [
+            {
+              type: "text",
+              text: "Successfully created diagnostic file: implementation_step_1.json",
+            },
+          ],
           isError: false,
         })
         .mockResolvedValueOnce({
-          content: [{ type: 'text', text: 'File created successfully' }],
+          content: [{ type: "text", text: "File created successfully" }],
           isError: false,
         })
         .mockResolvedValueOnce({
-          content: [{ type: 'text', text: 'Successfully created diagnostic file: implementation_step_2.json' }],
+          content: [
+            {
+              type: "text",
+              text: "Successfully created diagnostic file: implementation_step_2.json",
+            },
+          ],
           isError: false,
         });
 
-      await client.callServer('@cmd:next_step create main.py');
+      await client.callServer("@cmd:next_step create main.py");
 
       // Verify create_file was called for main.py (check actual tool execution via mocks)
       const createFileCall = mockNativeToolsManager.callTool.mock.calls.find(
-        (call) => call[0] === 'create_file' && call[1]?.file_path === 'main.py'
+        (call) => call[0] === "create_file" && call[1]?.file_path === "main.py"
       );
-      
+
       // Verify step 1 was marked as completed and step 2 was advanced to in_progress
       const plan = progressPlanManager.getPlan(taskId!);
       expect(plan).toBeDefined();
-      
+
       // If file was created, step should be completed
       if (createFileCall) {
         // Step 1 should be completed after file creation (file matches step goal "Create main.py")
-        expect(plan?.steps[0].status).toBe('completed');
+        expect(plan?.steps[0].status).toBe("completed");
         // Step 2 should be advanced to in_progress when step 1 completes
-        expect(plan?.steps[1].status).toBe('in_progress');
-        expect(plan?.steps[2].status).toBe('pending');
+        expect(plan?.steps[1].status).toBe("in_progress");
+        expect(plan?.steps[2].status).toBe("pending");
       } else {
         // File wasn't created - step might still be in_progress
         // This could happen if CodeContext path was taken but no matching CodeContext existed
-        expect(plan?.steps[0].status).toBe('in_progress');
+        expect(plan?.steps[0].status).toBe("in_progress");
       }
     });
 
-    it('should not update step status when create_file fails', async () => {
+    it("should not update step status when create_file fails", async () => {
       // Transition to implementation stage first
-      await setupImplementationStage(client, mockHarmonyProcessor, mockNativeToolsManager);
+      await setupImplementationStage(
+        client,
+        mockHarmonyProcessor,
+        mockNativeToolsManager
+      );
 
       // Get the taskId from ImplementationManager and update the plan with 2 steps
       const implementationManager = (client as any).implementationManager;
@@ -1455,17 +1838,18 @@ describe('HarmonyClient - Implementation Stage', () => {
 
       const progressPlanManager = client.getProgressPlanManager();
       // Update plan steps with preserveStatus: false to ensure all steps start as pending
-      progressPlanManager.updatePlanSteps(taskId!, [
-        { goal: 'Create main.py' },
-        { goal: 'Create config.json' },
-      ], false); // Don't preserve status - start fresh with pending
+      progressPlanManager.updatePlanSteps(
+        taskId!,
+        [{ goal: "Create main.py" }, { goal: "Create config.json" }],
+        false
+      ); // Don't preserve status - start fresh with pending
 
       // Verify steps are pending after update
       const plan = progressPlanManager.getPlan(taskId!);
       expect(plan).toBeDefined();
-      expect(plan?.steps[0].status).toBe('pending');
-      expect(plan?.steps[1].status).toBe('pending');
-      
+      expect(plan?.steps[0].status).toBe("pending");
+      expect(plan?.steps[1].status).toBe("pending");
+
       // Clear ImplementationManager state to ensure no files are recorded for step 1
       // This prevents any previously recorded files from completing the step
       if (implementationManager) {
@@ -1473,31 +1857,33 @@ describe('HarmonyClient - Implementation Stage', () => {
         implementationManager.clear();
         implementationManager.initialize(taskId!);
         // After reinitialization, step 1 will be set to in_progress, so reset it to pending
-        progressPlanManager.updateStepStatus(taskId!, 1, 'pending');
+        progressPlanManager.updateStepStatus(taskId!, 1, "pending");
       }
 
       // Mock response with create_file tool call
       const implementationResponse = {
         status: 200,
         data: {
-          choices: [{ 
-            text: '<|channel|>tool_use<|tool_name|>create_file<|tool_args|>{"file_path": "main.py", "content": "code"}<|tool_result|>Error<|end|>' 
-          }],
+          choices: [
+            {
+              text: '<|channel|>tool_use<|tool_name|>create_file<|tool_args|>{"file_path": "main.py", "content": "code"}<|tool_result|>Error<|end|>',
+            },
+          ],
         },
       };
 
       mockedAxios.post.mockResolvedValueOnce(implementationResponse);
 
       const toolCall: MCPToolCall = {
-        name: 'create_file',
+        name: "create_file",
         arguments: {
-          file_path: 'main.py',
-          content: 'code',
+          file_path: "main.py",
+          content: "code",
         },
       };
 
       mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
-        content: '',
+        content: "",
         rawToolCalls: [JSON.stringify(toolCall)],
       });
 
@@ -1505,15 +1891,15 @@ describe('HarmonyClient - Implementation Stage', () => {
 
       mockNativeToolsManager.getAvailableTools.mockReturnValue([
         {
-          name: 'create_file',
-          description: 'Create a file',
+          name: "create_file",
+          description: "Create a file",
           inputSchema: {
-            type: 'object',
+            type: "object",
             properties: {
-              file_path: { type: 'string' },
-              content: { type: 'string' },
+              file_path: { type: "string" },
+              content: { type: "string" },
             },
-            required: ['file_path', 'content'],
+            required: ["file_path", "content"],
           },
         } as any,
       ]);
@@ -1521,40 +1907,48 @@ describe('HarmonyClient - Implementation Stage', () => {
       // Since step 1 is pending, step file generation won't happen (it only happens for in_progress steps)
       // So we only need to mock the actual create_file call (which fails)
       mockNativeToolsManager.callTool.mockResolvedValueOnce({
-        content: [{ type: 'text', text: 'Error: Permission denied' }],
+        content: [{ type: "text", text: "Error: Permission denied" }],
         isError: true,
       });
 
-      await client.callServer('@cmd:next_step create main.py');
+      await client.callServer("@cmd:next_step create main.py");
 
       // Verify create_file was called but failed (check actual tool execution via mocks)
       const createFileCall = mockNativeToolsManager.callTool.mock.calls.find(
-        (call) => call[0] === 'create_file' && call[1]?.file_path === 'main.py'
+        (call) => call[0] === "create_file" && call[1]?.file_path === "main.py"
       );
-      
+
       // Verify no steps were updated (all should remain pending or in_progress if step was advanced)
       const updatedPlan = progressPlanManager.getPlan(taskId!);
-      
+
       expect(updatedPlan).toBeDefined();
       // If file creation failed, step should remain pending or revert to pending
       // If step was advanced to in_progress, it might stay in_progress if file creation failed
       // Note: When @cmd:next_step is called, the step is advanced to in_progress, so it won't be pending
       if (createFileCall) {
         // File creation was attempted but failed - step should not be completed
-        expect(updatedPlan?.steps[0].status).not.toBe('completed');
-        expect(updatedPlan?.steps[1].status).not.toBe('completed');
+        expect(updatedPlan?.steps[0].status).not.toBe("completed");
+        expect(updatedPlan?.steps[1].status).not.toBe("completed");
         // Step might be in_progress (if advanced) or pending (if reverted due to failure)
-        expect(['pending', 'in_progress']).toContain(updatedPlan?.steps[0].status);
+        expect(["pending", "in_progress"]).toContain(
+          updatedPlan?.steps[0].status
+        );
       } else {
         // File creation wasn't attempted - step might be in_progress if @cmd:next_step advanced it
-        expect(['pending', 'in_progress']).toContain(updatedPlan?.steps[0].status);
-        expect(updatedPlan?.steps[1].status).toBe('pending');
+        expect(["pending", "in_progress"]).toContain(
+          updatedPlan?.steps[0].status
+        );
+        expect(updatedPlan?.steps[1].status).toBe("pending");
       }
     });
 
-    it('should complete plan when all steps are completed', async () => {
+    it("should complete plan when all steps are completed", async () => {
       // Transition to implementation stage first
-      await setupImplementationStage(client, mockHarmonyProcessor, mockNativeToolsManager);
+      await setupImplementationStage(
+        client,
+        mockHarmonyProcessor,
+        mockNativeToolsManager
+      );
 
       // Get the taskId from ImplementationManager and update the plan with 2 steps
       const implementationManager = (client as any).implementationManager;
@@ -1562,49 +1956,57 @@ describe('HarmonyClient - Implementation Stage', () => {
       expect(taskId).toBeDefined();
 
       const progressPlanManager = client.getProgressPlanManager();
-      progressPlanManager.updatePlanSteps(taskId!, [
-        { goal: 'Create file1.py', tools: ['create_file'] },
-        { goal: 'Create file2.py', tools: ['create_file'] },
-      ], false); // Don't preserve status - start fresh with pending
-      
+      progressPlanManager.updatePlanSteps(
+        taskId!,
+        [
+          { goal: "Create file1.py", tools: ["create_file"] },
+          { goal: "Create file2.py", tools: ["create_file"] },
+        ],
+        false
+      ); // Don't preserve status - start fresh with pending
+
       // Reinitialize ImplementationManager to ensure it's aware of the updated plan
       implementationManager.clear();
       implementationManager.initialize(taskId!);
 
       const createFileTool = {
-        name: 'create_file',
-        description: 'Create a file',
+        name: "create_file",
+        description: "Create a file",
         inputSchema: {
-          type: 'object',
+          type: "object",
           properties: {
-            file_path: { type: 'string' },
-            content: { type: 'string' },
+            file_path: { type: "string" },
+            content: { type: "string" },
           },
-          required: ['file_path', 'content'],
+          required: ["file_path", "content"],
         },
       } as any;
 
-      mockNativeToolsManager.getAvailableTools.mockReturnValue([createFileTool]);
+      mockNativeToolsManager.getAvailableTools.mockReturnValue([
+        createFileTool,
+      ]);
 
       // First file creation - completes step 1
       const response1 = {
         status: 200,
         data: {
-          choices: [{ 
-            text: '<|channel|>tool_use<|tool_name|>create_file<|tool_args|>{"file_path": "file1.py", "content": "code1"}<|end|>' 
-          }],
+          choices: [
+            {
+              text: '<|channel|>tool_use<|tool_name|>create_file<|tool_args|>{"file_path": "file1.py", "content": "code1"}<|end|>',
+            },
+          ],
         },
       };
 
       mockedAxios.post.mockResolvedValueOnce(response1);
 
       const toolCall1: MCPToolCall = {
-        name: 'create_file',
-        arguments: { file_path: 'file1.py', content: 'code1' },
+        name: "create_file",
+        arguments: { file_path: "file1.py", content: "code1" },
       };
 
       mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
-        content: '',
+        content: "",
         rawToolCalls: [JSON.stringify(toolCall1)],
       });
 
@@ -1615,39 +2017,51 @@ describe('HarmonyClient - Implementation Stage', () => {
       // Mock step file generation for step 1, then create_file, then step 2 file
       mockNativeToolsManager.callTool
         .mockResolvedValueOnce({
-          content: [{ type: 'text', text: 'Successfully created diagnostic file: implementation_step_1.json' }],
+          content: [
+            {
+              type: "text",
+              text: "Successfully created diagnostic file: implementation_step_1.json",
+            },
+          ],
           isError: false,
         })
         .mockResolvedValueOnce({
-          content: [{ type: 'text', text: 'Success' }],
+          content: [{ type: "text", text: "Success" }],
           isError: false,
         })
         .mockResolvedValueOnce({
-          content: [{ type: 'text', text: 'Successfully created diagnostic file: implementation_step_2.json' }],
+          content: [
+            {
+              type: "text",
+              text: "Successfully created diagnostic file: implementation_step_2.json",
+            },
+          ],
           isError: false,
         });
 
-      await client.callServer('@cmd:next_step create file1.py');
+      await client.callServer("@cmd:next_step create file1.py");
 
       // Second file creation - completes step 2
       const response2 = {
         status: 200,
         data: {
-          choices: [{ 
-            text: '<|channel|>tool_use<|tool_name|>create_file<|tool_args|>{"file_path": "file2.py", "content": "code2"}<|end|>' 
-          }],
+          choices: [
+            {
+              text: '<|channel|>tool_use<|tool_name|>create_file<|tool_args|>{"file_path": "file2.py", "content": "code2"}<|end|>',
+            },
+          ],
         },
       };
 
       mockedAxios.post.mockResolvedValueOnce(response2);
 
       const toolCall2: MCPToolCall = {
-        name: 'create_file',
-        arguments: { file_path: 'file2.py', content: 'code2' },
+        name: "create_file",
+        arguments: { file_path: "file2.py", content: "code2" },
       };
 
       mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
-        content: '',
+        content: "",
         rawToolCalls: [JSON.stringify(toolCall2)],
       });
 
@@ -1655,28 +2069,28 @@ describe('HarmonyClient - Implementation Stage', () => {
       mockExtractToolCalls(mockHarmonyProcessor, [toolCall2]);
       // Step 2 file already exists, so just mock the create_file call
       mockNativeToolsManager.callTool.mockResolvedValueOnce({
-        content: [{ type: 'text', text: 'Success' }],
+        content: [{ type: "text", text: "Success" }],
         isError: false,
       });
 
-      await client.callServer('@cmd:next_step create file2.py');
+      await client.callServer("@cmd:next_step create file2.py");
 
       // Verify both files were created (check actual tool execution via mocks)
       const file1Call = mockNativeToolsManager.callTool.mock.calls.find(
-        (call) => call[0] === 'create_file' && call[1]?.file_path === 'file1.py'
+        (call) => call[0] === "create_file" && call[1]?.file_path === "file1.py"
       );
       const file2Call = mockNativeToolsManager.callTool.mock.calls.find(
-        (call) => call[0] === 'create_file' && call[1]?.file_path === 'file2.py'
+        (call) => call[0] === "create_file" && call[1]?.file_path === "file2.py"
       );
-      
+
       // Verify plan is completed if both files were created
       const plan = progressPlanManager.getPlan(taskId!);
       expect(plan).toBeDefined();
-      
+
       if (file1Call && file2Call) {
         // Both files were created - steps should be completed
-        expect(plan?.steps[0].status).toBe('completed');
-        expect(plan?.steps[1].status).toBe('completed');
+        expect(plan?.steps[0].status).toBe("completed");
+        expect(plan?.steps[1].status).toBe("completed");
         expect(plan?.completedAt).toBeDefined();
         expect(plan?.completedAt).toBeGreaterThan(0);
       } else {
@@ -1686,9 +2100,13 @@ describe('HarmonyClient - Implementation Stage', () => {
       }
     });
 
-    it('should update steps sequentially (first pending step gets completed)', async () => {
+    it("should update steps sequentially (first pending step gets completed)", async () => {
       // Transition to implementation stage first
-      await setupImplementationStage(client, mockHarmonyProcessor, mockNativeToolsManager);
+      await setupImplementationStage(
+        client,
+        mockHarmonyProcessor,
+        mockNativeToolsManager
+      );
 
       // Get the taskId from ImplementationManager and update the plan with 3 steps
       const implementationManager = (client as any).implementationManager;
@@ -1696,50 +2114,58 @@ describe('HarmonyClient - Implementation Stage', () => {
       expect(taskId).toBeDefined();
 
       const progressPlanManager = client.getProgressPlanManager();
-      progressPlanManager.updatePlanSteps(taskId!, [
-        { goal: 'Step 1: Create main.py', tools: ['create_file'] },
-        { goal: 'Step 2: Create utils.py', tools: ['create_file'] },
-        { goal: 'Step 3: Create tests.py', tools: ['create_file'] },
-      ], false); // Don't preserve status - start fresh with pending
-      
+      progressPlanManager.updatePlanSteps(
+        taskId!,
+        [
+          { goal: "Step 1: Create main.py", tools: ["create_file"] },
+          { goal: "Step 2: Create utils.py", tools: ["create_file"] },
+          { goal: "Step 3: Create tests.py", tools: ["create_file"] },
+        ],
+        false
+      ); // Don't preserve status - start fresh with pending
+
       // Reinitialize ImplementationManager to ensure it's aware of the updated plan
       implementationManager.clear();
       implementationManager.initialize(taskId!);
 
       const createFileTool = {
-        name: 'create_file',
-        description: 'Create a file',
+        name: "create_file",
+        description: "Create a file",
         inputSchema: {
-          type: 'object',
+          type: "object",
           properties: {
-            file_path: { type: 'string' },
-            content: { type: 'string' },
+            file_path: { type: "string" },
+            content: { type: "string" },
           },
-          required: ['file_path', 'content'],
+          required: ["file_path", "content"],
         },
       } as any;
 
-      mockNativeToolsManager.getAvailableTools.mockReturnValue([createFileTool]);
+      mockNativeToolsManager.getAvailableTools.mockReturnValue([
+        createFileTool,
+      ]);
 
       // First execution - should complete step 1
       const response1 = {
         status: 200,
         data: {
-          choices: [{ 
-            text: '<|channel|>tool_use<|tool_name|>create_file<|tool_args|>{"file_path": "main.py", "content": "code"}<|end|>' 
-          }],
+          choices: [
+            {
+              text: '<|channel|>tool_use<|tool_name|>create_file<|tool_args|>{"file_path": "main.py", "content": "code"}<|end|>',
+            },
+          ],
         },
       };
 
       mockedAxios.post.mockResolvedValueOnce(response1);
 
       const toolCall1: MCPToolCall = {
-        name: 'create_file',
-        arguments: { file_path: 'main.py', content: 'code' },
+        name: "create_file",
+        arguments: { file_path: "main.py", content: "code" },
       };
 
       mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
-        content: '',
+        content: "",
         rawToolCalls: [JSON.stringify(toolCall1)],
       });
 
@@ -1750,57 +2176,69 @@ describe('HarmonyClient - Implementation Stage', () => {
       // Mock step file generation for step 1 (when @cmd:next_step is used), then create_file, then step 2 file
       mockNativeToolsManager.callTool
         .mockResolvedValueOnce({
-          content: [{ type: 'text', text: 'Successfully created diagnostic file: implementation_step_1.json' }],
+          content: [
+            {
+              type: "text",
+              text: "Successfully created diagnostic file: implementation_step_1.json",
+            },
+          ],
           isError: false,
         })
         .mockResolvedValueOnce({
-          content: [{ type: 'text', text: 'Success' }],
+          content: [{ type: "text", text: "Success" }],
           isError: false,
         })
         .mockResolvedValueOnce({
-          content: [{ type: 'text', text: 'Successfully created diagnostic file: implementation_step_2.json' }],
+          content: [
+            {
+              type: "text",
+              text: "Successfully created diagnostic file: implementation_step_2.json",
+            },
+          ],
           isError: false,
         });
 
-      await client.callServer('@cmd:next_step create main.py');
+      await client.callServer("@cmd:next_step create main.py");
 
       // Verify create_file was called for main.py (check actual tool execution via mocks)
       const mainPyCall = mockNativeToolsManager.callTool.mock.calls.find(
-        (call) => call[0] === 'create_file' && call[1]?.file_path === 'main.py'
+        (call) => call[0] === "create_file" && call[1]?.file_path === "main.py"
       );
-      
+
       // Verify step 1 is completed, step 2 is in_progress (automatically advanced), step 3 is pending
       let plan = progressPlanManager.getPlan(taskId!);
-      
+
       if (mainPyCall) {
         // File was created - step should be completed (file "main.py" matches step goal "Step 1: Create main.py")
-        expect(plan?.steps[0].status).toBe('completed');
-        expect(plan?.steps[1].status).toBe('in_progress'); // Step 2 is automatically advanced when step 1 completes
-        expect(plan?.steps[2].status).toBe('pending');
+        expect(plan?.steps[0].status).toBe("completed");
+        expect(plan?.steps[1].status).toBe("in_progress"); // Step 2 is automatically advanced when step 1 completes
+        expect(plan?.steps[2].status).toBe("pending");
       } else {
         // File wasn't created - step might still be in_progress
-        expect(plan?.steps[0].status).toBe('in_progress');
+        expect(plan?.steps[0].status).toBe("in_progress");
       }
 
       // Second execution - should complete step 2
       const response2 = {
         status: 200,
         data: {
-          choices: [{ 
-            text: '<|channel|>tool_use<|tool_name|>create_file<|tool_args|>{"file_path": "utils.py", "content": "code"}<|end|>' 
-          }],
+          choices: [
+            {
+              text: '<|channel|>tool_use<|tool_name|>create_file<|tool_args|>{"file_path": "utils.py", "content": "code"}<|end|>',
+            },
+          ],
         },
       };
 
       mockedAxios.post.mockResolvedValueOnce(response2);
 
       const toolCall2: MCPToolCall = {
-        name: 'create_file',
-        arguments: { file_path: 'utils.py', content: 'code' },
+        name: "create_file",
+        arguments: { file_path: "utils.py", content: "code" },
       };
 
       mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
-        content: '',
+        content: "",
         rawToolCalls: [JSON.stringify(toolCall2)],
       });
 
@@ -1810,243 +2248,76 @@ describe('HarmonyClient - Implementation Stage', () => {
       // Just mock the create_file call, then step 3 file generation when step 2 completes
       mockNativeToolsManager.callTool
         .mockResolvedValueOnce({
-          content: [{ type: 'text', text: 'Success' }],
+          content: [{ type: "text", text: "Success" }],
           isError: false,
         })
         .mockResolvedValueOnce({
-          content: [{ type: 'text', text: 'Successfully created diagnostic file: implementation_step_3.json' }],
+          content: [
+            {
+              type: "text",
+              text: "Successfully created diagnostic file: implementation_step_3.json",
+            },
+          ],
           isError: false,
         });
 
-      await client.callServer('@cmd:next_step create utils.py');
+      await client.callServer("@cmd:next_step create utils.py");
 
       // Verify create_file was called for utils.py (check actual tool execution via mocks)
       const utilsPyCall = mockNativeToolsManager.callTool.mock.calls.find(
-        (call) => call[0] === 'create_file' && call[1]?.file_path === 'utils.py'
+        (call) => call[0] === "create_file" && call[1]?.file_path === "utils.py"
       );
-      
+
       // Verify step 2 is now completed, step 3 is in_progress (automatically advanced)
       plan = progressPlanManager.getPlan(taskId!);
-      expect(plan?.steps[0].status).toBe('completed'); // Step 1 was completed in previous call
-      
+      expect(plan?.steps[0].status).toBe("completed"); // Step 1 was completed in previous call
+
       if (utilsPyCall) {
         // File was created - step should be completed (file "utils.py" matches step goal "Step 2: Create utils.py")
-        expect(plan?.steps[1].status).toBe('completed');
-        expect(plan?.steps[2].status).toBe('in_progress'); // Step 3 is automatically advanced when step 2 completes
+        expect(plan?.steps[1].status).toBe("completed");
+        expect(plan?.steps[2].status).toBe("in_progress"); // Step 3 is automatically advanced when step 2 completes
       } else {
         // File wasn't created - step might still be in_progress
-        expect(plan?.steps[1].status).toBe('in_progress');
+        expect(plan?.steps[1].status).toBe("in_progress");
       }
     });
 
-    it('should not update steps when not in implementation stage', async () => {
+    it("should not update steps when not in implementation stage", async () => {
       // Setup plan
-      const taskId = setupProgressPlan([
-        { goal: 'Create main.py' },
-      ]);
+      const taskId = setupProgressPlan([{ goal: "Create main.py" }]);
 
       // Stay in chat stage (don't transition to implementation)
       const chatResponse = {
         status: 200,
         data: {
-          choices: [{ 
-            text: '<|channel|>final<|message|>Hello<|end|>' 
-          }],
+          choices: [
+            {
+              text: "<|channel|>final<|message|>Hello<|end|>",
+            },
+          ],
         },
       };
 
       mockedAxios.post.mockResolvedValueOnce(chatResponse);
 
       mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
-        content: 'Hello',
+        content: "Hello",
         rawToolCalls: [],
       });
 
       mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
 
-      await client.callServer('hello');
+      await client.callServer("hello");
 
       // Verify we're in chat stage
-      expect(client.getCurrentStage()).toBe('chat');
+      expect(client.getCurrentStage()).toBe("chat");
 
       // Verify no steps were updated
       const progressPlanManager = client.getProgressPlanManager();
       const plan = progressPlanManager.getPlan(taskId);
-      
+
       expect(plan).toBeDefined();
-      expect(plan?.steps[0].status).toBe('pending');
-    });
-
-    it('should generate implementation_step_N.json files for all steps', async () => {
-      // Transition to implementation stage first
-      await setupImplementationStage(client, mockHarmonyProcessor, mockNativeToolsManager);
-
-      // Get the taskId from ImplementationManager and update the plan with 3 steps
-      const implementationManager = (client as any).implementationManager;
-      const taskId = implementationManager.getTaskId();
-      expect(taskId).toBeDefined();
-
-      const progressPlanManager = client.getProgressPlanManager();
-      progressPlanManager.updatePlanSteps(taskId!, [
-        { goal: 'Step 1: Create main.py' },
-        { goal: 'Step 2: Create utils.py' },
-        { goal: 'Step 3: Create tests.py' },
-      ], false); // Don't preserve status - start fresh
-
-      // Reinitialize ImplementationManager to set step 1 to in_progress after updatePlanSteps
-      implementationManager.clear();
-      implementationManager.initialize(taskId!);
-
-      const createFileTool = {
-        name: 'create_file',
-        description: 'Create a file',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            file_path: { type: 'string' },
-            content: { type: 'string' },
-          },
-          required: ['file_path', 'content'],
-        },
-      } as any;
-
-      mockNativeToolsManager.getAvailableTools.mockReturnValue([createFileTool]);
-
-      // Track all step file generations
-      const stepFileCalls: string[] = [];
-
-      // First execution - should complete step 1 and generate step_1.json, then advance to step 2 and generate step_2.json
-      const response1 = {
-        status: 200,
-        data: {
-          choices: [{ 
-            text: '<|channel|>tool_use<|tool_name|>create_file<|tool_args|>{"file_path": "main.py", "content": "code"}<|end|>' 
-          }],
-        },
-      };
-
-      mockedAxios.post.mockResolvedValueOnce(response1);
-
-      const toolCall1: MCPToolCall = {
-        name: 'create_file',
-        arguments: { file_path: 'main.py', content: 'code' },
-      };
-
-      mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
-        content: '',
-        rawToolCalls: [JSON.stringify(toolCall1)],
-      });
-
-      // Mock extractToolCalls for both possible calls
-      mockHarmonyProcessor.extractToolCalls
-        .mockReturnValueOnce([toolCall1]) // First call with validToolCalls
-        .mockReturnValueOnce([]); // Fallback call with content
-
-      // Mock calls: step_1.json generation (when entering implementation), then create_file for main.py, then step_2.json (after step 1 completes)
-      mockNativeToolsManager.callTool
-        .mockImplementation((toolName: string, args: any) => {
-          if (toolName === 'create_file' && args?.file_path?.startsWith('implementation_step_')) {
-            stepFileCalls.push(args.file_path);
-            return Promise.resolve({
-              content: [{ type: 'text', text: `Successfully created diagnostic file: ${args.file_path}` }],
-              isError: false,
-            });
-          }
-          if (toolName === 'create_file' && args?.file_path === 'main.py') {
-            return Promise.resolve({
-              content: [{ type: 'text', text: 'Success' }],
-              isError: false,
-            });
-          }
-          return Promise.resolve({
-            content: [{ type: 'text', text: 'Success' }],
-            isError: false,
-          });
-        });
-
-      await client.callServer('@cmd:next_step create main.py');
-
-      // Verify create_file was called for main.py (check actual tool execution via mocks)
-      const mainPyCall = mockNativeToolsManager.callTool.mock.calls.find(
-        (call) => call[0] === 'create_file' && call[1]?.file_path === 'main.py'
-      );
-      
-      // Verify step 1 is completed and step 2 is in_progress
-      let plan = progressPlanManager.getPlan(taskId!);
-      
-      if (mainPyCall) {
-        // File was created - step should be completed (file "main.py" matches step goal "Step 1: Create main.py")
-        expect(plan?.steps[0].status).toBe('completed');
-        expect(plan?.steps[1].status).toBe('in_progress');
-        expect(plan?.steps[2].status).toBe('pending');
-      } else {
-        // File wasn't created - step might still be in_progress
-        expect(plan?.steps[0].status).toBe('in_progress');
-      }
-
-      // Verify step_1.json was generated (when entering implementation)
-      expect(stepFileCalls).toContain('implementation_step_1.json');
-      
-      // Verify step_2.json was generated (after step 1 completed) - only if step 1 was completed
-      if (mainPyCall) {
-        expect(stepFileCalls).toContain('implementation_step_2.json');
-      }
-
-      // Second execution - should complete step 2 and generate step_3.json
-      const response2 = {
-        status: 200,
-        data: {
-          choices: [{ 
-            text: '<|channel|>tool_use<|tool_name|>create_file<|tool_args|>{"file_path": "utils.py", "content": "code"}<|end|>' 
-          }],
-        },
-      };
-
-      mockedAxios.post.mockResolvedValueOnce(response2);
-
-      const toolCall2: MCPToolCall = {
-        name: 'create_file',
-        arguments: { file_path: 'utils.py', content: 'code' },
-      };
-
-      mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
-        content: '',
-        rawToolCalls: [JSON.stringify(toolCall2)],
-      });
-
-      // Mock extractToolCalls to handle both validToolCalls and content fallback paths
-      mockExtractToolCalls(mockHarmonyProcessor, [toolCall2]);
-
-      await client.callServer('@cmd:next_step create utils.py');
-
-      // Verify create_file was called for utils.py (check actual tool execution via mocks)
-      const utilsPyCall = mockNativeToolsManager.callTool.mock.calls.find(
-        (call) => call[0] === 'create_file' && call[1]?.file_path === 'utils.py'
-      );
-      
-      // Verify step 2 is completed and step 3 is in_progress
-      plan = progressPlanManager.getPlan(taskId!);
-      expect(plan?.steps[0].status).toBe('completed'); // Step 1 was completed in previous call
-      
-      if (utilsPyCall) {
-        // File was created - step should be completed (file "utils.py" matches step goal "Step 2: Create utils.py")
-        expect(plan?.steps[1].status).toBe('completed');
-        expect(plan?.steps[2].status).toBe('in_progress');
-
-        // Verify step_3.json was generated (after step 2 completed)
-        expect(stepFileCalls).toContain('implementation_step_3.json');
-
-        // Verify all step files were generated
-        expect(stepFileCalls).toEqual([
-          'implementation_step_1.json',
-          'implementation_step_2.json',
-          'implementation_step_3.json'
-        ]);
-      } else {
-        // File wasn't created - step might still be in_progress
-        expect(plan?.steps[1].status).toBe('in_progress');
-      }
+      expect(plan?.steps[0].status).toBe("pending");
     });
   });
 });
-

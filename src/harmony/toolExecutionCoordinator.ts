@@ -3,7 +3,10 @@ import { NativeToolsManager } from "../nativeToolManager";
 import { ToolExecutor } from "./toolExecutor";
 import { ToolResultFormatter } from "./toolResultFormatter";
 import { RulesManager, Rule } from "../rulesManager";
-import { ConversationContextManager, ConversationContext } from "./conversationContext";
+import {
+  ConversationContextManager,
+  ConversationContext,
+} from "./conversationContext";
 import { ProgressPlanManager } from "../progressPlanManager";
 import { AutoTransitionManager } from "./autoTransitionManager";
 import { ImplementationManager } from "./implementationManager";
@@ -34,16 +37,20 @@ export class ToolExecutionCoordinator {
   async executeToolCalls(
     toolCalls: MCPToolCall[],
     currentStage: WorkflowStage
-  ): Promise<Array<{
-    name: string;
-    arguments: Record<string, any>;
-    result?: MCPToolResult;
-  }>> {
+  ): Promise<
+    Array<{
+      name: string;
+      arguments: Record<string, any>;
+      result?: MCPToolResult;
+    }>
+  > {
     if (toolCalls.length === 0) {
       return [];
     }
 
-    console.log(`[Harmony] Executing ${toolCalls.length} tool call(s) in stage: ${currentStage}`);
+    console.log(
+      `[Harmony] Executing ${toolCalls.length} tool call(s) in stage: ${currentStage}`
+    );
     logToolCalls(toolCalls.map((tc) => ({ name: tc.name })));
 
     const executedToolCalls = await this.toolExecutor.executeToolCalls(
@@ -86,18 +93,21 @@ export class ToolExecutionCoordinator {
         `[Rules] Formatting tool results according to ${applicableRules.length} rule(s) in ${currentStage} stage`
       );
       try {
-        formattedContent = await this.toolResultFormatter.formatToolResultsWithRules(
-          executedToolCalls,
-          applicableRules,
-          prompt,
-          currentStage
-        );
+        formattedContent =
+          await this.toolResultFormatter.formatToolResultsWithRules(
+            executedToolCalls,
+            applicableRules,
+            prompt,
+            currentStage
+          );
       } catch (formatError: any) {
         console.error(`[Rules] Error formatting tool results:`, formatError);
-        formattedContent = this.toolResultFormatter.formatToolResults(executedToolCalls);
+        formattedContent =
+          this.toolResultFormatter.formatToolResults(executedToolCalls);
       }
     } else {
-      formattedContent = this.toolResultFormatter.formatToolResults(executedToolCalls);
+      formattedContent =
+        this.toolResultFormatter.formatToolResults(executedToolCalls);
     }
 
     return formattedContent;
@@ -115,12 +125,17 @@ export class ToolExecutionCoordinator {
     currentStage: string
   ): void {
     const context = this.contextManager.getContext();
-    if (!context?.progressPlan || currentStage !== 'implementation') {
+    if (!context?.progressPlan || currentStage !== "implementation") {
       return;
     }
 
     const plan = context.progressPlan;
-    const fileModificationTools = ['create_file', 'replace_file', 'write_file', 'update_file'];
+    const fileModificationTools = [
+      "create_file",
+      "replace_file",
+      "write_file",
+      "update_file",
+    ];
 
     // Ensure ImplementationManager is initialized
     if (!this.implementationManager.getTaskId()) {
@@ -134,7 +149,8 @@ export class ToolExecutionCoordinator {
 
     if (fileModToolCalls.length > 0) {
       // Delegate to ImplementationManager
-      const completedStepNumber = this.implementationManager.processFileCreations(executedToolCalls);
+      const completedStepNumber =
+        this.implementationManager.processFileCreations(executedToolCalls);
 
       if (completedStepNumber) {
         const updatedPlan = this.implementationManager.getProgressPlan();
@@ -143,22 +159,15 @@ export class ToolExecutionCoordinator {
             `[Harmony] ProgressPlan: All steps completed! Plan "${plan.taskId}" is now complete.`
           );
         } else {
-          // Advance to next step
-          const nextStep = this.implementationManager.advanceToNextStep();
-          if (nextStep && this.nativeToolsManager) {
-            const codeContexts = this.contextManager.getCodeContexts() || [];
-            const filteredCodeContexts = this.implementationManager.filterCodeContextsForStep(
-              codeContexts,
-              nextStep
-            );
-            this.implementationManager.generateImplementationStepFile(
-              nextStep.stepNumber,
-              filteredCodeContexts,
-              this.nativeToolsManager,
-              this.contextManager
-            );
+          // Do NOT automatically advance to next step
+          // Keep next step pending until user explicitly calls @cmd:next_step
+          // This allows users to control step execution sequentially
+          const nextPendingStep = updatedPlan?.steps.find(
+            (s) => s.status === "pending"
+          );
+          if (nextPendingStep) {
             console.log(
-              `[Harmony] Advanced to step ${nextStep.stepNumber} and generated implementation_step_${nextStep.stepNumber}.json`
+              `[Harmony] Step completed. Next step ${nextPendingStep.stepNumber} is pending (waiting for @cmd:next_step to execute)`
             );
           }
         }
@@ -194,7 +203,11 @@ export class ToolExecutionCoordinator {
     );
 
     for (const codeContext of codeContexts) {
-      if (codeContext.waitForCreate && codeContext.content && codeContext.content.length > 0) {
+      if (
+        codeContext.waitForCreate &&
+        codeContext.content &&
+        codeContext.content.length > 0
+      ) {
         try {
           const filePath = codeContext.name;
 
@@ -219,10 +232,16 @@ export class ToolExecutionCoordinator {
               `[Harmony] Error calling getContentAsString() for ${filePath}:`,
               error
             );
-            content = codeContext.content.filter((line) => line != null).join('\n');
+            content = codeContext.content
+              .filter((line) => line != null)
+              .join("\n");
           }
 
-          if (!content || typeof content !== 'string' || content.trim().length === 0) {
+          if (
+            !content ||
+            typeof content !== "string" ||
+            content.trim().length === 0
+          ) {
             console.warn(
               `[Harmony] CodeContext for ${filePath} has empty or invalid content, skipping...`
             );
@@ -233,10 +252,13 @@ export class ToolExecutionCoordinator {
             `[Harmony] Creating file ${filePath} from CodeContext (${content.length} chars)...`
           );
 
-          const createResult = await this.nativeToolsManager.callTool('create_file', {
-            file_path: filePath,
-            content: content,
-          });
+          const createResult = await this.nativeToolsManager.callTool(
+            "create_file",
+            {
+              file_path: filePath,
+              content: content,
+            }
+          );
 
           if (!createResult.isError) {
             result.createdFiles.push(filePath);
@@ -244,12 +266,17 @@ export class ToolExecutionCoordinator {
             console.log(
               `[Harmony] Successfully created file ${filePath} from CodeContext`
             );
-          } else if (createResult.content?.[0]?.text?.includes('already exists')) {
+          } else if (
+            createResult.content?.[0]?.text?.includes("already exists")
+          ) {
             // File exists, use replace_file
-            const replaceResult = await this.nativeToolsManager.callTool('replace_file', {
-              file_path: filePath,
-              content: content,
-            });
+            const replaceResult = await this.nativeToolsManager.callTool(
+              "replace_file",
+              {
+                file_path: filePath,
+                content: content,
+              }
+            );
             if (!replaceResult.isError) {
               result.updatedFiles.push(filePath);
               this.contextManager.markCodeContextCreated(filePath);
@@ -257,14 +284,19 @@ export class ToolExecutionCoordinator {
                 `[Harmony] Successfully updated file ${filePath} from CodeContext`
               );
             } else {
-              const errorMsg = replaceResult.content?.[0]?.text || 'Unknown error';
+              const errorMsg =
+                replaceResult.content?.[0]?.text || "Unknown error";
               result.failedFiles.push({ path: filePath, error: errorMsg });
-              console.warn(`[Harmony] Failed to update file ${filePath}: ${errorMsg}`);
+              console.warn(
+                `[Harmony] Failed to update file ${filePath}: ${errorMsg}`
+              );
             }
           } else {
-            const errorMsg = createResult.content?.[0]?.text || 'Unknown error';
+            const errorMsg = createResult.content?.[0]?.text || "Unknown error";
             result.failedFiles.push({ path: filePath, error: errorMsg });
-            console.warn(`[Harmony] Failed to create file ${filePath}: ${errorMsg}`);
+            console.warn(
+              `[Harmony] Failed to create file ${filePath}: ${errorMsg}`
+            );
           }
         } catch (error: any) {
           console.warn(
@@ -273,7 +305,7 @@ export class ToolExecutionCoordinator {
           );
           result.failedFiles.push({
             path: codeContext.name,
-            error: error.message || 'Unknown error',
+            error: error.message || "Unknown error",
           });
         }
       }
@@ -300,7 +332,10 @@ export class ToolExecutionCoordinator {
 
     const codeBlockPattern = /```(?:\w+)?\s*[\n ]([\s\S]*?)```/g;
     const matches = content.matchAll(codeBlockPattern);
-    const codeBlocks: Array<{ codeContext: CodeContext; match: RegExpMatchArray }> = [];
+    const codeBlocks: Array<{
+      codeContext: CodeContext;
+      match: RegExpMatchArray;
+    }> = [];
 
     for (const match of matches) {
       try {
@@ -335,9 +370,7 @@ export class ToolExecutionCoordinator {
         const fileContent = codeContext.getContentAsString();
 
         if (!fileContent || fileContent.trim().length === 0) {
-          console.warn(
-            `[Harmony] Skipping empty code block for ${filePath}`
-          );
+          console.warn(`[Harmony] Skipping empty code block for ${filePath}`);
           continue;
         }
 
@@ -345,22 +378,30 @@ export class ToolExecutionCoordinator {
           `[Harmony] Creating file ${filePath} from code block (${fileContent.length} chars)...`
         );
 
-        const createResult = await this.nativeToolsManager.callTool('create_file', {
-          file_path: filePath,
-          content: fileContent,
-        });
+        const createResult = await this.nativeToolsManager.callTool(
+          "create_file",
+          {
+            file_path: filePath,
+            content: fileContent,
+          }
+        );
 
         if (!createResult.isError) {
           result.createdFiles.push(filePath);
           console.log(
             `[Harmony] Successfully created file ${filePath} from code block`
           );
-        } else if (createResult.content?.[0]?.text?.includes('already exists')) {
+        } else if (
+          createResult.content?.[0]?.text?.includes("already exists")
+        ) {
           // File exists, use replace_file
-          const replaceResult = await this.nativeToolsManager.callTool('replace_file', {
-            file_path: filePath,
-            content: fileContent,
-          });
+          const replaceResult = await this.nativeToolsManager.callTool(
+            "replace_file",
+            {
+              file_path: filePath,
+              content: fileContent,
+            }
+          );
 
           if (!replaceResult.isError) {
             result.createdFiles.push(filePath);
@@ -368,24 +409,28 @@ export class ToolExecutionCoordinator {
               `[Harmony] Successfully updated file ${filePath} from code block`
             );
           } else {
-            const errorMsg = replaceResult.content?.[0]?.text || 'Unknown error';
+            const errorMsg =
+              replaceResult.content?.[0]?.text || "Unknown error";
             result.failedFiles.push({ path: filePath, error: errorMsg });
             console.warn(
               `[Harmony] Failed to update file ${filePath}: ${errorMsg}`
             );
           }
         } else {
-          const errorMsg = createResult.content?.[0]?.text || 'Unknown error';
+          const errorMsg = createResult.content?.[0]?.text || "Unknown error";
           result.failedFiles.push({ path: filePath, error: errorMsg });
           console.warn(
             `[Harmony] Failed to create file ${filePath}: ${errorMsg}`
           );
         }
       } catch (error: any) {
-        console.warn(`[Harmony] Error creating file ${codeContext.name}:`, error);
+        console.warn(
+          `[Harmony] Error creating file ${codeContext.name}:`,
+          error
+        );
         result.failedFiles.push({
           path: codeContext.name,
-          error: error.message || 'Unknown error',
+          error: error.message || "Unknown error",
         });
       }
     }
@@ -405,6 +450,9 @@ export class ToolExecutionCoordinator {
     currentStage: string,
     stageStateMachine: any
   ): boolean {
-    return stageStateMachine.shouldTransitionToChatOnError(currentStage, executedToolCalls);
+    return stageStateMachine.shouldTransitionToChatOnError(
+      currentStage,
+      executedToolCalls
+    );
   }
 }

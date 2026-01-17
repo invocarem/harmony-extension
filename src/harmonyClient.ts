@@ -42,7 +42,13 @@ import {
   logStepInfo,
   logVerboseInfo,
 } from "./utils/logger";
-import { VerboseInfo, VerboseInfoBuilder, FileOperationResult, withToString, VerboseInfoFormatter } from "./utils/verboseInfo";
+import {
+  VerboseInfo,
+  VerboseInfoBuilder,
+  FileOperationResult,
+  withToString,
+  VerboseInfoFormatter,
+} from "./utils/verboseInfo";
 
 export interface HarmonyResponse {
   content: string;
@@ -58,7 +64,9 @@ export interface HarmonyResponse {
   verboseInfo?: VerboseInfo;
 }
 
-export type VerboseInfoCallback = (verboseInfo: VerboseInfo) => void | Promise<void>;
+export type VerboseInfoCallback = (
+  verboseInfo: VerboseInfo
+) => void | Promise<void>;
 
 /**
  * Main HarmonyClient with HarmonyProcessor integration and multi-step continuation
@@ -98,9 +106,9 @@ export class HarmonyClient {
     private nativeToolsManager?: NativeToolsManager
   ) {
     // Set verbose logging for tool extraction based on config
-    const { Logger } = require('./utils/logger');
+    const { Logger } = require("./utils/logger");
     Logger.setVerboseToolExtraction(config.verboseToolExtraction || false);
-    
+
     this.harmonyProcessor = new HarmonyProcessor(config.harmonyMode);
     this.stageStateMachine = new StageStateMachine();
     this.progressPlanManager = new ProgressPlanManager();
@@ -108,10 +116,20 @@ export class HarmonyClient {
     // Initialize modular components
     this.contextManager = new ConversationContextManager();
     this.chatManager = new ChatManager();
-    this.autoTransitionManager = new AutoTransitionManager(this.progressPlanManager);
-    this.assumptionsManager = new AssumptionsManager(this.progressPlanManager, this.autoTransitionManager);
-    this.implementationManager = new ImplementationManager(this.progressPlanManager);
-    this.stageHandlerRegistry = new StageHandlerRegistry(this.implementationManager, this.chatManager);
+    this.autoTransitionManager = new AutoTransitionManager(
+      this.progressPlanManager
+    );
+    this.assumptionsManager = new AssumptionsManager(
+      this.progressPlanManager,
+      this.autoTransitionManager
+    );
+    this.implementationManager = new ImplementationManager(
+      this.progressPlanManager
+    );
+    this.stageHandlerRegistry = new StageHandlerRegistry(
+      this.implementationManager,
+      this.chatManager
+    );
     this.stageDetector = new StageDetector(this.stageStateMachine);
     this.promptBuilder = new PromptBuilder(
       config,
@@ -241,14 +259,24 @@ export class HarmonyClient {
    */
   private buildMaxStepsExceededResponse(): HarmonyResponse {
     const context = this.contextManager.getContext();
-    const stage = context?.currentStage || 'chat';
-    
+    const stage = context?.currentStage || "chat";
+
     const verboseInfo =
-      stage === 'chat'
-        ? VerboseInfoBuilder.forChatStage(context, undefined, undefined, undefined, undefined, undefined)
-        : stage === 'assumptions'
-        ? VerboseInfoBuilder.forAssumptionStage(context, undefined, undefined)
-        : VerboseInfoBuilder.forImplementationStage(context, this.progressPlanManager);
+      stage === "chat"
+        ? VerboseInfoBuilder.forChatStage(
+            context,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined
+          )
+        : stage === "assumptions"
+          ? VerboseInfoBuilder.forAssumptionStage(context, undefined, undefined)
+          : VerboseInfoBuilder.forImplementationStage(
+              context,
+              this.progressPlanManager
+            );
 
     try {
       if (!verboseInfo.isComplete) {
@@ -316,7 +344,9 @@ export class HarmonyClient {
       );
 
       if (preProcessResult.shouldSkipLLM && preProcessResult.response) {
-        console.log(`[Harmony] Stage handler skipped LLM call, returning early`);
+        console.log(
+          `[Harmony] Stage handler skipped LLM call, returning early`
+        );
         return {
           ...preProcessResult.response,
           isContinuation: isContinuation,
@@ -325,16 +355,18 @@ export class HarmonyClient {
     }
 
     // Handle implementation stage CodeContext pre-processing
-    const preProcessCodeContextResult = await this.handleImplementationStageCodeContexts(
-      currentStage,
-      context
-    );
+    const preProcessCodeContextResult =
+      await this.handleImplementationStageCodeContexts(currentStage, context);
     if (preProcessCodeContextResult) {
       return preProcessCodeContextResult;
     }
 
     // Build prompt and call LLM
-    const effectivePrompt = this.getEffectivePrompt(prompt, conversationHistory, context);
+    const effectivePrompt = this.getEffectivePrompt(
+      prompt,
+      conversationHistory,
+      context
+    );
     const finalPrompt = await this.promptBuilder.buildPrompt(
       effectivePrompt,
       currentStage,
@@ -355,12 +387,14 @@ export class HarmonyClient {
 
     // Parse response
     const parsed = this.responseProcessor.parseResponse(rawResponse, prompt);
-    
+
     if (!parsed) {
-      throw new Error(`[Harmony] Failed to parse response at stage ${currentStage}`);
+      throw new Error(
+        `[Harmony] Failed to parse response at stage ${currentStage}`
+      );
     }
-    
-    let content = parsed.content ?? '';
+
+    let content = parsed.content ?? "";
 
     console.log(
       `[Harmony] Parsed response - stage: ${currentStage}, content: ${content.length} chars, reasoning: ${parsed.reasoning?.length || 0} chars`
@@ -384,7 +418,7 @@ export class HarmonyClient {
         currentStage,
         prompt
       );
-      content = parsed.content ?? '';
+      content = parsed.content ?? "";
     }
 
     toolCalls = validation.allowedToolCalls;
@@ -404,15 +438,15 @@ export class HarmonyClient {
           `[Harmony] Stage handler filtered out ${filterResult.blocked.length} tool call(s)`
         );
         if (
-          currentStage === 'chat' &&
-          filterResult.blocked.some((tc) => tc.name === 'read_file')
+          currentStage === "chat" &&
+          filterResult.blocked.some((tc) => tc.name === "read_file")
         ) {
           const blockedFiles = filterResult.blocked
-            .filter((tc) => tc.name === 'read_file')
+            .filter((tc) => tc.name === "read_file")
             .map((tc) => tc.arguments?.file_path || tc.arguments?.filePath)
             .filter(Boolean);
           if (blockedFiles.length > 0) {
-            content = `${content}\n\nNote: I cannot read ${blockedFiles.join(', ')} as ${blockedFiles.length === 1 ? "it doesn't exist yet" : "they don't exist yet"}. ${blockedFiles.length === 1 ? 'This file' : 'These files'} will be created in the implementation stage.`;
+            content = `${content}\n\nNote: I cannot read ${blockedFiles.join(", ")} as ${blockedFiles.length === 1 ? "it doesn't exist yet" : "they don't exist yet"}. ${blockedFiles.length === 1 ? "This file" : "These files"} will be created in the implementation stage.`;
           }
         }
       }
@@ -421,12 +455,21 @@ export class HarmonyClient {
     }
 
     // Process code contexts and plans (assumptions stage specific)
-    await this.processAssumptionsStageLogic(currentStage, context, content, parsed, toolCalls);
+    await this.processAssumptionsStageLogic(
+      currentStage,
+      context,
+      content,
+      parsed,
+      toolCalls
+    );
 
     // Save step to context
     if (context) {
       this.contextManager.addStep(
-        toolCalls.map((tc) => ({ name: tc.name, arguments: tc.arguments || {} })),
+        toolCalls.map((tc) => ({
+          name: tc.name,
+          arguments: tc.arguments || {},
+        })),
         parsed.reasoning,
         currentStage
       );
@@ -454,7 +497,11 @@ export class HarmonyClient {
     currentStage: WorkflowStage,
     context: ConversationContext | null
   ): Promise<HarmonyResponse | null> {
-    if (currentStage !== 'implementation' || !context || !this.nativeToolsManager) {
+    if (
+      currentStage !== "implementation" ||
+      !context ||
+      !this.nativeToolsManager
+    ) {
       return null;
     }
 
@@ -478,7 +525,11 @@ export class HarmonyClient {
     }> = [];
 
     for (const codeContext of codeContexts) {
-      if (codeContext.waitForCreate && codeContext.content && codeContext.content.length > 0) {
+      if (
+        codeContext.waitForCreate &&
+        codeContext.content &&
+        codeContext.content.length > 0
+      ) {
         try {
           const filePath = codeContext.name;
 
@@ -501,10 +552,16 @@ export class HarmonyClient {
               `[Harmony] Implementation stage: Error calling getContentAsString() for ${filePath}:`,
               error
             );
-            content = codeContext.content.filter((line) => line != null).join('\n');
+            content = codeContext.content
+              .filter((line) => line != null)
+              .join("\n");
           }
 
-          if (!content || typeof content !== 'string' || content.trim().length === 0) {
+          if (
+            !content ||
+            typeof content !== "string" ||
+            content.trim().length === 0
+          ) {
             console.warn(
               `[Harmony] Implementation stage: CodeContext for ${filePath} has empty content, skipping...`
             );
@@ -515,43 +572,60 @@ export class HarmonyClient {
             `[Harmony] Implementation stage: Creating file ${filePath} from CodeContext...`
           );
 
-          const createResult = await this.nativeToolsManager.callTool('create_file', {
-            file_path: filePath,
-            content: content,
-          });
+          const createResult = await this.nativeToolsManager.callTool(
+            "create_file",
+            {
+              file_path: filePath,
+              content: content,
+            }
+          );
 
           if (!createResult.isError) {
             createdFiles.push(filePath);
             this.contextManager.markCodeContextCreated(filePath);
             toolCalls.push({
-              name: 'create_file',
+              name: "create_file",
               arguments: { file_path: filePath, content: content },
               result: createResult,
             });
-            console.log(`[Harmony] Implementation stage: Successfully created file ${filePath}`);
-          } else if (createResult.content?.[0]?.text?.includes('already exists')) {
-            const replaceResult = await this.nativeToolsManager.callTool('replace_file', {
-              file_path: filePath,
-              content: content,
-            });
+            console.log(
+              `[Harmony] Implementation stage: Successfully created file ${filePath}`
+            );
+          } else if (
+            createResult.content?.[0]?.text?.includes("already exists")
+          ) {
+            const replaceResult = await this.nativeToolsManager.callTool(
+              "replace_file",
+              {
+                file_path: filePath,
+                content: content,
+              }
+            );
             if (!replaceResult.isError) {
               updatedFiles.push(filePath);
               this.contextManager.markCodeContextCreated(filePath);
               toolCalls.push({
-                name: 'replace_file',
+                name: "replace_file",
                 arguments: { file_path: filePath, content: content },
                 result: replaceResult,
               });
-              console.log(`[Harmony] Implementation stage: Successfully updated file ${filePath}`);
+              console.log(
+                `[Harmony] Implementation stage: Successfully updated file ${filePath}`
+              );
             } else {
-              const errorMsg = replaceResult.content?.[0]?.text || 'Unknown error';
+              const errorMsg =
+                replaceResult.content?.[0]?.text || "Unknown error";
               failedFiles.push({ path: filePath, error: errorMsg });
-              console.warn(`[Harmony] Implementation stage: Failed to update file ${filePath}`);
+              console.warn(
+                `[Harmony] Implementation stage: Failed to update file ${filePath}`
+              );
             }
           } else {
-            const errorMsg = createResult.content?.[0]?.text || 'Unknown error';
+            const errorMsg = createResult.content?.[0]?.text || "Unknown error";
             failedFiles.push({ path: filePath, error: errorMsg });
-            console.warn(`[Harmony] Implementation stage: Failed to create file ${filePath}`);
+            console.warn(
+              `[Harmony] Implementation stage: Failed to create file ${filePath}`
+            );
           }
         } catch (error: any) {
           console.warn(
@@ -574,12 +648,12 @@ export class HarmonyClient {
     const fileOperations: FileOperationResult = {
       created: createdFiles.map((path) => ({
         path,
-        source: 'codeContext' as const,
+        source: "codeContext" as const,
         createdAt: Date.now(),
       })),
       updated: updatedFiles.map((path) => ({
         path,
-        source: 'codeContext' as const,
+        source: "codeContext" as const,
         updatedAt: Date.now(),
       })),
       failed: failedFiles.map((f) => ({
@@ -605,7 +679,7 @@ export class HarmonyClient {
     }
 
     return {
-      content: `Successfully created ${allFiles.length} file(s): ${allFiles.join(', ')}`,
+      content: `Successfully created ${allFiles.length} file(s): ${allFiles.join(", ")}`,
       toolCalls: toolCalls,
       isContinuation: false,
       verboseInfo,
@@ -649,7 +723,7 @@ export class HarmonyClient {
     parsed: HarmonyParseResult,
     toolCalls: MCPToolCall[]
   ): Promise<void> {
-    if (currentStage !== 'assumptions' || !context || !content) {
+    if (currentStage !== "assumptions" || !context || !content) {
       return;
     }
 
@@ -665,11 +739,15 @@ export class HarmonyClient {
           const codeContext = CodeContext.fromCodeBlock(codeBlock);
 
           if (codeContext) {
-            const currentPrompt = context.originalPrompt || '';
-            this.contextManager.addCodeContext(codeContext, currentPrompt, content);
+            const currentPrompt = context.originalPrompt || "";
+            this.contextManager.addCodeContext(
+              codeContext,
+              currentPrompt,
+              content
+            );
             this.assumptionsManager.addCodeSnippet(
               codeContext.name,
-              codeContext.description || 'Code snippet from assumptions stage'
+              codeContext.description || "Code snippet from assumptions stage"
             );
             codeBlockCount++;
             console.log(
@@ -691,7 +769,7 @@ export class HarmonyClient {
       }
 
       // Create or update plan
-      const originalPrompt = context.originalPrompt || '';
+      const originalPrompt = context.originalPrompt || "";
       if (originalPrompt) {
         if (!this.assumptionsManager.getState()) {
           this.assumptionsManager.initialize();
@@ -714,7 +792,7 @@ export class HarmonyClient {
         if (plan) {
           this.contextManager.setProgressPlan(plan);
           console.log(
-            `[Harmony] Assumptions stage: ${existingContext?.progressPlan ? 'Updated' : 'Created'} ProgressPlan`
+            `[Harmony] Assumptions stage: ${existingContext?.progressPlan ? "Updated" : "Created"} ProgressPlan`
           );
         }
       }
@@ -722,7 +800,10 @@ export class HarmonyClient {
       // Track assumptions
       this.assumptionsManager.addAssumption(content);
     } catch (error) {
-      console.warn(`[Harmony] Error during assumptions stage processing:`, error);
+      console.warn(
+        `[Harmony] Error during assumptions stage processing:`,
+        error
+      );
     }
   }
 
@@ -745,11 +826,13 @@ export class HarmonyClient {
       history?: readonly ChatMessage[]
     ) => Promise<string>
   ): Promise<HarmonyResponse> {
-    let executedToolCalls: Array<{
-      name: string;
-      arguments: Record<string, any>;
-      result?: MCPToolResult;
-    }> | undefined;
+    let executedToolCalls:
+      | Array<{
+          name: string;
+          arguments: Record<string, any>;
+          result?: MCPToolResult;
+        }>
+      | undefined;
 
     if (toolCalls.length > 0 && (this.mcpManager || this.nativeToolsManager)) {
       // Execute tools
@@ -759,7 +842,8 @@ export class HarmonyClient {
       );
 
       // Post-processing via stage handler
-      const postStageHandler = this.stageHandlerRegistry.getHandler(currentStage);
+      const postStageHandler =
+        this.stageHandlerRegistry.getHandler(currentStage);
       if (postStageHandler.handlePostProcessing) {
         await postStageHandler.handlePostProcessing(
           this.contextManager.getContext(),
@@ -776,13 +860,14 @@ export class HarmonyClient {
       }
 
       // Handle implementation stage file creation from code blocks
-      if (currentStage === 'implementation' && executedToolCalls.length === 0) {
-        const codeBlockResult = await this.toolExecutionCoordinator.createFilesFromCodeBlocks(
-          content
-        );
+      if (currentStage === "implementation" && executedToolCalls.length === 0) {
+        const codeBlockResult =
+          await this.toolExecutionCoordinator.createFilesFromCodeBlocks(
+            content
+          );
         if (codeBlockResult.createdFiles.length > 0) {
           executedToolCalls = codeBlockResult.createdFiles.map((path) => ({
-            name: 'create_file',
+            name: "create_file",
             arguments: { file_path: path },
           }));
         }
@@ -790,24 +875,28 @@ export class HarmonyClient {
 
       // Update progress plan
       if (executedToolCalls && executedToolCalls.length > 0) {
-        this.toolExecutionCoordinator.updateProgressPlan(executedToolCalls, currentStage);
+        this.toolExecutionCoordinator.updateProgressPlan(
+          executedToolCalls,
+          currentStage
+        );
       }
 
       // Format tool results
       let finalContent = content;
       if (executedToolCalls.length > 0) {
-        const formattedResults = await this.toolExecutionCoordinator.formatToolResults(
-          executedToolCalls,
-          prompt,
-          currentStage
-        );
+        const formattedResults =
+          await this.toolExecutionCoordinator.formatToolResults(
+            executedToolCalls,
+            prompt,
+            currentStage
+          );
         finalContent += formattedResults;
       }
 
       // Check for continuation
       const updatedContext = this.contextManager.getContext();
       const shouldContinue = this.continuationManager.shouldContinueTask(
-        isContinuation ? (updatedContext?.originalPrompt || prompt) : prompt,
+        isContinuation ? updatedContext?.originalPrompt || prompt : prompt,
         executedToolCalls || [],
         finalContent,
         isContinuation,
@@ -824,7 +913,12 @@ export class HarmonyClient {
             final: parsed.final,
             toolCalls: executedToolCalls,
             isContinuation: isContinuation,
-            verboseInfo: this.buildVerboseInfo(currentStage, updatedContext, undefined, executedToolCalls),
+            verboseInfo: this.buildVerboseInfo(
+              currentStage,
+              updatedContext,
+              undefined,
+              executedToolCalls
+            ),
           };
         }
 
@@ -863,7 +957,12 @@ export class HarmonyClient {
         final: parsed.final,
         toolCalls: executedToolCalls,
         isContinuation: isContinuation,
-        verboseInfo: this.buildVerboseInfo(currentStage, updatedContext, fileExtractionResult, executedToolCalls),
+        verboseInfo: this.buildVerboseInfo(
+          currentStage,
+          updatedContext,
+          fileExtractionResult,
+          executedToolCalls
+        ),
       };
     }
 
@@ -885,9 +984,9 @@ export class HarmonyClient {
    * Get continuation prompt based on stage
    */
   private getContinuationPrompt(currentStage: WorkflowStage): string {
-    if (currentStage === 'assumptions') {
+    if (currentStage === "assumptions") {
       return `Based on the tool results, continue analyzing and provide code snippets. Remember: you are in the assumptions stage - provide code snippets only, do NOT use file modification tools.`;
-    } else if (currentStage === 'chat') {
+    } else if (currentStage === "chat") {
       return `Based on the conversation, continue clarifying and understanding the requirements.`;
     }
     return `Based on the tool results, continue working on the original task.`;
@@ -915,15 +1014,21 @@ export class HarmonyClient {
     let finalContent = content;
 
     // Check if in implementation stage and should trigger continuation
-    if (currentStage === 'implementation' && context) {
-      const describesFileOperations = /(?:I'll|I will|going to|need to|should|will).*(?:open|read|view|see|check|examine|edit|modify|update|change|replace).*(?:file|content)/i.test(
-        content
-      );
-      const isFileTask = /(?:update|create|write|modify|edit|generate).*\.(?:md|txt|json|js|ts|py)/i.test(
-        prompt.toLowerCase()
-      );
+    if (currentStage === "implementation" && context) {
+      const describesFileOperations =
+        /(?:I'll|I will|going to|need to|should|will).*(?:open|read|view|see|check|examine|edit|modify|update|change|replace).*(?:file|content)/i.test(
+          content
+        );
+      const isFileTask =
+        /(?:update|create|write|modify|edit|generate).*\.(?:md|txt|json|js|ts|py)/i.test(
+          prompt.toLowerCase()
+        );
 
-      if (describesFileOperations && isFileTask && context.currentStep + 1 <= context.maxSteps) {
+      if (
+        describesFileOperations &&
+        isFileTask &&
+        context.currentStep + 1 <= context.maxSteps
+      ) {
         console.log(
           `[Harmony] Model describes file operations but didn't make tool calls. Triggering continuation...`
         );
@@ -956,7 +1061,12 @@ export class HarmonyClient {
       commentary: parsed.commentary,
       final: parsed.final,
       isContinuation: isContinuation,
-      verboseInfo: this.buildVerboseInfo(currentStage, context, fileExtractionResult, undefined),
+      verboseInfo: this.buildVerboseInfo(
+        currentStage,
+        context,
+        fileExtractionResult,
+        undefined
+      ),
     };
   }
 
@@ -975,7 +1085,7 @@ export class HarmonyClient {
   ): VerboseInfo {
     let verboseInfo: VerboseInfo;
 
-    if (currentStage === 'chat') {
+    if (currentStage === "chat") {
       const toolCallsInfo = (executedToolCalls || []).map((tc) => ({
         name: tc.name,
         stage: currentStage,
@@ -989,15 +1099,22 @@ export class HarmonyClient {
         toolCallsInfo,
         undefined
       );
-    } else if (currentStage === 'assumptions') {
+    } else if (currentStage === "assumptions") {
       const toolCallsInfo = (executedToolCalls || []).map((tc) => ({
         name: tc.name,
         stage: currentStage,
         success: !tc.result?.isError,
       }));
-      verboseInfo = VerboseInfoBuilder.forAssumptionStage(context, toolCallsInfo, undefined);
+      verboseInfo = VerboseInfoBuilder.forAssumptionStage(
+        context,
+        toolCallsInfo,
+        undefined
+      );
     } else {
-      verboseInfo = VerboseInfoBuilder.forImplementationStage(context, this.progressPlanManager);
+      verboseInfo = VerboseInfoBuilder.forImplementationStage(
+        context,
+        this.progressPlanManager
+      );
     }
 
     delete verboseInfo.step;
@@ -1957,19 +2074,12 @@ export class HarmonyClient {
                   `[Harmony] ProgressPlan: All steps completed! Plan "${plan.taskId}" is now complete.`
                 );
               } else {
-                // Step was completed - advance to next step and generate its step file
-                const nextStep = this.implementationManager.advanceToNextStep();
-                if (nextStep && this.nativeToolsManager) {
-                  // Generate step file for the newly advanced step
-                  const codeContexts = this.contextManager.getCodeContexts() || [];
-                  const filteredCodeContexts = this.implementationManager.filterCodeContextsForStep(codeContexts, nextStep);
-                  await this.implementationManager.generateImplementationStepFile(
-                    nextStep.stepNumber,
-                    filteredCodeContexts,
-                    this.nativeToolsManager,
-                    this.contextManager
-                  );
-                  console.log(`[Harmony] Advanced to step ${nextStep.stepNumber} and generated implementation_step_${nextStep.stepNumber}.json`);
+                // Step was completed - do NOT automatically advance to next step
+                // Keep next step pending until user explicitly calls @cmd:next_step
+                // This allows users to control step execution sequentially
+                const nextPendingStep = updatedPlan?.steps.find(s => s.status === 'pending');
+                if (nextPendingStep) {
+                  console.log(`[Harmony] Step ${completedStepNumber} completed. Next step ${nextPendingStep.stepNumber} is pending (waiting for @cmd:next_step to execute)`);
                 }
               }
             }
@@ -2604,7 +2714,7 @@ export class HarmonyClient {
    */
   getCurrentStage(): WorkflowStage {
     const context = this.contextManager.getContext();
-    return context?.currentStage || 'chat';
+    return context?.currentStage || "chat";
   }
 
   /**
@@ -2625,21 +2735,44 @@ export class HarmonyClient {
    * Get current verboseInfo for display
    * Returns minimal verboseInfo for chat stage if no context exists
    */
-  getCurrentVerboseInfo(conversationHistory?: readonly ChatMessage[]): VerboseInfo {
+  getCurrentVerboseInfo(
+    conversationHistory?: readonly ChatMessage[]
+  ): VerboseInfo {
     const context = this.contextManager.getContext();
-    
+
     // If no context exists, return minimal chat stage verboseInfo
     if (!context) {
-      return VerboseInfoBuilder.forChatStage(null, undefined, undefined, undefined, undefined, conversationHistory);
+      return VerboseInfoBuilder.forChatStage(
+        null,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        conversationHistory
+      );
     }
 
     const currentStage = context.currentStage;
-    if (currentStage === 'chat') {
-      return VerboseInfoBuilder.forChatStage(context, undefined, undefined, undefined, undefined, conversationHistory);
-    } else if (currentStage === 'assumptions') {
-      return VerboseInfoBuilder.forAssumptionStage(context, undefined, conversationHistory);
+    if (currentStage === "chat") {
+      return VerboseInfoBuilder.forChatStage(
+        context,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        conversationHistory
+      );
+    } else if (currentStage === "assumptions") {
+      return VerboseInfoBuilder.forAssumptionStage(
+        context,
+        undefined,
+        conversationHistory
+      );
     } else {
-      return VerboseInfoBuilder.forImplementationStage(context, this.progressPlanManager);
+      return VerboseInfoBuilder.forImplementationStage(
+        context,
+        this.progressPlanManager
+      );
     }
   }
 
@@ -2659,7 +2792,9 @@ export class HarmonyClient {
     }
 
     // Plan is completed if completedAt is set OR all steps are completed
-    return !!plan.completedAt || plan.steps.every(s => s.status === 'completed');
+    return (
+      !!plan.completedAt || plan.steps.every((s) => s.status === "completed")
+    );
   }
 
   /**
@@ -2672,8 +2807,8 @@ export class HarmonyClient {
       /\b(move\s+to|go\s+to|goto|start|begin)\s+(implementation|implement)\b/i,
       /\b(move\s+to|go\s+to|goto|back\s+to|return\s+to|clarify|chat|talk|discuss)\s+(chat|discussion|clarification)\b/i,
     ];
-    
-    return transitionPatterns.some(pattern => pattern.test(promptLower));
+
+    return transitionPatterns.some((pattern) => pattern.test(promptLower));
   }
 
   /**
@@ -2699,7 +2834,10 @@ export class HarmonyClient {
       // Iterate backwards to find the most recent non-transition user message
       for (let i = conversationHistory.length - 1; i >= 0; i--) {
         const message = conversationHistory[i];
-        if (message.role === 'user' && !this.isStageTransitionCommand(message.content)) {
+        if (
+          message.role === "user" &&
+          !this.isStageTransitionCommand(message.content)
+        ) {
           return message.content;
         }
       }
@@ -2727,12 +2865,13 @@ export class HarmonyClient {
     fileExtractionResult?: import("./utils/verboseInfo").FileExtractionResult
   ): Promise<void> {
     // Only send for specific transitions
-    if ((fromStage === 'chat' && toStage === 'assumptions') ||
-        (fromStage === 'assumptions' && toStage === 'implementation')) {
-      
+    if (
+      (fromStage === "chat" && toStage === "assumptions") ||
+      (fromStage === "assumptions" && toStage === "implementation")
+    ) {
       let verboseInfo: VerboseInfo | undefined;
-      
-      if (fromStage === 'chat') {
+
+      if (fromStage === "chat") {
         // Send chatVerboseInfo before transitioning to assumptions
         // Note: conversationHistory not available in this context, pass undefined
         verboseInfo = VerboseInfoBuilder.forChatStage(
@@ -2743,14 +2882,22 @@ export class HarmonyClient {
           undefined,
           undefined
         );
-        console.log(`[Harmony] 📋 Sending chat verbose info to webview (before transition: chat -> assumptions)`);
-      } else if (fromStage === 'assumptions') {
+        console.log(
+          `[Harmony] 📋 Sending chat verbose info to webview (before transition: chat -> assumptions)`
+        );
+      } else if (fromStage === "assumptions") {
         // Send assumptionsVerboseInfo before transitioning to implementation
         // Note: conversationHistory not available in this context, pass undefined
-        verboseInfo = VerboseInfoBuilder.forAssumptionStage(context, undefined, undefined);
-        console.log(`[Harmony] 📋 Sending assumptions verbose info to webview (before transition: assumptions -> implementation)`);
+        verboseInfo = VerboseInfoBuilder.forAssumptionStage(
+          context,
+          undefined,
+          undefined
+        );
+        console.log(
+          `[Harmony] 📋 Sending assumptions verbose info to webview (before transition: assumptions -> implementation)`
+        );
       }
-      
+
       if (verboseInfo && this.verboseInfoCallback) {
         try {
           // Log verboseInfo directly using logVerboseInfo
@@ -2765,15 +2912,18 @@ export class HarmonyClient {
               const verboseInfoWithToString = withToString(verboseInfo);
               verboseInfoWithToString.toString(); // This also logs via logVerboseInfo() inside toString()
             } catch (toStringError: any) {
-              console.warn(`[Harmony] Error calling toString() on verboseInfo:`, toStringError);
+              console.warn(
+                `[Harmony] Error calling toString() on verboseInfo:`,
+                toStringError
+              );
             }
           }
-          
+
           // Send a plain, serializable copy of verboseInfo to callback
           // This ensures we don't pass any object with getter-only properties that can't be serialized
           // Use structuredClone if available (Node 17+), otherwise fall back to JSON serialization
           let plainVerboseInfo: VerboseInfo;
-          if (typeof structuredClone !== 'undefined') {
+          if (typeof structuredClone !== "undefined") {
             plainVerboseInfo = structuredClone(verboseInfo);
           } else {
             // Fallback for older Node versions
@@ -2802,13 +2952,30 @@ export class HarmonyClient {
     try {
       // Build verboseInfo for the current stage (after transition)
       // Note: conversationHistory not available in this context, pass undefined
-      const verboseInfo: VerboseInfo = context.currentStage === 'chat'
-        ? VerboseInfoBuilder.forChatStage(context, fileExtractionResult, undefined, undefined, undefined, undefined)
-        : context.currentStage === 'assumptions'
-        ? VerboseInfoBuilder.forAssumptionStage(context, undefined, undefined)
-        : VerboseInfoBuilder.forImplementationStage(context, this.progressPlanManager);
+      const verboseInfo: VerboseInfo =
+        context.currentStage === "chat"
+          ? VerboseInfoBuilder.forChatStage(
+              context,
+              fileExtractionResult,
+              undefined,
+              undefined,
+              undefined,
+              undefined
+            )
+          : context.currentStage === "assumptions"
+            ? VerboseInfoBuilder.forAssumptionStage(
+                context,
+                undefined,
+                undefined
+              )
+            : VerboseInfoBuilder.forImplementationStage(
+                context,
+                this.progressPlanManager
+              );
 
-      console.log(`[Harmony] 📋 Sending ${context.currentStage} verbose info to webview (after transition)`);
+      console.log(
+        `[Harmony] 📋 Sending ${context.currentStage} verbose info to webview (after transition)`
+      );
 
       // Log verboseInfo directly using logVerboseInfo
       try {
@@ -2821,7 +2988,10 @@ export class HarmonyClient {
           const verboseInfoWithToString = withToString(verboseInfo);
           verboseInfoWithToString.toString(); // This also logs via logVerboseInfo() inside toString()
         } catch (toStringError: any) {
-          console.warn(`[Harmony] Error calling toString() on verboseInfo:`, toStringError);
+          console.warn(
+            `[Harmony] Error calling toString() on verboseInfo:`,
+            toStringError
+          );
         }
       }
 
@@ -2829,7 +2999,7 @@ export class HarmonyClient {
       // This ensures we don't pass any object with getter-only properties that can't be serialized
       // Use structuredClone if available (Node 17+), otherwise fall back to JSON serialization
       let plainVerboseInfo: VerboseInfo;
-      if (typeof structuredClone !== 'undefined') {
+      if (typeof structuredClone !== "undefined") {
         plainVerboseInfo = structuredClone(verboseInfo);
       } else {
         // Fallback for older Node versions
@@ -2847,20 +3017,25 @@ export class HarmonyClient {
    */
   async transitionStage(to: WorkflowStage, prompt?: string): Promise<boolean> {
     const currentStage = this.getCurrentStage();
-    
+
     // Check if transition is valid
     if (!this.stageStateMachine.canTransition(currentStage, to)) {
-      console.log(`[Harmony] Invalid stage transition: ${currentStage} -> ${to}`);
+      console.log(
+        `[Harmony] Invalid stage transition: ${currentStage} -> ${to}`
+      );
       return false;
     }
-    
+
     // Perform the transition first
-    this.contextManager.updateStage(to, prompt || `Manual transition from ${currentStage} to ${to}`);
+    this.contextManager.updateStage(
+      to,
+      prompt || `Manual transition from ${currentStage} to ${to}`
+    );
     console.log(`[Harmony] Stage transitioned: ${currentStage} -> ${to}`);
-    
+
     // Send verboseInfo after transition
     await this.sendVerboseInfo();
-    
+
     return true;
   }
 
@@ -2899,5 +3074,3 @@ export class HarmonyClient {
     return this.contextManager.isFirstPrinciplesMode();
   }
 }
-
-
