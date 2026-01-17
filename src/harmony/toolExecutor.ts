@@ -41,7 +41,7 @@ export class ToolExecutor {
 
             const attemptedResult: MCPToolResult = {
               content: rawResult?.content || [],
-              isError: rawResult?.isError || false,
+              isError: rawResult ? (rawResult.isError || false) : true,
             };
 
             // Always record the initial native tool attempt

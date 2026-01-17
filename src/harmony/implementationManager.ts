@@ -185,7 +185,7 @@ export class ImplementationManager {
 
     const fileModificationTools = ['create_file', 'replace_file', 'write_file', 'update_file'];
     const allFileModToolCalls = toolCalls.filter(tc => fileModificationTools.includes(tc.name));
-    const successfulFileMods = allFileModToolCalls.filter(tc => !tc.result?.isError);
+    const successfulFileMods = allFileModToolCalls.filter(tc => tc.result && !tc.result.isError);
     
     // Filter out diagnostic files from successfulFileMods (they shouldn't count for step completion)
     const nonDiagnosticSuccessfulMods = successfulFileMods.filter(tc => {
