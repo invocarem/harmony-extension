@@ -915,7 +915,7 @@ describe('ImplementationManager', () => {
       expect(completedStep).toBe(1);
       const plan = manager.getProgressPlan();
       expect(plan?.steps[0].status).toBe('completed');
-      expect(plan?.steps[1].status).toBe('pending');
+      expect(plan?.steps[1].status).toBe('in_progress'); // Automatically advanced to in_progress
     });
 
     it('should NOT complete step 1 when hello.test.py is created', () => {
@@ -963,7 +963,7 @@ describe('ImplementationManager', () => {
       expect(completedStep).toBe(1);
       const plan = manager.getProgressPlan();
       expect(plan?.steps[0].status).toBe('completed');
-      expect(plan?.steps[1].status).toBe('pending');
+      expect(plan?.steps[1].status).toBe('in_progress'); // Automatically advanced to in_progress
       expect(plan?.steps[2].status).toBe('pending');
     });
 

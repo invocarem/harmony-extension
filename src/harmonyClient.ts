@@ -2074,12 +2074,11 @@ export class HarmonyClient {
                   `[Harmony] ProgressPlan: All steps completed! Plan "${plan.taskId}" is now complete.`
                 );
               } else {
-                // Step was completed - do NOT automatically advance to next step
-                // Keep next step pending until user explicitly calls @cmd:next_step
-                // This allows users to control step execution sequentially
-                const nextPendingStep = updatedPlan?.steps.find(s => s.status === 'pending');
-                if (nextPendingStep) {
-                  console.log(`[Harmony] Step ${completedStepNumber} completed. Next step ${nextPendingStep.stepNumber} is pending (waiting for @cmd:next_step to execute)`);
+                // Step was completed - next step is automatically advanced to in_progress
+                // User can call @cmd:next_step to execute the next step
+                const nextInProgressStep = updatedPlan?.steps.find(s => s.status === 'in_progress');
+                if (nextInProgressStep) {
+                  console.log(`[Harmony] Step ${completedStepNumber} completed. Next step ${nextInProgressStep.stepNumber} is now in_progress (ready for @cmd:next_step to execute)`);
                 }
               }
             }

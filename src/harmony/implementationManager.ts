@@ -132,6 +132,21 @@ export class ImplementationManager {
       this.state.completedSteps.push(stepNumber);
       this.state.lastUpdated = Date.now();
       console.log(`[ImplementationManager] Marked step ${stepNumber} as completed`);
+      
+      // Automatically advance the next pending step to in_progress
+      // This ensures the workflow is ready for the next @cmd:next_step call
+      const updatedPlan = this.progressPlanManager.getPlan(this.state.taskId);
+      const nextPendingStep = updatedPlan?.steps.find(s => s.status === 'pending');
+      if (nextPendingStep) {
+        const advanceSuccess = this.progressPlanManager.updateStepStatus(
+          this.state.taskId,
+          nextPendingStep.stepNumber,
+          'in_progress'
+        );
+        if (advanceSuccess) {
+          console.log(`[ImplementationManager] Automatically advanced step ${nextPendingStep.stepNumber} to in_progress`);
+        }
+      }
     }
 
     return success;

@@ -671,14 +671,13 @@ class ImplementationStageHandler implements StageHandler {
         `[StageHandler:Implementation] ProgressPlan: Marked step ${currentStep.stepNumber} (${currentStep.goal}) as completed after LLM response (step doesn't require file creation)`
       );
 
-      // After completing a step, do NOT automatically advance to next step
-      // Keep next step pending until user explicitly calls @cmd:next_step
-      // This allows users to control step execution sequentially
+      // After completing a step, the next step is automatically advanced to in_progress
+      // User can call @cmd:next_step to execute the next step
       const plan = this.implementationManager.getProgressPlan();
-      const nextPendingStep = plan?.steps.find((s) => s.status === "pending");
-      if (nextPendingStep) {
+      const nextInProgressStep = plan?.steps.find((s) => s.status === "in_progress");
+      if (nextInProgressStep) {
         console.log(
-          `[StageHandler:Implementation] Step ${currentStep.stepNumber} completed. Next step ${nextPendingStep.stepNumber} is pending (waiting for @cmd:next_step to execute)`
+          `[StageHandler:Implementation] Step ${currentStep.stepNumber} completed. Next step ${nextInProgressStep.stepNumber} is now in_progress (ready for @cmd:next_step to execute)`
         );
       }
     }

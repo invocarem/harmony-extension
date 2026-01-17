@@ -480,12 +480,12 @@ describe("HarmonyClient - Implementation Stage: steps", () => {
         (call) => call[0] === "create_file" && call[1]?.file_path === "main.py"
       );
 
-      // Verify step 1 is completed and step 2 is pending (not in_progress - waiting for next @cmd:next_step)
+      // Verify step 1 is completed and step 2 is in_progress (automatically advanced)
       let plan = progressPlanManager.getPlan(taskId!);
 
       if (mainPyCall) {
         expect(plan?.steps[0].status).toBe("completed");
-        expect(plan?.steps[1].status).toBe("pending"); // Step 2 should be pending, not in_progress
+        expect(plan?.steps[1].status).toBe("in_progress"); // Step 2 is automatically advanced to in_progress
         expect(plan?.steps[2].status).toBe("pending");
       }
 
@@ -522,9 +522,7 @@ describe("HarmonyClient - Implementation Stage: steps", () => {
       // Mock extractToolCalls to handle both validToolCalls and content fallback paths
       mockExtractToolCalls(mockHarmonyProcessor, [toolCall2]);
 
-      // Advance to step 2 explicitly (since it's now pending, not in_progress)
-      implementationManager.advanceToNextStep();
-
+      // Step 2 is already in_progress (automatically advanced), so just call next_step
       await client.callServer("@cmd:next_step create utils.py");
 
       // Verify create_file was called for utils.py
@@ -538,7 +536,7 @@ describe("HarmonyClient - Implementation Stage: steps", () => {
 
       if (utilsPyCall) {
         expect(plan?.steps[1].status).toBe("completed");
-        expect(plan?.steps[2].status).toBe("pending"); // Step 3 should be pending, not in_progress
+        expect(plan?.steps[2].status).toBe("in_progress"); // Step 3 is automatically advanced to in_progress
 
         // Verify step_2.json was now generated
         expect(stepFileCalls).toContain("implementation_step_2.json");
