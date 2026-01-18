@@ -182,9 +182,14 @@ export class HarmonyClient {
     ) => Promise<string>,
     isContinuation: boolean = false,
     conversationHistory?: readonly ChatMessage[],
-    fileExtractionResult?: import("./utils/verboseInfo").FileExtractionResult
+    fileExtractionResult?: import("./utils/verboseInfo").FileExtractionResult,
+    isAutoMode: boolean = false
   ): Promise<HarmonyResponse> {
     try {
+      // Detect if this is auto mode trigger (first time only)
+      const isAutoModeStart = !isAutoMode && /@cmd:auto|auto\s+mode|execute\s+all/i.test(prompt.toLowerCase());
+      const effectiveAutoMode = isAutoMode || isAutoModeStart;
+
       // Phase 1: Initialize conversation and handle state transitions
       await this.handleConversationInitialization(
         prompt,
@@ -202,7 +207,7 @@ export class HarmonyClient {
       }
 
       // Phase 3: Get and execute the LLM call with stage-specific handling
-      return await this.executeLLMCallAndProcess(
+      const response = await this.executeLLMCallAndProcess(
         prompt,
         currentStage,
         templateName,
@@ -211,6 +216,47 @@ export class HarmonyClient {
         conversationHistory,
         fileExtractionResult
       );
+
+      // Phase 4: Handle auto mode continuation
+      // If we're in implementation stage and auto mode is active, check if plan is complete
+      if (effectiveAutoMode && currentStage === 'implementation') {
+        const isPlanCompleted = this.isProgressPlanCompleted();
+        if (!isPlanCompleted) {
+          // Plan not complete - continue with next step in auto mode
+          console.log(`[Harmony] Auto mode: Step completed, continuing to next step...`);
+          
+          // Recursively call with @cmd:auto to trigger next step, passing isAutoMode=true
+          const continuationResponse = await this.callServer(
+            '@cmd:auto',
+            templateName,
+            applyTemplate,
+            true,
+            conversationHistory,
+            fileExtractionResult,
+            true // isAutoMode flag
+          );
+
+          // Append continuation response to current response
+          return {
+            content: response.content + "\n\n---\n\n" + continuationResponse.content,
+            reasoning: response.reasoning || continuationResponse.reasoning,
+            commentary: response.commentary || continuationResponse.commentary,
+            final: response.final || continuationResponse.final,
+            toolCalls: [
+              ...(response.toolCalls || []),
+              ...(continuationResponse.toolCalls || []),
+            ],
+            isContinuation: true,
+            verboseInfo: continuationResponse.verboseInfo,
+          };
+        } else {
+          // All steps completed
+          console.log(`[Harmony] Auto mode: All steps completed`);
+          return response;
+        }
+      }
+
+      return response;
     } catch (error: any) {
       const context = this.contextManager.getContext();
       console.error(

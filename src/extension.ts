@@ -595,31 +595,6 @@ export class HarmonyAssistant {
       }
 
       await this.webviewManager.sendMessage(cleanedResponse);
-
-      // Check if we should continue in auto mode (trigger was 'auto' and plan not completed)
-      // This happens after a step completes in implementation stage
-      const implementationStage = this.harmonyClient.getCurrentStage();
-      if (implementationStage === 'implementation') {
-        // Check if the original message contained auto trigger
-        const textLower = text.toLowerCase();
-        const isAutoTrigger = /@cmd:auto|auto\s+mode|execute\s+all/i.test(textLower);
-        
-        if (isAutoTrigger) {
-          // Check plan completion status
-          const isPlanCompleted = this.harmonyClient.isProgressPlanCompleted();
-          if (!isPlanCompleted) {
-            // There are more steps - continue processing
-            console.log(`[Harmony] Auto mode: Step completed, continuing to next step...`);
-            // Use setTimeout to avoid blocking and allow the response to be displayed first
-            setTimeout(async () => {
-              await this.handleChatMessage('@cmd:auto');
-            }, 100);
-          } else {
-            // All steps completed
-            console.log(`[Harmony] Auto mode: All steps completed`);
-          }
-        }
-      }
     } catch (error: any) {
       console.error(`[Harmony] Error in handleChatMessage:`, error);
       await this.webviewManager.sendMessage({
