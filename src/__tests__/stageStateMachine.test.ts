@@ -27,16 +27,12 @@ describe('StageStateMachine', () => {
       const instructions = stateMachine.getInstructions('assumptions');
       
       expect(instructions).toContain('ASSUMPTIONS/ANALYSIS');
-      expect(instructions).toContain('Assumptions/Analysis');
-      expect(instructions).toContain('code snippets');
       // Check for key phrases separately to be more robust against wording changes
-      expect(instructions).toMatch(/DO NOT.*file modification tools/i);
+      expect(instructions).toMatch(/DO NOT.*file modification tools.*and MCP tools/i);
       expect(instructions).toContain('file modification tools');
-      // MCP tools are now available in assumptions stage
-      expect(instructions).toContain('MCP Tools are AVAILABLE');
-      expect(instructions).toMatch(/provide code snippets/i);
-      expect(instructions).toMatch(/break.*down.*steps|Create.*plan|format.*plan.*steps/i);
-      expect(instructions).toContain('Use MCP tools');
+      // MCP tools are NOT available in assumptions stage
+      expect(instructions).toContain('Analyze comprehensively');
+      expect(instructions).toMatch(/format.*plan.*steps|Step 1|Step 2/);
     });
 
     it('should return implementation stage instructions', () => {
@@ -83,14 +79,15 @@ describe('StageStateMachine', () => {
       expect(allowedNames).not.toContain('delete_file');
     });
 
-    it('should filter out file modification tools in assumptions stage', () => {
+    it('should filter out file modification tools and MCP tools in assumptions stage', () => {
       const allowedTools = stateMachine.getAllowedTools(allTools, 'assumptions');
       
       const allowedNames = allowedTools.map(t => t.name);
       expect(allowedNames).toContain('read_file');
       expect(allowedNames).toContain('list_files');
       expect(allowedNames).toContain('grep_files');
-      expect(allowedNames).toContain('custom_tool');
+      // MCP tools are NOT available in assumptions stage anymore
+      expect(allowedNames).not.toContain('custom_tool');
       expect(allowedNames).not.toContain('create_file');
       expect(allowedNames).not.toContain('replace_file');
       expect(allowedNames).not.toContain('delete_file');

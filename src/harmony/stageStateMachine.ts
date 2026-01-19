@@ -312,12 +312,7 @@ You are in the **Chat/Clarification** stage. Your goal is to:
 
       'assumptions': `## Current Stage: ASSUMPTIONS/ANALYSIS
 
-⚠️ **CRITICAL RESTRICTION**: You are in the **Assumptions/Analysis** stage. File modification tools (create_file, replace_file, write_file, update_file, delete_file, edit_file, modify_file) are NOT available and MUST NOT be used.
-
-**MCP Tools are AVAILABLE**: Use MCP tools (analyze_latin, data lookups, etc.) when needed by calling: \`<tool_call name="tool_name" args='{"param": "value"}' />\`
-
 **Your goal in Assumptions stage:**
-- **Use MCP tools immediately** when data is needed - don't just describe what you would do
 - **Analyze comprehensively**: Review ALL conversation history from the beginning - examine ALL user messages to identify ALL distinct requests, not just the first or most recent one
 - **Identify all requirements**: Count and list all user requests from the conversation history. If there are 3 requests, you must address all 3
 - **Assess complexity**: Determine task complexity based on ALL requirements identified (simple = 1-2 steps, hard = 3+ steps)
@@ -328,9 +323,8 @@ You are in the **Chat/Clarification** stage. Your goal is to:
 - **DO NOT generate actual code** - that's for the Implementation stage
 
 **ABSOLUTE REQUIREMENTS:**
-- ❌ DO NOT use any file modification tools
+- ❌ DO NOT use any file modification tools and MCP tools
 - ❌ DO NOT provide code snippets or code blocks - that's for Implementation stage
-- ✅ DO use MCP tools when the user's request requires them
 - ✅ DO review ALL conversation history to identify ALL user requests
 - ✅ DO format your plan with explicit step numbering: "Step 1:", "Step 2:", "Step 3:" (with colon)
 - ✅ DO create a step for each distinct user request you identified
@@ -343,6 +337,7 @@ You are in the **Chat/Clarification** stage. Your goal is to:
 You are in the **Implementation** stage. Your goal is to:
 - **Follow the plan** created in the Assumptions/Analysis stage
 - **Generate code snippets** - Create the actual code content for each file
+- **MCP Tools are AVAILABLE**: Use MCP tools (analyze_latin, data lookups, etc.) when needed by calling: \`<tool_call name="tool_name" args='{"param": "value"}' />\`
 - **Call create_file, replace_file, or exec_terminal tools** to implement the plan
 - Use create_file for new files, replace_file for modifying existing files, and exec_terminal for terminal commands
 - All tools are available, including file modification tools and terminal tools
@@ -374,7 +369,7 @@ You are in the **Implementation** stage. Your goal is to:
    * Filter tools based on current workflow stage
    * Uses a table-based approach instead of if-else
    */
-  getAllowedTools<T extends { name: string }>(
+  getAllowedTools<T extends { name: string; type?: string }>(
     allTools: T[],
     stage: WorkflowStage
   ): T[] {
@@ -414,7 +409,12 @@ You are in the **Implementation** stage. Your goal is to:
       return [];
     }
     
-    // Block specific tools (assumptions stage)
+    if (stage === 'assumptions') {
+      // Block file modification tools AND MCP tools in assumptions stage
+      return allTools.filter(tool => !rule.blocked.includes(tool.name) && tool.type !== 'mcp');
+    }
+    
+    // Block specific tools (other stages)
     return allTools.filter(tool => !rule.blocked.includes(tool.name));
   }
 }
