@@ -56,6 +56,11 @@ export class HarmonyAssistant {
         verboseInfo: verboseInfo
       });
     });
+
+    // Set up callback to send intermediate responses during auto mode
+    this.harmonyClient.setIntermediateResponseCallback(async (response) => {
+      await this.webviewManager.sendMessage(response);
+    });
     
     this.templateRenderer = new TemplateRenderer(context, this.config.harmonyMode);
     this.codeActions = new CodeActions(

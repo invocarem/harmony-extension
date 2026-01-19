@@ -68,6 +68,10 @@ export type VerboseInfoCallback = (
   verboseInfo: VerboseInfo
 ) => void | Promise<void>;
 
+export type IntermediateResponseCallback = (
+  response: HarmonyResponse
+) => void | Promise<void>;
+
 /**
  * Main HarmonyClient with HarmonyProcessor integration and multi-step continuation
  * Refactored to use modular components for better maintainability
@@ -98,6 +102,8 @@ export class HarmonyClient {
 
   // Callback for pre-transition verboseInfo
   private verboseInfoCallback?: VerboseInfoCallback;
+  // Callback for intermediate responses in auto mode
+  private intermediateResponseCallback?: IntermediateResponseCallback;
 
   constructor(
     private config: LlamaConfig,
@@ -222,8 +228,19 @@ export class HarmonyClient {
       if (effectiveAutoMode && currentStage === 'implementation') {
         const isPlanCompleted = this.isProgressPlanCompleted();
         if (!isPlanCompleted) {
-          // Plan not complete - continue with next step in auto mode
-          console.log(`[Harmony] Auto mode: Step completed, continuing to next step...`);
+          // Plan not complete - send intermediate response and continue with next step in auto mode
+          console.log(`[Harmony] Auto mode: Step completed, sending intermediate result to UI...`);
+          
+          // Send intermediate response to webview UI if callback is available
+          if (this.intermediateResponseCallback) {
+            try {
+              await this.intermediateResponseCallback(response);
+            } catch (error: any) {
+              console.warn(`[Harmony] Error sending intermediate response:`, error);
+            }
+          }
+          
+          console.log(`[Harmony] Auto mode: Continuing to next step...`);
           
           // Recursively call with @cmd:auto to trigger next step, passing isAutoMode=true
           const continuationResponse = await this.callServer(
@@ -2897,6 +2914,10 @@ export class HarmonyClient {
    */
   setVerboseInfoCallback(callback: VerboseInfoCallback): void {
     this.verboseInfoCallback = callback;
+  }
+
+  setIntermediateResponseCallback(callback: IntermediateResponseCallback): void {
+    this.intermediateResponseCallback = callback;
   }
 
   /**
