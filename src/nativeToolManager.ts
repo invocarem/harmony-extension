@@ -955,7 +955,11 @@ export class NativeToolsManager {
         if (stats.isDirectory()) {
           // Check if it's a valid venv (has bin/activate or Scripts/activate)
           const activatePath = path.join(venvPath, "bin", "activate");
-          const activateWindowsPath = path.join(venvPath, "Scripts", "activate");
+          const activateWindowsPath = path.join(
+            venvPath,
+            "Scripts",
+            "activate"
+          );
 
           try {
             await stat(activatePath);
@@ -1011,7 +1015,7 @@ export class NativeToolsManager {
       const timeout = 30000; // 30 seconds
       const execPromise = execAsync(enhancedCommand, {
         cwd: cwd,
-        shell: '/bin/bash',
+        shell: process.platform === "win32" ? "cmd.exe" : "/bin/bash",
         maxBuffer: 1024 * 1024 * 10, // 10MB buffer for output
         timeout: timeout,
       });

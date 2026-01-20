@@ -294,7 +294,7 @@ describe("NativeToolsManager", () => {
         command,
         expect.objectContaining({
           cwd: workspaceRoot,
-          shell: '/bin/bash',
+          shell: process.platform === "win32" ? "cmd.exe" : "/bin/bash",
           maxBuffer: 1024 * 1024 * 10,
           timeout: 30000,
         })
@@ -719,8 +719,10 @@ describe("NativeToolsManager", () => {
 
       const callArgs = (mockExecAsync as jest.Mock).mock.calls[0];
       const command = callArgs[0];
-      expect(command).toContain("source");
-      expect(command).toContain("venv/bin/activate");
+      // Check that venv activation is present (Unix: source, Windows: direct call)
+      expect(command).toMatch(/(source.*activate|activate.*&&)/);
+      expect(command).toContain("venv");
+      expect(command).toContain("activate");
       expect(command).toContain("python script.py");
     });
 
@@ -744,8 +746,10 @@ describe("NativeToolsManager", () => {
 
       const callArgs = (mockExecAsync as jest.Mock).mock.calls[0];
       const command = callArgs[0];
-      expect(command).toContain("source");
-      expect(command).toContain(".venv/bin/activate");
+      // Check that venv activation is present (Unix: source, Windows: direct call)
+      expect(command).toMatch(/(source.*activate|activate.*&&)/);
+      expect(command).toContain(".venv");
+      expect(command).toContain("activate");
       expect(command).toContain("python script.py");
     });
 
@@ -769,7 +773,9 @@ describe("NativeToolsManager", () => {
 
       const callArgs = (mockExecAsync as jest.Mock).mock.calls[0];
       const command = callArgs[0];
-      expect(command).toContain("Scripts/activate");
+      // On Windows, should call activate script directly
+      expect(command).toContain("Scripts");
+      expect(command).toContain("activate");
       expect(command).toContain("python script.py");
     });
 
@@ -795,7 +801,10 @@ describe("NativeToolsManager", () => {
 
       const callArgs = (mockExecAsync as jest.Mock).mock.calls[0];
       const command = callArgs[0];
-      expect(command).toContain("env/bin/activate");
+      // Check that env venv activation is present
+      expect(command).toMatch(/(source.*activate|activate.*&&)/);
+      expect(command).toMatch(/[/\\]env[/\\]/);
+      expect(command).toContain("activate");
       expect(command).toContain("python script.py");
     });
 
@@ -840,7 +849,9 @@ describe("NativeToolsManager", () => {
       const callArgs = (mockExecAsync as jest.Mock).mock.calls[0];
       const command = callArgs[0];
       // Should skip invalid venv and find .venv
-      expect(command).toContain(".venv/bin/activate");
+      expect(command).toMatch(/(source.*activate|activate.*&&)/);
+      expect(command).toContain(".venv");
+      expect(command).toContain("activate");
     });
   });
 });
