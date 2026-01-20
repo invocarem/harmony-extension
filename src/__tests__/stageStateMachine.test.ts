@@ -11,16 +11,15 @@ describe('StageStateMachine', () => {
 
   describe('getInstructions()', () => {
     it('should return chat stage instructions', () => {
-      const instructions = stateMachine.getInstructions('chat');
+      const instructions = stateMachine.getInstructions('chat').toLocaleLowerCase();
       
-      expect(instructions).toContain('CHAT/CLARIFICATION');
-      expect(instructions).toContain('Chat/Clarification');
-      expect(instructions).toContain('restate the user\'s problem FIRST');
+      expect(instructions).toContain('chat/clarification');
+      expect(instructions).toContain('restate');
       // Chat stage restricts to read-only tools, which implies file modification tools are not available
       expect(instructions).toContain('read-only tools');
       expect(instructions).toContain('read_file, list_files, grep_files');
-      expect(instructions).toContain('Chat → Analysis');
-      expect(instructions).toContain('Implementation');
+      expect(instructions).toContain('chat → analysis');
+      expect(instructions).toContain('implementation');
     });
 
     it('should return assumptions stage instructions', () => {

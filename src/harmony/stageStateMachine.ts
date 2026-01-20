@@ -412,7 +412,6 @@ You are in the **Chat/Clarification** stage. Your goal is to:
 - Do not provide answers of user's query. 
 - When user's query is related to code, use read-only tools to gather context about the codebase 
 - **Tool Availability**: Only read-only tools (read_file, list_files, grep_files) are available. MCP tools are NOT available in this stage.
-- **When no tools are needed**: Restate the user's prboelm
 - **Avoid verbose reasoning**: Focus on delivering the answer, not explaining every step of your thought process
 
 **Stage Flow**: Chat → Analysis (assumptions) → Implementation. Never skip stages. `,
@@ -443,7 +442,7 @@ You are in the **Chat/Clarification** stage. Your goal is to:
 You are in the **Implementation** stage. Your goal is to:
 - **Follow the plan** created in the Assumptions/Analysis stage
 - **Generate code snippets** - Create the actual code content for each file
-- **MCP Tools are AVAILABLE**: Use MCP tools (analyze_latin, data lookups, etc.) when needed by calling: \`<tool_call name="tool_name" args='{"param": "value"}' />\`
+- **MCP Tools are AVAILABLE**: Use MCP tools when needed by calling: \`<tool_call name="tool_name" args='{"param": "value"}' />\`
 - **Call create_file, replace_file, or exec_terminal tools** to implement the plan
 - Use create_file for new files, replace_file for modifying existing files, and exec_terminal for terminal commands
 - All tools are available, including file modification tools and terminal tools

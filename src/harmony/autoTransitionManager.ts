@@ -1,6 +1,7 @@
 import { MCPToolCall } from "../mcpClient";
 import { ProgressPlanManager, ProgressPlan } from "../progressPlanManager";
 import { ConversationContext } from "./conversationContext";
+import { StepsMarkdownParser } from "../utils/stepsMarkdownParser";
 
 /**
  * Manages auto-transitions between workflow stages
@@ -149,199 +150,28 @@ export class AutoTransitionManager {
     originalPrompt?: string,
     complexity?: "simple" | "hard" | null
   ): Array<{ goal: string; description?: string }> {
-    // Helper function to check if a step is an edge case discussion
-    const isEdgeCaseStep = (stepContent: string): boolean => {
-      const edgeCaseKeywords = [
-        "file not found",
-        "multiple matches",
-        "large file",
-        "corrupted",
-        "binary reading",
-        "size limits",
-        "valid.*docx",
-        "error.*surface",
-        "reject.*file",
-      ];
-      const lowerContent = stepContent.toLowerCase();
-      return edgeCaseKeywords.some((keyword) => {
-        const pattern = new RegExp(keyword, "i");
-        return pattern.test(lowerContent);
-      });
-    };
-
-    // Helper function to check if a step is an execution step (has action verbs)
-    const isExecutionStep = (stepContent: string): boolean => {
-      const actionVerbs = [
-        "locate",
-        "find",
-        "read",
-        "encode",
-        "convert",
-        "call",
-        "save",
-        "write",
-        "create",
-        "implement",
-        "execute",
-        "perform",
-        "run",
-        "use",
-        "pass",
-        "determine",
-        "prepare",
-        "obtain",
-        "capture",
-        "return",
-      ];
-      const lowerContent = stepContent.toLowerCase();
-      return actionVerbs.some((verb) => {
-        const pattern = new RegExp(`\\b${verb}\\b`, "i");
-        return pattern.test(lowerContent);
-      });
-    };
-
-    // Helper function to extract steps using regex patterns
-    const extractStepsFromTextHelper = (
-      text: string
-    ): Array<{
-      number: number;
-      content: string;
-      isInNumberedPlan?: boolean;
-    }> => {
-      // Try to find plan sections: "Numbered plan:", "Plan (all steps needed):", "Plan:", etc.
-      // Prioritize explicit plan sections over the full text
-      const planSectionMatch =
-        // Match: **Numbered plan:** or **Plan (anything):** or **plan:**
-        // Capture everything until we hit a new section header (but not **Step** which is part of the plan)
-        text.match(
-          /\*\*(?:numbered\s+)?plan\s*(?:\([^)]*\))?\*?\*?\s*:\s*([\s\S]*?)(?=\n\*\*(?!Step)[A-Z]|$)/i
-        ) ||
-        // Match: Numbered plan: or Plan: (without bold)
-        text.match(
-          /(?:^|\n)(?:numbered\s+)?plan\s*(?:\([^)]*\))?\s*:\s*([\s\S]*?)(?=\n\n(?!\*\*Step)|$)/im
-        );
-
-      let searchText = planSectionMatch ? planSectionMatch[1] : text;
-      // Remove any leading ** or whitespace that might have been captured
-      searchText = searchText.replace(/^\*+\s*/, "").trim();
-
-      // Step patterns ordered by priority (most specific first)
-      const stepPatterns = [
-        // Handle: "**Step 1:** ..." (bold markdown with colons) - MOST SPECIFIC
-        // Fixed: The ** comes at the start, not between number and colon
-        /\*\*\s*[Ss]tep\s+(\d+)\s*:\s*\*\*\s*(.+?)(?=\*\*\s*[Ss]tep\s+\d+|$)/gm,
-        // Handle: "**1.** Text" (bold numbered with period)
-        /\*\*(\d+)\.\*\*\s+(.+?)(?=\s*\n\s*\*\*\d+\.\*\*|$)/gm,
-        // Handle: "1. Text\n2. Text" (plain numbered list with period)
-        /(?:^|\n)\s*(\d+)\.\s+(.+?)(?=\n\s*\d+\.\s|$)/gm,
-        // Handle: "1: Text\n2: Text" (plain numbered list with colon)
-        /(?:^|\n)\s*(\d+):\s+(.+?)(?=\n\s*\d+:\s|$)/gm,
-      ];
-
-      let extractedSteps: Array<{
-        number: number;
-        content: string;
-        isInNumberedPlan?: boolean;
-      }> = [];
-
-      // Try each pattern until we get matches
-      for (const pattern of stepPatterns) {
-        const matches = Array.from(searchText.matchAll(pattern));
-
-        for (const match of matches) {
-          const stepNum = parseInt(match[1] || "0", 10);
-          const stepContent = (match[2] || "")
-            .trim()
-            .replace(/^\*{1,2}|\*{1,2}$/g, ""); // Remove markdown
-
-          if (stepNum > 0 && stepContent && stepContent.length > 5) {
-            if (
-              !/execute\s+step|complete\s+part|part\s+\d+|step\s+\d+:?$/i.test(
-                stepContent
-              )
-            ) {
-              // Skip edge case steps
-              if (!isEdgeCaseStep(stepContent)) {
-                extractedSteps.push({
-                  number: stepNum,
-                  content: stepContent,
-                  isInNumberedPlan: !!planSectionMatch,
-                });
-              }
-            }
-          }
-        }
-
-        // If we found steps with this pattern, stop trying other patterns
-        if (extractedSteps.length > 0) break;
-      }
-
-      return extractedSteps;
-    };
-
     let steps: Array<{ goal: string; description?: string }> = [];
 
-    // First try extracting from content
-    let extractedStepsWithFlags = extractStepsFromTextHelper(content);
-
-    // Filter and prioritize: prefer steps from numbered plan section, then execution steps
-    let extractedSteps: Array<{ number: number; content: string }> = [];
-    if (extractedStepsWithFlags.length > 0) {
-      // Separate steps from numbered plan vs other steps
-      const numberedPlanSteps = extractedStepsWithFlags.filter(
-        (s) => s.isInNumberedPlan
-      );
-      const otherSteps = extractedStepsWithFlags.filter(
-        (s) => !s.isInNumberedPlan
-      );
-
-      // PRIORITY: Always prefer numbered plan steps if we found any,
-      // regardless of count. Only filter to execution steps if NO numbered plan found.
-      let stepsToUse: typeof extractedStepsWithFlags;
-      if (numberedPlanSteps.length > 0) {
-        // We have numbered plan steps, use them as-is
-        stepsToUse = numberedPlanSteps;
-      } else if (otherSteps.length > 0) {
-        // No numbered plan, filter other steps to execution steps only
-        stepsToUse = otherSteps.filter((s) => isExecutionStep(s.content));
-      } else {
-        stepsToUse = [];
-      }
-
-      // Group by step number and keep the first occurrence
-      const stepMap = new Map<number, { number: number; content: string }>();
-      for (const step of stepsToUse) {
-        if (!stepMap.has(step.number) || step.isInNumberedPlan) {
-          stepMap.set(step.number, {
-            number: step.number,
-            content: step.content,
-          });
-        }
-      }
-
-      extractedSteps = Array.from(stepMap.values());
-    }
+    // Use StepsMarkdownParser to extract steps
+    const parseResult = StepsMarkdownParser.extractPlanAndSteps(content);
+    let extractedSteps = parseResult.steps;
 
     // If not found in content, try originalPrompt
     if (extractedSteps.length < 3 && originalPrompt) {
-      const promptStepsWithFlags = extractStepsFromTextHelper(originalPrompt);
-      const promptSteps = promptStepsWithFlags.map((s) => ({
-        number: s.number,
-        content: s.content,
-      }));
+      const promptResult = StepsMarkdownParser.extractPlanAndSteps(originalPrompt);
       // Only use prompt steps if we don't have any from content, or if they're better
       if (
         extractedSteps.length === 0 ||
-        (promptSteps.length >= 3 && extractedSteps.length < 3)
+        (promptResult.steps.length >= 3 && extractedSteps.length < 3)
       ) {
-        extractedSteps = promptSteps;
+        extractedSteps = promptResult.steps;
       }
     }
 
-    // Convert to step format
+    // Filter out edge cases and convert to step format
     if (extractedSteps.length >= (complexity === "hard" ? 3 : 1)) {
       extractedSteps
-        .sort((a, b) => a.number - b.number)
+        .filter((step) => !StepsMarkdownParser.isEdgeCaseStep(step.content))
         .forEach((step) => {
           steps.push({
             goal: `Step ${step.number}: ${step.content}`,
@@ -405,18 +235,7 @@ export class AutoTransitionManager {
    * Helper method to detect generic/unhelpful step descriptions
    */
   private isGenericStepDescription(description: string): boolean {
-    const genericPatterns = [
-      /execute\s+step\s+\d+/i,
-      /complete\s+part\s+\d+/i,
-      /step\s+\d+\s*:/i,
-      /part\s+\d+\s+of\s+the\s+task/i,
-      /^implement\s+step\s+\d+$/i,
-      /^\s*\w+\s+step\s+\d+\s*$/i,
-      /complete\s+the\s+task/i,
-      /execute\s+the\s+task/i,
-    ];
-
-    return genericPatterns.some((pattern) => pattern.test(description));
+    return StepsMarkdownParser.isEdgeCaseStep(description);
   }
 
   /**
@@ -477,58 +296,26 @@ export class AutoTransitionManager {
         tools?: string[];
       }> = [];
 
-      // Try multiple patterns to extract steps
-      const stepPatterns = [
-        // Handle: "Step 1.", "Step 1:", "Step 1"
-        /(?:^|\n)\s*(?:Step|step)\s*(\d+)[:.)]?\s*(.+?)(?=\n\s*(?:Step|step)\s*\d+[:.)]?|$)/gis,
-        // Handle: "1.", "1:", "1)"
-        /(?:^|\n)\s*(\d+)[:.)]\s*(.+?)(?=\n\s*\d+[:.)]|$)/gis,
-        // Handle: "1 -", "1 –"
-        /(?:^|\n)\s*(\d+)\s*[-–—]\s*(.+?)(?=\n\s*\d+\s*[-–—]|$)/gis,
-      ];
+      // Use StepsMarkdownParser to extract steps
+      const parseResult = StepsMarkdownParser.extractPlanAndSteps(content);
+      const promptParseResult = StepsMarkdownParser.extractPlanAndSteps(prompt || "");
 
-      let stepMatches: RegExpMatchArray[] = [];
+      let extractedSteps = parseResult.steps.length > 0 ? parseResult.steps : promptParseResult.steps;
 
-      // First try extracting from LLM response content
-      for (const pattern of stepPatterns) {
-        const matches = Array.from(content.matchAll(pattern));
-        if (matches.length >= 3) {
-          stepMatches = matches;
-          break;
-        }
-      }
-
-      // If not found in content, try extracting from originalPrompt
-      if (stepMatches.length < 3 && prompt) {
-        for (const pattern of stepPatterns) {
-          const matches = Array.from(prompt.matchAll(pattern));
-          if (matches.length >= 3) {
-            stepMatches = matches;
-            break;
-          }
-        }
-      }
-
-      if (stepMatches.length >= 3) {
-        stepMatches.forEach((match) => {
-          // match[1] is the step number, match[2] is the step content
-          const stepContent =
-            match[2] ||
-            match[0]
-              .replace(/^(?:\d+[.)]|\*\s+|-\s+|Step\s+\d+[:.)]?\s*)/i, "")
-              .trim();
-
-          // Filter out generic/unhelpful step descriptions
-          if (stepContent && !this.isGenericStepDescription(stepContent)) {
+      // Filter out edge cases and convert to step format
+      if (extractedSteps.length >= 3) {
+        extractedSteps
+          .filter((step) => !StepsMarkdownParser.isEdgeCaseStep(step.content))
+          .forEach((step) => {
             steps.push({
-              goal: stepContent,
-              description: stepContent.substring(0, 100), // Keep concise
+              goal: `Step ${step.number}: ${step.content}`,
+              description: step.content,
             });
-          }
-        });
-      } else {
-        // Fallback: create task-specific steps instead of generic ones
-        // Look for file mentions in the content
+          });
+      }
+
+      // Fallback if not enough steps found
+      if (steps.length < 3) {
         const filePattern =
           /\b(create|write|make|implement|add|generate)\s+(\w+\.\w{2,4})/gi;
         const fileMatches = Array.from(content.matchAll(filePattern));
