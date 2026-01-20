@@ -3,7 +3,11 @@
  * Tracks assumptions/analysis responses, code snippets, and provides aggregation for stage transitions
  */
 
-import { ProgressPlanManager, ProgressPlan, PlanStep } from "../progressPlanManager";
+import {
+  ProgressPlanManager,
+  ProgressPlan,
+  PlanStep,
+} from "../progressPlanManager";
 import { AutoTransitionManager } from "./autoTransitionManager";
 import { NativeToolsManager } from "../nativeToolManager";
 import { ConversationContextManager } from "./conversationContext";
@@ -23,15 +27,15 @@ export interface AssumptionCodeSnippet {
  * Assumptions stage state
  */
 export interface AssumptionState {
-  assumptions: string[];              // Assistant analysis/assumption responses
-  codeSnippets: AssumptionCodeSnippet[];  // Code snippets extracted
-  taskId?: string;                    // Reference to ProgressPlan taskId
+  assumptions: string[]; // Assistant analysis/assumption responses
+  codeSnippets: AssumptionCodeSnippet[]; // Code snippets extracted
+  taskId?: string; // Reference to ProgressPlan taskId
   lastUpdated: number;
 }
 
 /**
  * Manages assumptions stage state and operations
- * 
+ *
  * Responsibilities:
  * - Track all assistant responses in assumptions stage
  * - Store code snippets extracted during assumptions stage
@@ -43,10 +47,14 @@ export class AssumptionsManager {
   private progressPlanManager: ProgressPlanManager;
   private autoTransitionManager: AutoTransitionManager;
 
-  constructor(progressPlanManager: ProgressPlanManager, autoTransitionManager?: AutoTransitionManager) {
+  constructor(
+    progressPlanManager: ProgressPlanManager,
+    autoTransitionManager?: AutoTransitionManager
+  ) {
     this.progressPlanManager = progressPlanManager;
     // Create AutoTransitionManager if not provided (for backwards compatibility)
-    this.autoTransitionManager = autoTransitionManager || new AutoTransitionManager(progressPlanManager);
+    this.autoTransitionManager =
+      autoTransitionManager || new AutoTransitionManager(progressPlanManager);
   }
 
   /**
@@ -75,7 +83,9 @@ export class AssumptionsManager {
     if (trimmed.length > 0) {
       this.state.assumptions.push(trimmed);
       this.state.lastUpdated = Date.now();
-      console.log(`[AssumptionsManager] Added assumption: "${trimmed.substring(0, 50)}${trimmed.length > 50 ? '...' : ''}"`);
+      console.log(
+        `[AssumptionsManager] Added assumption: "${trimmed.substring(0, 50)}${trimmed.length > 50 ? "..." : ""}"`
+      );
     }
   }
 
@@ -90,13 +100,17 @@ export class AssumptionsManager {
     if (!this.state) return;
 
     // Check if snippet already exists for this file
-    const existingIndex = this.state.codeSnippets.findIndex(s => s.file === file);
+    const existingIndex = this.state.codeSnippets.findIndex(
+      (s) => s.file === file
+    );
     if (existingIndex >= 0) {
       // Update existing snippet
       this.state.codeSnippets[existingIndex] = {
         file,
-        description: description || this.state.codeSnippets[existingIndex].description,
-        extractedAt: this.state.codeSnippets[existingIndex].extractedAt || Date.now(),
+        description:
+          description || this.state.codeSnippets[existingIndex].description,
+        extractedAt:
+          this.state.codeSnippets[existingIndex].extractedAt || Date.now(),
       };
     } else {
       // Add new snippet
@@ -108,7 +122,9 @@ export class AssumptionsManager {
     }
 
     this.state.lastUpdated = Date.now();
-    console.log(`[AssumptionsManager] Added code snippet: ${file}${description ? ` (${description})` : ''}`);
+    console.log(
+      `[AssumptionsManager] Added code snippet: ${file}${description ? ` (${description})` : ""}`
+    );
   }
 
   /**
@@ -185,7 +201,7 @@ export class AssumptionsManager {
   /**
    * Create or update a plan based on assumptions stage response
    * This is the central place for plan creation during assumptions stage
-   * 
+   *
    * @param existingTaskId - Optional taskId of an existing plan to update (e.g., from context manager)
    */
   createOrUpdatePlan(
@@ -200,25 +216,43 @@ export class AssumptionsManager {
     }
 
     // Use AutoTransitionManager for complexity detection
-    const complexity = this.autoTransitionManager.detectTaskComplexity(
-      content,
-      reasoning,
-      toolCalls,
-      originalPrompt
-    ) || 'simple';
+    let complexity: "simple" | "hard" =
+      this.autoTransitionManager.detectTaskComplexity(
+        content,
+        reasoning,
+        toolCalls,
+        originalPrompt
+      ) || "simple";
 
     // Extract steps using AutoTransitionManager
-    const steps = this.autoTransitionManager.extractStepsFromText(
+    let steps = this.autoTransitionManager.extractStepsFromText(
       content,
       originalPrompt,
       complexity
     );
 
+    // If the content only yields 0-2 actionable steps, treat it as a simple task
+    // This prevents the generic 3-step fallback from overwriting a concise plan
+    // IMPORTANT: Also downgrade if we got the generic "Complete the task" fallback
+    const isGenericFallback =
+      steps.length > 0 && /^complete\s+the\s+task$/i.test(steps[0].goal);
+    if ((complexity === "hard" && steps.length <= 2) || isGenericFallback) {
+      complexity = "simple";
+      steps = this.autoTransitionManager.extractStepsFromText(
+        content,
+        originalPrompt,
+        complexity
+      );
+      console.log(
+        `[AssumptionsManager] Detected <3 steps or generic fallback with hard complexity, reverting to simple plan (${steps.length} step(s))`
+      );
+    }
+
     // Use existing plan if available, otherwise create new one
     // Priority: 1. existingTaskId parameter, 2. this.state?.taskId, 3. create new
     let plan: ProgressPlan;
     const taskIdToUse = existingTaskId || this.state?.taskId;
-    
+
     if (taskIdToUse) {
       const existingPlan = this.progressPlanManager.getPlan(taskIdToUse);
       if (existingPlan) {
@@ -256,11 +290,11 @@ export class AssumptionsManager {
       this.setTaskId(taskId);
     }
 
-    console.log(`[AssumptionsManager] Plan ${plan.taskId} - ${complexity} complexity, ${plan.totalSteps} step(s)`);
+    console.log(
+      `[AssumptionsManager] Plan ${plan.taskId} - ${complexity} complexity, ${plan.totalSteps} step(s)`
+    );
     return plan;
   }
-
-
 
   /**
    * Export assumptions data for transition to implementation stage
@@ -278,30 +312,30 @@ export class AssumptionsManager {
       return {
         assumptions: [],
         codeSnippets: [],
-        summary: 'No assumptions data collected.',
+        summary: "No assumptions data collected.",
       };
     }
 
     // Get progressPlan from ProgressPlanManager if taskId is set
-    let progressPlan = this.state.taskId 
+    let progressPlan = this.state.taskId
       ? this.progressPlanManager.getPlan(this.state.taskId)
       : undefined;
 
     // ENFORCEMENT: If no plan exists and we have originalPrompt, create a plan
     // Use the centralized plan creation method
     if (!progressPlan && originalPrompt) {
-      const createdPlan = this.createOrUpdatePlan('', originalPrompt);
+      const createdPlan = this.createOrUpdatePlan("", originalPrompt);
       if (createdPlan) {
         progressPlan = createdPlan;
       }
     }
 
     // Create summary
-    const summary = `Analysis and assumptions from ${this.state.assumptions.length} response(s) in assumptions stage. Generated ${this.state.codeSnippets.length} code snippet(s).${progressPlan ? ` Plan created with ${progressPlan.totalSteps} step(s) (complexity: ${progressPlan.complexity}).` : ''}`;
+    const summary = `Analysis and assumptions from ${this.state.assumptions.length} response(s) in assumptions stage. Generated ${this.state.codeSnippets.length} code snippet(s).${progressPlan ? ` Plan created with ${progressPlan.totalSteps} step(s) (complexity: ${progressPlan.complexity}).` : ""}`;
 
     return {
       assumptions: [...this.state.assumptions],
-      codeSnippets: this.state.codeSnippets.map(s => ({
+      codeSnippets: this.state.codeSnippets.map((s) => ({
         file: s.file,
         description: s.description,
       })),
@@ -315,16 +349,16 @@ export class AssumptionsManager {
    * Check if assumptions state has meaningful content
    */
   hasContent(): boolean {
-    return this.state !== null && (
-      this.state.assumptions.length > 0 || 
-      this.state.codeSnippets.length > 0
+    return (
+      this.state !== null &&
+      (this.state.assumptions.length > 0 || this.state.codeSnippets.length > 0)
     );
   }
 
   /**
    * Generate aggregated_prompt.json file when transitioning from chat to assumptions stage
    * Creates the CodeContext and generates the diagnostic file
-   * 
+   *
    * @param chatData - Data from chat stage (queries, assistant responses, related files)
    * @param conversationHistory - Full conversation history to extract chat stage messages
    * @param nativeToolsManager - Tool manager to create the file
@@ -341,7 +375,9 @@ export class AssumptionsManager {
     contextManager?: ConversationContextManager
   ): Promise<void> {
     if (!chatData.queries || chatData.queries.length === 0) {
-      console.log(`[AssumptionsManager] No chat queries to aggregate, skipping aggregated_prompt.json generation`);
+      console.log(
+        `[AssumptionsManager] No chat queries to aggregate, skipping aggregated_prompt.json generation`
+      );
       return;
     }
 
@@ -350,70 +386,99 @@ export class AssumptionsManager {
       queries: chatData.queries,
       assistantResponses: chatData.assistantResponses || [],
       referredFiles: chatData.referredFiles || [],
-      summary: `Aggregated user queries from chat stage: ${chatData.queries.length} queries, ${chatData.assistantResponses.length || 0} assistant responses, ${chatData.referredFiles.length || 0} referred files`
+      summary: `Aggregated user queries from chat stage: ${chatData.queries.length} queries, ${chatData.assistantResponses.length || 0} assistant responses, ${chatData.referredFiles.length || 0} referred files`,
     };
 
     // Save aggregatedPrompt as JSON to CodeContext
     const promptJson = JSON.stringify(aggregatedPromptData, null, 2);
-    const promptLines = promptJson.split('\n');
+    const promptLines = promptJson.split("\n");
     const promptContext = new CodeContext(
-      'aggregated_prompt.json',
+      "aggregated_prompt.json",
       promptLines,
       false, // waitForCreate: false - just store, don't create file yet
-      'v1',
+      "v1",
       Date.now(),
-      'Aggregated user queries and assistant responses from chat stage'
+      "Aggregated user queries and assistant responses from chat stage"
     );
 
     // Store in context manager if provided
     if (contextManager) {
       contextManager.addCodeContext(promptContext);
-      console.log(`[AssumptionsManager] Saved aggregatedPrompt to CodeContext (${chatData.queries.length} queries, ${chatData.assistantResponses.length || 0} assistant responses, ${chatData.referredFiles.length || 0} referred files)`);
+      console.log(
+        `[AssumptionsManager] Saved aggregatedPrompt to CodeContext (${chatData.queries.length} queries, ${chatData.assistantResponses.length || 0} assistant responses, ${chatData.referredFiles.length || 0} referred files)`
+      );
     }
 
     // Generate the file if nativeToolsManager is provided
     if (nativeToolsManager && contextManager) {
       const context = contextManager.getContext();
       if (context?.codeContexts) {
-        const versions = context.codeContexts.get('aggregated_prompt.json');
+        const versions = context.codeContexts.get("aggregated_prompt.json");
         if (versions) {
-          const activeVersion = versions.find(v => v.isActive);
+          const activeVersion = versions.find((v) => v.isActive);
           if (activeVersion && !activeVersion.waitForCreate) {
             try {
               const content = activeVersion.getContentAsString();
               if (content && content.trim().length > 0) {
-                console.log(`[AssumptionsManager] Assumptions stage: Auto-generating diagnostic file: aggregated_prompt.json`);
+                console.log(
+                  `[AssumptionsManager] Assumptions stage: Auto-generating diagnostic file: aggregated_prompt.json`
+                );
                 try {
-                  const createResult = await nativeToolsManager.callTool('create_file', {
-                    file_path: 'aggregated_prompt.json',
-                    content: content
-                  });
-                  
+                  const createResult = await nativeToolsManager.callTool(
+                    "create_file",
+                    {
+                      file_path: "aggregated_prompt.json",
+                      content: content,
+                    }
+                  );
+
                   if (createResult && !createResult.isError) {
-                    console.log(`[AssumptionsManager] ✅ Successfully created diagnostic file: aggregated_prompt.json`);
-                  } else if (createResult && createResult.content?.[0]?.text?.includes('already exists')) {
+                    console.log(
+                      `[AssumptionsManager] ✅ Successfully created diagnostic file: aggregated_prompt.json`
+                    );
+                  } else if (
+                    createResult &&
+                    createResult.content?.[0]?.text?.includes("already exists")
+                  ) {
                     // File exists, use replace_file
-                    const replaceResult = await nativeToolsManager.callTool('replace_file', {
-                      file_path: 'aggregated_prompt.json',
-                      content: content
-                    });
+                    const replaceResult = await nativeToolsManager.callTool(
+                      "replace_file",
+                      {
+                        file_path: "aggregated_prompt.json",
+                        content: content,
+                      }
+                    );
                     if (replaceResult && !replaceResult.isError) {
-                      console.log(`[AssumptionsManager] ✅ Successfully updated diagnostic file: aggregated_prompt.json`);
+                      console.log(
+                        `[AssumptionsManager] ✅ Successfully updated diagnostic file: aggregated_prompt.json`
+                      );
                     } else {
-                      const errorMsg = replaceResult?.content?.[0]?.text || 'Unknown error';
-                      console.warn(`[AssumptionsManager] ⚠️ Failed to update diagnostic file aggregated_prompt.json: ${errorMsg}`);
+                      const errorMsg =
+                        replaceResult?.content?.[0]?.text || "Unknown error";
+                      console.warn(
+                        `[AssumptionsManager] ⚠️ Failed to update diagnostic file aggregated_prompt.json: ${errorMsg}`
+                      );
                     }
                   } else {
-                    const errorMsg = createResult?.content?.[0]?.text || 'Unknown error';
-                    console.warn(`[AssumptionsManager] ⚠️ Failed to create diagnostic file aggregated_prompt.json: ${errorMsg}`);
+                    const errorMsg =
+                      createResult?.content?.[0]?.text || "Unknown error";
+                    console.warn(
+                      `[AssumptionsManager] ⚠️ Failed to create diagnostic file aggregated_prompt.json: ${errorMsg}`
+                    );
                   }
                 } catch (error: any) {
                   // Silently ignore errors during diagnostic file creation (non-critical)
-                  console.warn(`[AssumptionsManager] ⚠️ Error creating diagnostic file aggregated_prompt.json:`, error.message || error);
+                  console.warn(
+                    `[AssumptionsManager] ⚠️ Error creating diagnostic file aggregated_prompt.json:`,
+                    error.message || error
+                  );
                 }
               }
             } catch (error: any) {
-              console.warn(`[AssumptionsManager] ⚠️ Error creating diagnostic file aggregated_prompt.json:`, error);
+              console.warn(
+                `[AssumptionsManager] ⚠️ Error creating diagnostic file aggregated_prompt.json:`,
+                error
+              );
             }
           }
         }
@@ -421,4 +486,3 @@ export class AssumptionsManager {
     }
   }
 }
-

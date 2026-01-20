@@ -1,7 +1,7 @@
-import { AutoTransitionManager } from '../harmony/autoTransitionManager';
-import { ProgressPlanManager } from '../progressPlanManager';
+import { AutoTransitionManager } from "../harmony/autoTransitionManager";
+import { ProgressPlanManager } from "../progressPlanManager";
 
-describe('AutoTransitionManager', () => {
+describe("AutoTransitionManager", () => {
   let manager: AutoTransitionManager;
   let progressPlanManager: ProgressPlanManager;
 
@@ -10,8 +10,7 @@ describe('AutoTransitionManager', () => {
     manager = new AutoTransitionManager(progressPlanManager);
   });
 
-  describe('detectTaskComplexity', () => {
-
+  describe("detectTaskComplexity", () => {
     it('should detect "hard" complexity for exact user prompt format with Step 1., Step 2., Step 3.', () => {
       const originalPrompt = `help me to create a hello module
 Step 1. create hello.py which greet function and main block
@@ -19,10 +18,16 @@ Step 2. create test_hello.py to test greet
 Step 3. write hello.md to document hello module`;
 
       // Test that it detects from originalPrompt when LLM response doesn't have steps
-      const llmContent = 'I will analyze the requirements and create the hello module files.';
-      const complexity = manager.detectTaskComplexity(llmContent, undefined, undefined, originalPrompt);
+      const llmContent =
+        "I will analyze the requirements and create the hello module files.";
+      const complexity = manager.detectTaskComplexity(
+        llmContent,
+        undefined,
+        undefined,
+        originalPrompt
+      );
 
-      expect(complexity).toBe('hard');
+      expect(complexity).toBe("hard");
     });
 
     it('should detect "hard" complexity for exact user prompt even without originalPrompt param', () => {
@@ -33,7 +38,7 @@ Step 3. write hello.md to document hello module`;
 
       const complexity = manager.detectTaskComplexity(content);
 
-      expect(complexity).toBe('hard');
+      expect(complexity).toBe("hard");
     });
 
     it('should detect "hard" complexity when original prompt has 3 steps with "Step 1.", "Step 2.", "Step 3." format', () => {
@@ -44,14 +49,21 @@ Step 3. write hello.md to document hello.py and its tests`;
 
       // Simulate LLM response that doesn't explicitly repeat the steps
       // (which is what happens in practice - LLM may not repeat user's step format)
-      const llmContent = 'I will help you create the hello.py file with greet and main functions, along with tests and documentation.';
-      const llmReasoning = 'This is a multi-step task that requires creating three files.';
+      const llmContent =
+        "I will help you create the hello.py file with greet and main functions, along with tests and documentation.";
+      const llmReasoning =
+        "This is a multi-step task that requires creating three files.";
 
       // Now with originalPrompt parameter, it should check originalPrompt as fallback
-      const complexity = manager.detectTaskComplexity(llmContent, llmReasoning, undefined, originalPrompt);
+      const complexity = manager.detectTaskComplexity(
+        llmContent,
+        llmReasoning,
+        undefined,
+        originalPrompt
+      );
 
       // Expected: 'hard' (because originalPrompt has 3 steps, even though LLM response doesn't)
-      expect(complexity).toBe('hard');
+      expect(complexity).toBe("hard");
     });
 
     it('should detect "hard" complexity when LLM response explicitly has 3 steps', () => {
@@ -61,15 +73,15 @@ Step 3: Create hello.md`;
 
       const complexity = manager.detectTaskComplexity(content);
 
-      expect(complexity).toBe('hard');
+      expect(complexity).toBe("hard");
     });
 
     it('should detect "simple" complexity when there are only 1-2 steps', () => {
-      const content = 'Step 1: Create hello.py\nStep 2: Add tests';
+      const content = "Step 1: Create hello.py\nStep 2: Add tests";
 
       const complexity = manager.detectTaskComplexity(content);
 
-      expect(complexity).toBe('simple');
+      expect(complexity).toBe("simple");
     });
 
     it('should detect "hard" complexity when numbered list has 3+ items', () => {
@@ -79,7 +91,7 @@ Step 3: Create hello.md`;
 
       const complexity = manager.detectTaskComplexity(content);
 
-      expect(complexity).toBe('hard');
+      expect(complexity).toBe("hard");
     });
 
     it('should detect "hard" complexity when LLM response is simple but originalPrompt has 3+ steps', () => {
@@ -91,13 +103,19 @@ Step 2. create hello.test.py to test greet
 Step 3. write hello.md to document hello module`;
 
       // LLM response that only mentions 1-2 steps or doesn't repeat the format
-      const llmContent = 'I will create hello.py with a greet function. Then I will add tests.';
-      const llmReasoning = 'This involves creating a Python module and tests.';
+      const llmContent =
+        "I will create hello.py with a greet function. Then I will add tests.";
+      const llmReasoning = "This involves creating a Python module and tests.";
 
       // Should detect as 'hard' because originalPrompt has 3 steps
-      const complexity = manager.detectTaskComplexity(llmContent, llmReasoning, undefined, originalPrompt);
+      const complexity = manager.detectTaskComplexity(
+        llmContent,
+        llmReasoning,
+        undefined,
+        originalPrompt
+      );
 
-      expect(complexity).toBe('hard');
+      expect(complexity).toBe("hard");
     });
 
     it('should prefer "hard" over "simple" when one source indicates hard complexity', () => {
@@ -106,17 +124,22 @@ Step 2. create file2.py
 Step 3. create file3.py`;
 
       // LLM response that only shows 1 step
-      const llmContent = 'Step 1: I will create the first file.';
+      const llmContent = "Step 1: I will create the first file.";
 
       // Should detect as 'hard' because originalPrompt has 3 steps
-      const complexity = manager.detectTaskComplexity(llmContent, undefined, undefined, originalPrompt);
+      const complexity = manager.detectTaskComplexity(
+        llmContent,
+        undefined,
+        undefined,
+        originalPrompt
+      );
 
-      expect(complexity).toBe('hard');
+      expect(complexity).toBe("hard");
     });
   });
 
-  describe('shouldAutoTransitionFromAssumptions - step extraction', () => {
-    it('should extract steps from originalPrompt when LLM response does not contain steps', () => {
+  describe("shouldAutoTransitionFromAssumptions - step extraction", () => {
+    it("should extract steps from originalPrompt when LLM response does not contain steps", () => {
       const contextManager = (manager as any).progressPlanManager;
       const originalPrompt = `help me to create a hello module
 Step 1. create hello.py which greet function and main block
@@ -124,12 +147,13 @@ Step 2. create hello.test.py to test greet
 Step 3. write hello.md to document hello module`;
 
       // LLM response that doesn't repeat the steps
-      const llmContent = 'I will help you create the hello module with all required files.';
-      
+      const llmContent =
+        "I will help you create the hello module with all required files.";
+
       const mockContext = {
         originalPrompt: originalPrompt,
-        currentStage: 'assumptions',
-        progressPlan: null
+        currentStage: "assumptions",
+        progressPlan: null,
       };
 
       const result = manager.shouldAutoTransitionFromAssumptions(
@@ -142,20 +166,20 @@ Step 3. write hello.md to document hello module`;
 
       expect(result.shouldTransition).toBe(true);
       expect(result.plan).toBeDefined();
-      expect(result.plan?.complexity).toBe('hard');
+      expect(result.plan?.complexity).toBe("hard");
       // Should extract 3 steps from originalPrompt
       expect(result.plan?.totalSteps).toBe(3);
       expect(result.plan?.steps.length).toBe(3);
-      
+
       // Verify step content
-      expect(result.plan?.steps[0].goal).toContain('hello.py');
-      expect(result.plan?.steps[1].goal).toContain('hello.test.py');
-      expect(result.plan?.steps[2].goal).toContain('hello.md');
+      expect(result.plan?.steps[0].goal).toContain("hello.py");
+      expect(result.plan?.steps[1].goal).toContain("hello.test.py");
+      expect(result.plan?.steps[2].goal).toContain("hello.md");
     });
   });
 
-  describe('extractStepsFromText', () => {
-    it('should prefer execution plan steps over edge case discussions', () => {
+  describe("extractStepsFromText", () => {
+    it("should prefer execution plan steps over edge case discussions", () => {
       // Simulate LLM response that contains both edge cases and execution plan
       const content = `**4. Numbered plan (one step per distinct requirement)**
 
@@ -185,24 +209,230 @@ Step 3: **Large file** – If the file is unusually large, the tool might reject
 Step 4: **Corrupted DOCX** – If the conversion tool fails because the file is not a valid DOCX, we should surface the error.
 Step 5: **Binary reading** – The workspace tools (read_file) return text; to obtain a Base-64 representation we must read the file as binary.`;
 
-      const steps = manager.extractStepsFromText(content, undefined, 'hard');
+      const steps = manager.extractStepsFromText(content, undefined, "hard");
 
       // Should extract the execution plan (3 steps), not the edge cases (5 steps)
       expect(steps.length).toBe(3);
-      expect(steps[0].goal).toContain('Locate');
-      expect(steps[0].goal).toContain('bliu.docx');
-      expect(steps[1].goal).toContain('Read');
-      expect(steps[1].goal).toContain('binary content');
-      expect(steps[2].goal).toContain('Call');
-      expect(steps[2].goal).toContain('convert_docx_to_markdown');
+      expect(steps[0].goal).toContain("Locate");
+      expect(steps[0].goal).toContain("bliu.docx");
+      expect(steps[1].goal).toContain("Read");
+      expect(steps[1].goal).toContain("binary content");
+      expect(steps[2].goal).toContain("Call");
+      expect(steps[2].goal).toContain("convert_docx_to_markdown");
 
       // Should NOT include edge cases
-      expect(steps.some(s => s.goal.includes('File not found'))).toBe(false);
-      expect(steps.some(s => s.goal.includes('Multiple matches'))).toBe(false);
-      expect(steps.some(s => s.goal.includes('Large file'))).toBe(false);
-      expect(steps.some(s => s.goal.includes('Corrupted DOCX'))).toBe(false);
-      expect(steps.some(s => s.goal.includes('Binary reading'))).toBe(false);
+      expect(steps.some((s) => s.goal.includes("File not found"))).toBe(false);
+      expect(steps.some((s) => s.goal.includes("Multiple matches"))).toBe(
+        false
+      );
+      expect(steps.some((s) => s.goal.includes("Large file"))).toBe(false);
+      expect(steps.some((s) => s.goal.includes("Corrupted DOCX"))).toBe(false);
+      expect(steps.some((s) => s.goal.includes("Binary reading"))).toBe(false);
+    });
+
+    describe("regex pattern edge cases - false detection prevention", () => {
+      it("should NOT confuse numbered section headers with actual steps", () => {
+        // Common jinja template output has **1. Restatement**, **2. Analysis**, **3. Complexity**
+        // These are section headers, NOT execution steps
+        const content = `
+**1. Restatement of the problem / requirements**
+The user is asking for the result of 2+2.
+
+**2. Analysis of the problem space**
+This is a basic arithmetic operation.
+
+**3. Estimated complexity assessment**
+Very simple arithmetic calculation.
+
+**Numbered plan:**
+1. Provide the numeric result of the addition, stating that 2 + 2 equals 4.
+`;
+
+        const steps = manager.extractStepsFromText(
+          content,
+          undefined,
+          "simple"
+        );
+
+        // Should extract 1 step from "Numbered plan:" section
+        // NOT 3 steps from the section headers
+        expect(steps.length).toBe(1);
+        expect(steps[0].goal).toContain("Provide the numeric result");
+      });
+
+      it("should extract plain numbered list from **Numbered plan:** section", () => {
+        const content = `
+**1. Restatement of the problem / requirements**
+Create a calculator function that adds two numbers.
+
+**2. Analysis of the problem space**
+Need a simple add function and test cases.
+
+**Numbered plan:**
+1. Create calc.py with an add function
+2. Create test_calc.py with test cases
+`;
+
+        const steps = manager.extractStepsFromText(
+          content,
+          undefined,
+          "simple"
+        );
+
+        // Should extract 2 steps from "Numbered plan:" section
+        expect(steps.length).toBe(2);
+        expect(steps[0].goal).toContain("calc.py");
+        expect(steps[1].goal).toContain("test_calc.py");
+      });
+
+      it("should extract bold markdown steps from **Plan (all steps needed):** section", () => {
+        const content = `
+**1. What is 2 + 2?**
+Simple arithmetic question.
+
+**2. How about 9 / 2?**
+Division question.
+
+**Plan (all steps needed):**
+
+**Step 1:** Calculate 2 + 2 to get the addition result
+**Step 2:** Calculate 9 / 2 to get the division result
+`;
+
+        const steps = manager.extractStepsFromText(
+          content,
+          undefined,
+          "simple"
+        );
+
+        // Should extract 2 steps from "Plan (all steps needed):" section
+        expect(steps.length).toBe(2);
+        expect(steps[0].goal).toContain("Calculate 2 + 2");
+        expect(steps[1].goal).toContain("Calculate 9 / 2");
+      });
+
+      it("should handle mixed format: section headers + bold plan with **Step N:** markers", () => {
+        const content = `
+**Assumptions:**
+
+**1. Requirements understanding**
+User wants to create a Python calculator.
+
+**2. Complexity analysis**
+This requires creating two files.
+
+**3. Implementation approach**
+Use Python with pytest for testing.
+
+**Plan (all steps needed):**
+
+**Step 1:** Create calculator.py with add, subtract, multiply, divide functions
+**Step 2:** Create test_calculator.py with test cases for all functions
+`;
+
+        const steps = manager.extractStepsFromText(
+          content,
+          undefined,
+          "simple"
+        );
+
+        // Should extract 2 steps from "Plan (all steps needed):" section
+        // NOT the numbered section headers (1, 2, 3)
+        expect(steps.length).toBe(2);
+        expect(steps[0].goal).toContain("calculator.py");
+        expect(steps[1].goal).toContain("test_calculator.py");
+      });
+
+      it("should prioritize numbered plan section over other numbered items", () => {
+        // If both section headers AND a numbered plan exist, prefer the plan
+        const content = `
+**1. Problem statement**
+Create a web scraper.
+
+**2. Technical approach**
+Use requests and beautifulsoup4.
+
+**3. Testing strategy**
+Unit tests and integration tests.
+
+**Numbered plan:**
+1. Install required packages (requests, beautifulsoup4)
+2. Create scraper.py with fetch and parse functions
+3. Create test_scraper.py with mock tests
+`;
+
+        const steps = manager.extractStepsFromText(content, undefined, "hard");
+
+        // Should extract 3 steps from "Numbered plan:" section
+        expect(steps.length).toBe(3);
+        expect(steps[0].goal).toContain("Install required packages");
+        expect(steps[1].goal).toContain("scraper.py");
+        expect(steps[2].goal).toContain("test_scraper.py");
+
+        // Should NOT include section headers
+        expect(steps.some((s) => s.goal.includes("Problem statement"))).toBe(
+          false
+        );
+        expect(steps.some((s) => s.goal.includes("Technical approach"))).toBe(
+          false
+        );
+      });
+
+      it("should handle **1.** bold numbered format (not section headers)", () => {
+        const content = `
+Here's what we'll do:
+
+**1.** Set up the project structure
+**2.** Write the main application code
+**3.** Add comprehensive tests
+`;
+
+        const steps = manager.extractStepsFromText(content, undefined, "hard");
+
+        expect(steps.length).toBe(3);
+        expect(steps[0].goal).toContain("project structure");
+        expect(steps[1].goal).toContain("application code");
+        expect(steps[2].goal).toContain("comprehensive tests");
+      });
+
+      it("should handle colon-delimited numbered list (1: format)", () => {
+        const content = `
+Tasks to complete:
+1: Create the database schema
+2: Implement the API endpoints
+3: Write integration tests
+`;
+
+        const steps = manager.extractStepsFromText(content, undefined, "hard");
+
+        expect(steps.length).toBe(3);
+        expect(steps[0].goal).toContain("database schema");
+        expect(steps[1].goal).toContain("API endpoints");
+        expect(steps[2].goal).toContain("integration tests");
+      });
+
+      it("should NOT extract when only section headers exist (no actual plan)", () => {
+        const content = `
+**1. Restatement of the problem**
+User wants help with X.
+
+**2. Analysis**
+This is straightforward.
+
+**3. Complexity**
+Simple task.
+`;
+
+        const steps = manager.extractStepsFromText(
+          content,
+          undefined,
+          "simple"
+        );
+
+        // Should fall back to generic single step since no actual plan exists
+        expect(steps.length).toBe(1);
+        expect(steps[0].goal).toContain("Complete the task");
+      });
     });
   });
 });
-

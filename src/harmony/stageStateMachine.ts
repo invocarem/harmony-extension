@@ -2,27 +2,27 @@ import { ChatMessage } from "../conversationManager";
 import { MCPToolResult } from "../mcpClient";
 import { ConfirmationManager } from "./confirmationManager";
 
-export type WorkflowStage = 'init' | 'chat' | 'assumptions' | 'implementation';
+export type WorkflowStage = "init" | "chat" | "assumptions" | "implementation";
 
 /**
  * Trigger types for state transitions
  */
-export type TransitionTrigger = 
-  | 'initialize'
-  | 'move_to_implementation'
-  | 'move_to_assumptions'
-  | 'move_to_chat'
-  | 'code_keywords'
-  | 'file_operations_without_ext'
-  | 'file_operations_with_ext'
-  | 'explicit_implementation_command'
-  | 'error_recovery'
-  | 'regenerate_code'
-  | 'clarification_request'
-  | 'next_step'        // Execute one step, stay in implementation
-  | 'auto'             // Execute one step, stay in implementation (auto mode)
-  | 'verbose_info'     // Generate verboseInfo, stay in current stage (works from any stage)
-  | 'none';
+export type TransitionTrigger =
+  | "initialize"
+  | "move_to_implementation"
+  | "move_to_assumptions"
+  | "move_to_chat"
+  | "code_keywords"
+  | "file_operations_without_ext"
+  | "file_operations_with_ext"
+  | "explicit_implementation_command"
+  | "error_recovery"
+  | "regenerate_code"
+  | "clarification_request"
+  | "next_step" // Execute one step, stay in implementation
+  | "auto" // Execute one step, stay in implementation (auto mode)
+  | "verbose_info" // Generate verboseInfo, stay in current stage (works from any stage)
+  | "none";
 
 /**
  * Transition table entry
@@ -40,36 +40,96 @@ interface TransitionRule {
  */
 const TRANSITION_TABLE: TransitionRule[] = [
   // Initialization (highest priority)
-  { from: 'init', trigger: 'initialize', to: 'chat', priority: 100 },
-  
+  { from: "init", trigger: "initialize", to: "chat", priority: 100 },
+
   // Explicit commands (high priority)
-  { from: 'assumptions', trigger: 'move_to_implementation', to: 'implementation', priority: 100 },
-  { from: 'implementation', trigger: 'move_to_assumptions', to: 'assumptions', priority: 100 },
-  { from: 'implementation', trigger: 'move_to_chat', to: 'chat', priority: 100 },
-  { from: 'chat', trigger: 'move_to_assumptions', to: 'assumptions', priority: 100 },
-  
+  {
+    from: "assumptions",
+    trigger: "move_to_implementation",
+    to: "implementation",
+    priority: 100,
+  },
+  {
+    from: "implementation",
+    trigger: "move_to_assumptions",
+    to: "assumptions",
+    priority: 100,
+  },
+  {
+    from: "implementation",
+    trigger: "move_to_chat",
+    to: "chat",
+    priority: 100,
+  },
+  {
+    from: "chat",
+    trigger: "move_to_assumptions",
+    to: "assumptions",
+    priority: 100,
+  },
+
   // Explicit implementation commands from assumptions
-  { from: 'assumptions', trigger: 'explicit_implementation_command', to: 'implementation', priority: 90 },
-  
+  {
+    from: "assumptions",
+    trigger: "explicit_implementation_command",
+    to: "implementation",
+    priority: 90,
+  },
+
   // Error recovery (high priority)
-  { from: 'implementation', trigger: 'error_recovery', to: 'chat', priority: 80 },
-  
+  {
+    from: "implementation",
+    trigger: "error_recovery",
+    to: "chat",
+    priority: 80,
+  },
+
   // Code regeneration
-  { from: 'implementation', trigger: 'regenerate_code', to: 'assumptions', priority: 70 },
-  
+  {
+    from: "implementation",
+    trigger: "regenerate_code",
+    to: "assumptions",
+    priority: 70,
+  },
+
   // Clarification requests
-  { from: 'implementation', trigger: 'clarification_request', to: 'chat', priority: 60 },
-  
+  {
+    from: "implementation",
+    trigger: "clarification_request",
+    to: "chat",
+    priority: 60,
+  },
+
   // Implementation stage self-loops (execute step, stay in stage)
-  { from: 'implementation', trigger: 'next_step', to: 'implementation', priority: 100 },
-  { from: 'implementation', trigger: 'auto', to: 'implementation', priority: 100 },
-  
+  {
+    from: "implementation",
+    trigger: "next_step",
+    to: "implementation",
+    priority: 100,
+  },
+  {
+    from: "implementation",
+    trigger: "auto",
+    to: "implementation",
+    priority: 100,
+  },
+
   // All stages self-loops (generate verboseInfo, stay in stage)
-  { from: 'init', trigger: 'verbose_info', to: 'init', priority: 100 },
-  { from: 'chat', trigger: 'verbose_info', to: 'chat', priority: 100 },
-  { from: 'assumptions', trigger: 'verbose_info', to: 'assumptions', priority: 100 },
-  { from: 'implementation', trigger: 'verbose_info', to: 'implementation', priority: 100 },
-  
+  { from: "init", trigger: "verbose_info", to: "init", priority: 100 },
+  { from: "chat", trigger: "verbose_info", to: "chat", priority: 100 },
+  {
+    from: "assumptions",
+    trigger: "verbose_info",
+    to: "assumptions",
+    priority: 100,
+  },
+  {
+    from: "implementation",
+    trigger: "verbose_info",
+    to: "implementation",
+    priority: 100,
+  },
+
   // Chat -> Assumptions transitions (DISABLED: Auto-transition removed, requires explicit "move to assumptions")
   // { from: 'chat', trigger: 'code_keywords', to: 'assumptions', priority: 50 },
   // { from: 'chat', trigger: 'file_operations_without_ext', to: 'assumptions', priority: 50 },
@@ -80,10 +140,10 @@ const TRANSITION_TABLE: TransitionRule[] = [
  * Valid transitions map (for quick lookup)
  */
 const VALID_TRANSITIONS: Map<WorkflowStage, Set<WorkflowStage>> = new Map([
-  ['init', new Set<WorkflowStage>(['chat'])],
-  ['chat', new Set<WorkflowStage>(['assumptions'])],
-  ['assumptions', new Set<WorkflowStage>(['implementation', 'chat'])],
-  ['implementation', new Set<WorkflowStage>(['chat', 'assumptions'])]
+  ["init", new Set<WorkflowStage>(["chat"])],
+  ["chat", new Set<WorkflowStage>(["assumptions"])],
+  ["assumptions", new Set<WorkflowStage>(["implementation", "chat"])],
+  ["implementation", new Set<WorkflowStage>(["chat", "assumptions"])],
 ]);
 
 /**
@@ -113,15 +173,21 @@ export class StageStateMachine {
     const promptLower = prompt.toLowerCase().trim();
 
     // Init stage always transitions to chat (handled separately, but included for completeness)
-    if (currentStage === 'init') {
-      return 'initialize';
+    if (currentStage === "init") {
+      return "initialize";
     }
 
     // Check for confirmation responses (high priority - checked before explicit commands)
     if (confirmationManager) {
-      const pendingConfirmation = confirmationManager.getPendingConfirmation(currentStage);
-      if (pendingConfirmation && confirmationManager.isConfirmationResponse(prompt)) {
-        console.log(`[StageStateMachine] Confirmation detected: ${pendingConfirmation.action} from ${currentStage}`);
+      const pendingConfirmation =
+        confirmationManager.getPendingConfirmation(currentStage);
+      if (
+        pendingConfirmation &&
+        confirmationManager.isConfirmationResponse(prompt)
+      ) {
+        console.log(
+          `[StageStateMachine] Confirmation detected: ${pendingConfirmation.action} from ${currentStage}`
+        );
         // Consume the confirmation
         confirmationManager.consumeConfirmation(currentStage);
         return pendingConfirmation.action as TransitionTrigger;
@@ -129,73 +195,106 @@ export class StageStateMachine {
     }
 
     // Explicit commands (checked after confirmations)
-    if (/\b(move\s+to|go\s+to|goto|start|begin)\s+(implementation|implement)\b/i.test(promptLower)) {
-      return 'move_to_implementation';
+    if (
+      /\b(move\s+to|go\s+to|goto|start|begin)\s+(implementation|implement)\b/i.test(
+        promptLower
+      )
+    ) {
+      return "move_to_implementation";
     }
-    
-    if (/\b(move\s+to|go\s+to|goto|start|begin)\s+(assumptions|analysis|analyze|plan|design)\b/i.test(promptLower)) {
-      return 'move_to_assumptions';
+
+    if (
+      /\b(move\s+to|go\s+to|goto|start|begin)\s+(assumptions|analysis|analyze|plan|design)\b/i.test(
+        promptLower
+      )
+    ) {
+      return "move_to_assumptions";
     }
-    
-    if (/\b(move\s+to|go\s+to|goto|back\s+to|return\s+to|clarify|chat|talk|discuss)\s+(chat|discussion|clarification)\b/i.test(promptLower)) {
-      return 'move_to_chat';
+
+    if (
+      /\b(move\s+to|go\s+to|goto|back\s+to|return\s+to|clarify|chat|talk|discuss)\s+(chat|discussion|clarification)\b/i.test(
+        promptLower
+      )
+    ) {
+      return "move_to_chat";
     }
 
     // Explicit implementation commands
-    if (/\b(now|then|next|please)\s+(create|write|make|implement|build|generate).*\b(file|code|implementation)\b/i.test(promptLower) ||
-        /\b(do\s+it|implement\s+it|create\s+it|create\s+the\s+file|write\s+the\s+file|make\s+the\s+file)\b/i.test(promptLower) ||
-        /\b(create_file|write_file|replace_file|update_file|edit_file|modify_file)\b/i.test(promptLower)) {
-      return 'explicit_implementation_command';
+    if (
+      /\b(now|then|next|please)\s+(create|write|make|implement|build|generate).*\b(file|code|implementation)\b/i.test(
+        promptLower
+      ) ||
+      /\b(do\s+it|implement\s+it|create\s+it|create\s+the\s+file|write\s+the\s+file|make\s+the\s+file)\b/i.test(
+        promptLower
+      ) ||
+      /\b(create_file|write_file|replace_file|update_file|edit_file|modify_file)\b/i.test(
+        promptLower
+      )
+    ) {
+      return "explicit_implementation_command";
     }
 
     // Detect verbose_info command (works from any stage) - check before stage-specific triggers
-    if (/@cmd:verbose[_-]?info|verbose\s+info|show\s+info|display\s+info/i.test(promptLower)) {
-      return 'verbose_info';
+    if (
+      /@cmd:verbose[_-]?info|verbose\s+info|show\s+info|display\s+info/i.test(
+        promptLower
+      )
+    ) {
+      return "verbose_info";
     }
 
     // Error recovery and clarification (from implementation)
-    if (currentStage === 'implementation') {
+    if (currentStage === "implementation") {
       // Detect next_step and auto commands (only in implementation stage)
       // Check for @cmd:next_step or natural language equivalents
-      if (/@cmd:next[_-]?step|next\s+step|continue|proceed|advance/i.test(promptLower)) {
-        return 'next_step';
+      if (
+        /@cmd:next[_-]?step|next\s+step|continue|proceed|advance/i.test(
+          promptLower
+        )
+      ) {
+        return "next_step";
       }
-      
+
       // Check for @cmd:auto or natural language equivalents
       if (/@cmd:auto|auto\s+mode|execute\s+all/i.test(promptLower)) {
-        return 'auto';
+        return "auto";
       }
-      
-      const clarificationKeywords = /\b(what|how|why|clarify|explain|understand|confused|error|wrong|doesn'?t\s+work|not\s+working)\b/i;
+
+      const clarificationKeywords =
+        /\b(what|how|why|clarify|explain|understand|confused|error|wrong|doesn'?t\s+work|not\s+working)\b/i;
       if (clarificationKeywords.test(promptLower)) {
-        return 'clarification_request';
+        return "clarification_request";
       }
-      
-      const regenerateKeywords = /\b(regenerate|redo|fix\s+the\s+code|update\s+the\s+code|change\s+the\s+code|modify\s+the\s+code)\b/i;
+
+      const regenerateKeywords =
+        /\b(regenerate|redo|fix\s+the\s+code|update\s+the\s+code|change\s+the\s+code|modify\s+the\s+code)\b/i;
       if (regenerateKeywords.test(promptLower)) {
-        return 'regenerate_code';
+        return "regenerate_code";
       }
     }
 
     // Chat -> Assumptions triggers
-    if (currentStage === 'chat') {
-      const codeKeywords = /\b(code|snippet|example|solution|how\s+to|fix|update|refactor|improve).*\b(code|function|class|method|variable|snippet)\b/i;
+    if (currentStage === "chat") {
+      const codeKeywords =
+        /\b(code|snippet|example|solution|how\s+to|fix|update|refactor|improve).*\b(code|function|class|method|variable|snippet)\b/i;
       if (codeKeywords.test(promptLower)) {
-        return 'code_keywords';
+        return "code_keywords";
       }
-      
-      const fileOperationKeywords = /\b(create|write|make|add|implement|code|generate|build|update|modify|edit|change).*\b(file|module|class|function|component|feature)\b/i;
+
+      const fileOperationKeywords =
+        /\b(create|write|make|add|implement|code|generate|build|update|modify|edit|change).*\b(file|module|class|function|component|feature)\b/i;
       if (fileOperationKeywords.test(promptLower)) {
-        return 'file_operations_without_ext';
+        return "file_operations_without_ext";
       }
-      
-      const fileOperationWithExtension = /\b(create|write|make|add|implement|code|generate|build|update|modify|edit|change)(?:\s+\w+)*\s+\w+\.\w{2,4}(\s|$)/i;
+
+      const fileOperationWithExtension =
+        /\b(create|write|make|add|implement|code|generate|build|update|modify|edit|change)(?:\s+\w+)*\s+\w+\.\w{2,4}(\s|$)/i;
       if (fileOperationWithExtension.test(promptLower)) {
-        return 'file_operations_with_ext';
+        return "file_operations_with_ext";
       }
     }
 
-    return 'none';
+    return "none";
   }
 
   /**
@@ -210,39 +309,51 @@ export class StageStateMachine {
     confirmationManager?: ConfirmationManager
   ): WorkflowStage | null {
     // Detect trigger from prompt
-    const trigger = this.detectTrigger(prompt, currentStage, confirmationManager);
-    
-    if (trigger === 'none') {
+    const trigger = this.detectTrigger(
+      prompt,
+      currentStage,
+      confirmationManager
+    );
+
+    if (trigger === "none") {
       return null; // Stay in current stage
     }
 
     // Find matching transition in table (sorted by priority)
-    const matchingTransitions = TRANSITION_TABLE
-      .filter(rule => rule.from === currentStage && rule.trigger === trigger)
-      .sort((a, b) => b.priority - a.priority);
+    const matchingTransitions = TRANSITION_TABLE.filter(
+      (rule) => rule.from === currentStage && rule.trigger === trigger
+    ).sort((a, b) => b.priority - a.priority);
 
     if (matchingTransitions.length === 0) {
-      console.log(`[StageStateMachine] No transition found for: ${currentStage} + ${trigger}`);
+      console.log(
+        `[StageStateMachine] No transition found for: ${currentStage} + ${trigger}`
+      );
       return null;
     }
 
     // Use highest priority matching transition
     const transition = matchingTransitions[0];
-    
+
     // Verify transition is valid
     if (!this.canTransition(currentStage, transition.to)) {
-      console.log(`[StageStateMachine] Transition rejected: ${currentStage} -> ${transition.to} (invalid per state machine rules)`);
+      console.log(
+        `[StageStateMachine] Transition rejected: ${currentStage} -> ${transition.to} (invalid per state machine rules)`
+      );
       return null;
     }
 
     // For self-loop transitions (same stage), return the current stage
     // This indicates an event occurred (next_step, auto, verbose_info) without stage change
     if (currentStage === transition.to) {
-      console.log(`[StageStateMachine] ✅ Event detected: ${currentStage} (trigger: ${trigger}) - staying in same stage`);
+      console.log(
+        `[StageStateMachine] ✅ Event detected: ${currentStage} (trigger: ${trigger}) - staying in same stage`
+      );
       return currentStage;
     }
 
-    console.log(`[StageStateMachine] ✅ Transition approved: ${currentStage} -> ${transition.to} (trigger: ${trigger})`);
+    console.log(
+      `[StageStateMachine] ✅ Transition approved: ${currentStage} -> ${transition.to} (trigger: ${trigger})`
+    );
     return transition.to;
   }
 
@@ -254,25 +365,30 @@ export class StageStateMachine {
     toolResults: Array<{ name: string; result?: MCPToolResult }>
   ): boolean {
     // Only transition from implementation to chat on errors
-    if (currentStage !== 'implementation') {
+    if (currentStage !== "implementation") {
       return false;
     }
 
     // Check if there are significant errors that require clarification
-    const hasFileModificationErrors = toolResults.some(tr => {
-      const isFileMod = ['create_file', 'replace_file', 'write_file', 'update_file'].includes(tr.name);
+    const hasFileModificationErrors = toolResults.some((tr) => {
+      const isFileMod = [
+        "create_file",
+        "replace_file",
+        "write_file",
+        "update_file",
+      ].includes(tr.name);
       const hasError = tr.result?.isError;
-      const errorText = tr.result?.content?.[0]?.text?.toLowerCase() || '';
-      
-      const needsClarification = 
-        errorText.includes('not found') ||
-        errorText.includes('permission denied') ||
-        errorText.includes('invalid') ||
-        errorText.includes('missing') ||
-        errorText.includes('required') ||
-        errorText.includes('cannot') ||
-        errorText.includes('unable');
-      
+      const errorText = tr.result?.content?.[0]?.text?.toLowerCase() || "";
+
+      const needsClarification =
+        errorText.includes("not found") ||
+        errorText.includes("permission denied") ||
+        errorText.includes("invalid") ||
+        errorText.includes("missing") ||
+        errorText.includes("required") ||
+        errorText.includes("cannot") ||
+        errorText.includes("unable");
+
       return isFileMod && hasError && needsClarification;
     });
 
@@ -284,33 +400,24 @@ export class StageStateMachine {
    */
   getInstructions(stage: WorkflowStage): string {
     const instructions: Record<WorkflowStage, string> = {
-      'init': `## Current Stage: INITIALIZATION
+      init: `## Current Stage: INITIALIZATION
 
 You are in the **Initialization** stage. The conversation is about to begin.
 This stage should quickly transition to the Chat stage.`,
 
-      'chat': `## Current Stage: CHAT/CLARIFICATION
+      chat: `## Current Stage: CHAT/CLARIFICATION
 
 You are in the **Chat/Clarification** stage. Your goal is to:
-- **CRITICAL: ALWAYS restate the user's problem FIRST** - Your response MUST begin by restating their question/problem in your own words to show understanding
-- Understand and clarify the user's problem or question
+- Restate user's problem in your own words to show understanding; 
+- Do not provide answers of user's query. 
+- When user's query is related to code, use read-only tools to gather context about the codebase 
 - **Tool Availability**: Only read-only tools (read_file, list_files, grep_files) are available. MCP tools are NOT available in this stage.
-- **If the user's question requires MCP tools**: 
-  1. Restate the problem in your own words
-  2. Identify what specific tools/data are needed
-  3. Clearly state that we'll move to the assumptions stage to use those tools
-  4. DO NOT attempt to answer directly without the required tools
-- **When read-only tools are helpful**: Use them to gather code context, then provide a concise, actionable response
-- **When no tools are needed**: Respond directly and helpfully to the user's query
-- **Be direct and concise**: Provide clear answers without excessive reasoning or explanation
-- **Structured output**: Only provide JSON or other structured formats if you have the necessary data/tools. Otherwise, acknowledge the need for tool access
+- **When no tools are needed**: Restate the user's prboelm
 - **Avoid verbose reasoning**: Focus on delivering the answer, not explaining every step of your thought process
 
-**Stage Flow**: Chat → Analysis (assumptions) → Implementation. Never skip stages.
-**IMPORTANT**: Your response must ALWAYS start by restating the user's problem/question in your own words.`,
+**Stage Flow**: Chat → Analysis (assumptions) → Implementation. Never skip stages. `,
 
-
-      'assumptions': `## Current Stage: ASSUMPTIONS/ANALYSIS
+      assumptions: `## Current Stage: ASSUMPTIONS/ANALYSIS
 
 **Your goal in Assumptions stage:**
 - **Analyze comprehensively**: Review ALL conversation history from the beginning - examine ALL user messages to identify ALL distinct requests, not just the first or most recent one
@@ -331,8 +438,7 @@ You are in the **Chat/Clarification** stage. Your goal is to:
 - ✅ DO explain your assumptions and edge cases clearly
 - ✅ DO describe what needs to be done (not how to implement it in code)`,
 
-
-'implementation': `## Current Stage: IMPLEMENTATION
+      implementation: `## Current Stage: IMPLEMENTATION
 
 You are in the **Implementation** stage. Your goal is to:
 - **Follow the plan** created in the Assumptions/Analysis stage
@@ -358,11 +464,10 @@ You are in the **Implementation** stage. Your goal is to:
   <tool_call name="create_file" args='{"file_path": "hello.py", "content": "print(\\\"Hello!\\\")"}' />
   <tool_call name="exec_terminal" args='{"command": "npm run compile"}' />
 
-**Note**: The Assumptions stage provides the plan and analysis. Your job is to implement it by generating actual code and creating files, or running commands.`
+**Note**: The Assumptions stage provides the plan and analysis. Your job is to implement it by generating actual code and creating files, or running commands.`,
+    };
 
-      };
-
-    return instructions[stage] || '';
+    return instructions[stage] || "";
   }
 
   /**
@@ -373,48 +478,79 @@ You are in the **Implementation** stage. Your goal is to:
     allTools: T[],
     stage: WorkflowStage
   ): T[] {
-    const toolRules: Record<WorkflowStage, { allowed: string[]; blocked: string[] }> = {
-      'init': {
+    const toolRules: Record<
+      WorkflowStage,
+      { allowed: string[]; blocked: string[] }
+    > = {
+      init: {
         allowed: [], // No tools available in init stage
-        blocked: [] // All tools blocked (conversation not started)
+        blocked: [], // All tools blocked (conversation not started)
       },
-      'chat': {
-        allowed: ['read_file', 'list_files', 'grep_files', 'search_files', 'read_directory'],
-        blocked: ['create_file', 'replace_file', 'write_file', 'update_file', 'delete_file', 'edit_file', 'modify_file']
+      chat: {
+        allowed: [
+          "read_file",
+          "list_files",
+          "grep_files",
+          "search_files",
+          "read_directory",
+        ],
+        blocked: [
+          "create_file",
+          "replace_file",
+          "write_file",
+          "update_file",
+          "delete_file",
+          "edit_file",
+          "modify_file",
+        ],
       },
-      'assumptions': {
+      assumptions: {
         allowed: [], // All tools except blocked ones
-        blocked: ['create_file', 'replace_file', 'write_file', 'update_file', 'delete_file', 'edit_file', 'modify_file']
+        blocked: [
+          "create_file",
+          "replace_file",
+          "write_file",
+          "update_file",
+          "delete_file",
+          "edit_file",
+          "modify_file",
+        ],
       },
-      'implementation': {
+      implementation: {
         allowed: [], // All tools allowed
-        blocked: []
-      }
+        blocked: [],
+      },
     };
 
     const rule = toolRules[stage];
-    
-    if (rule.blocked.length === 0 && rule.allowed.length === 0 && stage === 'implementation') {
+
+    if (
+      rule.blocked.length === 0 &&
+      rule.allowed.length === 0 &&
+      stage === "implementation"
+    ) {
       // All tools allowed (implementation stage)
       return allTools;
     }
-    
+
     if (rule.allowed.length > 0) {
       // Only allow specific tools (chat stage)
-      return allTools.filter(tool => rule.allowed.includes(tool.name));
+      return allTools.filter((tool) => rule.allowed.includes(tool.name));
     }
-    
-    if (stage === 'init') {
+
+    if (stage === "init") {
       // No tools available in init stage
       return [];
     }
-    
-    if (stage === 'assumptions') {
+
+    if (stage === "assumptions") {
       // Block file modification tools AND MCP tools in assumptions stage
-      return allTools.filter(tool => !rule.blocked.includes(tool.name) && tool.type !== 'mcp');
+      return allTools.filter(
+        (tool) => !rule.blocked.includes(tool.name) && tool.type !== "mcp"
+      );
     }
-    
+
     // Block specific tools (other stages)
-    return allTools.filter(tool => !rule.blocked.includes(tool.name));
+    return allTools.filter((tool) => !rule.blocked.includes(tool.name));
   }
 }
