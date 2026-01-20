@@ -822,6 +822,77 @@ This is not a file update.<|end|>`;
       expect(result.rawToolCalls).toEqual([]);
       expect(result.content).toContain("Here's an example");
     });
+
+    it("should preserve full content including code block (not just text before code block)", () => {
+      // This test ensures that code blocks are NOT truncated to only show
+      // content before the code block. The user should see the FULL response
+      // in the chat, including both code blocks and any text after them.
+      // This was the bug: only content BEFORE the code block was being shown
+      const response = `<|channel|>final<|message|>I'll create a test function for you:
+
+\`\`\`python
+def greet(name: str = "World") -> str:
+    return f"Hello, {name}!"
+\`\`\`
+
+This function takes an optional name parameter and returns a greeting string. Perfect for your use case!<|end|>`;
+
+      const result = processor.parseResponse(response);
+
+      // The content field should contain the FULL message
+      // including the code block and text after it - NOT truncated
+      expect(result.content).toContain("I'll create a test function");
+      expect(result.content).toContain("```python");
+      expect(result.content).toContain("def greet(name: str");
+      expect(result.content).toContain("return f\"Hello, {name}!\"");
+      expect(result.content).toContain("```");
+      expect(result.content).toContain("This function takes an optional");
+      expect(result.content).toContain("Perfect for your use case!");
+      
+      // Verify this is NOT truncated at the code block boundary
+      const contentBefore = result.content.indexOf("```");
+      const contentAfter = result.content.indexOf("Perfect for your use case!");
+      expect(contentAfter).toBeGreaterThan(contentBefore);
+    });
+
+    it("should preserve content after code block in chat display (not truncate at code block)", () => {
+      // Test the specific scenario from the user's issue:
+      // Response with explanation, code block, AND clarifying text after the code block
+      // The user should see ALL of this in the chat, not have it truncated
+      const response = `<|channel|>analysis<|message|>Create a Python module with a simple function<|end|><|start|>assistant<|channel|>final<|message|>Here's the implementation:
+
+\`\`\`python
+def greet(name: str = "World") -> str:
+    """Greet a person with their name"""
+    return f"Hello, {name}!"
+
+if __name__ == "__main__":
+    print(greet())
+    print(greet("Alice"))
+\`\`\`
+
+I've created a simple module with a \`greet\` function that accepts an optional name parameter. The function returns a greeting string. The script also demonstrates how to use the function.
+
+You can test it by running the file directly. Let me know if you'd like any modifications!<|end|>`;
+
+      const result = processor.parseResponse(response);
+
+      // Verify the content contains the ENTIRE response, NOT truncated
+      expect(result.content).toContain("Here's the implementation:");
+      expect(result.content).toContain("```python");
+      expect(result.content).toContain("def greet(");
+      expect(result.content).toContain('if __name__ == "__main__":');
+      expect(result.content).toContain("```");
+      // This is critical - text AFTER the code block should be included!
+      expect(result.content).toContain("I've created a simple module");
+      expect(result.content).toContain("You can test it by running");
+      expect(result.content).toContain("Let me know if you'd like any modifications");
+      
+      // Verify the text after the code block comes after the closing ```
+      const codeBlockEnd = result.content.lastIndexOf("```");
+      const textAfter = result.content.indexOf("I've created a simple module");
+      expect(textAfter).toBeGreaterThan(codeBlockEnd);
+    });
   });
 
   describe("Harmony mode disabled (plain jinja)", () => {
@@ -1040,9 +1111,12 @@ class Psalm105ATests: XCTestCase {
         expect(toolCalls[0].arguments.content).toContain("@testable import LatinService");
       }
       
-      // Content before the code block should be preserved (AI's explanation/restatement)
-      // This allows the AI's text to be displayed even when file tools are blocked
-      expect(result.content).toBe("**File:** `Tests/LatinService/Psalm105ATests.swift`");
+      // The full content (including code block) should be preserved for display
+      // This allows the AI's explanation AND the code to be shown to the user
+      expect(result.content).toContain("**File:** `Tests/LatinService/Psalm105ATests.swift`");
+      expect(result.content).toContain("```swift");
+      expect(result.content).toContain("@testable import LatinService");
+      expect(result.content).toContain("class Psalm105ATests");
     });
 
     it("should normalize file paths with leading slash to be relative to workspace", () => {

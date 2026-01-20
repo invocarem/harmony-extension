@@ -143,12 +143,10 @@ describe('HarmonyClient - Stage Control', () => {
           await client.callServer(greeting);
 
           const callArgs = mockedAxios.post.mock.calls[0];
-          const prompt = (callArgs[1] as any).prompt as string;
+          let prompt = (callArgs[1] as any).prompt as string;
+          prompt = prompt.toLowerCase();
 
-          expect(prompt).toContain('CHAT/CLARIFICATION');
-          expect(prompt).toContain('Chat/Clarification');
-          expect(prompt).not.toContain('ASSUMPTIONS');
-          expect(prompt).not.toContain('IMPLEMENTATION');
+          expect(prompt).toContain('chat/clarification');
         });
       });
 
@@ -163,9 +161,10 @@ describe('HarmonyClient - Stage Control', () => {
         await client.callServer('how are you');
 
         const callArgs = mockedAxios.post.mock.calls[0];
-        const prompt = (callArgs[1] as any).prompt as string;
+        let prompt = (callArgs[1] as any).prompt as string;
+        prompt = prompt.toLowerCase();
 
-        expect(prompt).toContain('CHAT/CLARIFICATION');
+        expect(prompt).toContain('chat/clarification');
       });
     });
 
@@ -469,9 +468,10 @@ describe('HarmonyClient - Stage Control', () => {
       const prompt = (callArgs[1] as any).prompt as string;
 
       expect(prompt).toContain('CHAT/CLARIFICATION');
-      expect(prompt).toContain('Understand and clarify');
-      // Chat stage restricts to read-only tools, which implies file modification tools are not available
-      expect(prompt).toContain('read-only tools');
+      expect(prompt).toMatch(/Understand and clarify/i);
+      expect(prompt).toMatch(/read-only tools/i);
+      expect(prompt).toMatch(/MCP tools.*NOT available/i);
+      expect(prompt).toMatch(/NEXT STAGE PROPOSAL/i);
     });
 
     it('should include assumptions stage instructions', async () => {
@@ -482,44 +482,44 @@ describe('HarmonyClient - Stage Control', () => {
       const prompt = (callArgs[1] as any).prompt as string;
 
       expect(prompt).toContain('ASSUMPTIONS/ANALYSIS');
-      expect(prompt).toContain('code snippets');
-      expect(prompt).toMatch(/DO NOT.*file modification tools|file modification.*NOT available.*MUST NOT/i);
+      expect(prompt).toMatch(/MANDATORY FORMAT/i);
+      expect(prompt).toMatch(/Step 1:/i);
+      expect(prompt).toMatch(/NO file modification tools/i);
+      expect(prompt).toMatch(/NO code snippets/i);
+      expect(prompt).toMatch(/NO MCP tools/i);
+      expect(prompt).toMatch(/complexity/i);
     });
 
     it('should include implementation stage instructions', async () => {
-      // Transition to assumptions stage (creates plan with steps)
-      await transitionToAssumptions(client, mockHarmonyProcessor);
-
-      // Mock the assumption_data.json creation that happens during transition
-      mockNativeToolsManager.callTool.mockResolvedValueOnce({
+      // Allow assumption_data.json creation and any subsequent tool calls
+      mockNativeToolsManager.callTool.mockResolvedValue({
         content: [{ type: 'text', text: 'File created successfully' }],
         isError: false,
       });
 
-      // When "move to implementation" is called, it first processes in assumptions stage
-      // to generate/complete the plan, then transitions to implementation stage
-      // Mock the assumptions stage LLM call - steps should mention file creation tools
-      const assumptionsResponse = createMockResponse('Here is the complete plan:\nStep 1: Create the file using create_file\nStep 2: Verify the file');
-      mockedAxios.post.mockResolvedValueOnce(assumptionsResponse);
-      
-      const assumptionsParseResult = createParseResult('Here is the complete plan:\nStep 1: Create the file using create_file\nStep 2: Verify the file');
-      mockHarmonyProcessor.parseResponse.mockReturnValueOnce(assumptionsParseResult);
+      // Move through assumptions to implementation so a plan exists
+      await transitionToAssumptions(client, mockHarmonyProcessor);
+      await transitionToImplementation(client, mockHarmonyProcessor);
+
+      // Trigger an implementation-stage LLM call
+      const implementationResponse = createMockResponse('Working on Step 1');
+      mockedAxios.post.mockResolvedValueOnce(implementationResponse);
+
+      const implementationParseResult = createParseResult('Working on Step 1');
+      mockHarmonyProcessor.parseResponse.mockReturnValueOnce(implementationParseResult);
       mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
 
-      // Transition to implementation stage (saves plan, creates assumption_data.json)
-      await client.callServer('move to implementation');
-      expect(client.getCurrentStage()).toBe('implementation');
+      await client.callServer('@cmd:next_step');
 
-      // Verify we're in implementation stage
-      expect(client.getCurrentStage()).toBe('implementation');
+      const callArgs = mockedAxios.post.mock.calls[mockedAxios.post.mock.calls.length - 1];
+      const prompt = (callArgs[1] as any).prompt as string;
 
-      // Verify we're in implementation stage
       expect(client.getCurrentStage()).toBe('implementation');
-      
-      // Check the assumptions stage call that was made during "move to implementation"
-      // This call was made in assumptions stage, but we can verify the stage transition worked
-      // The actual implementation stage instructions would be in the next LLM call when a step is executed
-      // For this test, we verify the stage transition was successful
+      expect(prompt).toContain('IMPLEMENTATION');
+      expect(prompt).toMatch(/PRIMARY GOAL/i);
+      expect(prompt).toMatch(/MUST include at least one tool call/i);
+      expect(prompt).toMatch(/All tools are available/i);
+      expect(prompt).toMatch(/Follow steps in EXACT order/i);
     });
   });
 

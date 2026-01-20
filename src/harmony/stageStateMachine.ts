@@ -214,7 +214,8 @@ export class StageStateMachine {
     if (
       /\b(move\s+to|go\s+to|goto|back\s+to|return\s+to|clarify|chat|talk|discuss)\s+(chat|discussion|clarification)\b/i.test(
         promptLower
-      )
+      ) ||
+      /@cmd:back[_-]?to[_-]?chat/i.test(promptLower)
     ) {
       return "move_to_chat";
     }
@@ -236,7 +237,7 @@ export class StageStateMachine {
 
     // Detect verbose_info command (works from any stage) - check before stage-specific triggers
     if (
-      /@cmd:verbose[_-]?info|verbose\s+info|show\s+info|display\s+info/i.test(
+      /@cmd:verbose(?:[_-]?info)?|verbose\s+info|show\s+info|display\s+info/i.test(
         promptLower
       )
     ) {
@@ -248,7 +249,7 @@ export class StageStateMachine {
       // Detect next_step and auto commands (only in implementation stage)
       // Check for @cmd:next_step or natural language equivalents
       if (
-        /@cmd:next[_-]?step|next\s+step|continue|proceed|advance/i.test(
+        /@cmd:next(?:[_-]?step)?|next\s+step|continue|proceed|advance/i.test(
           promptLower
         )
       ) {
@@ -407,63 +408,121 @@ This stage should quickly transition to the Chat stage.`,
 
       chat: `## Current Stage: CHAT/CLARIFICATION
 
-You are in the **Chat/Clarification** stage. Your goal is to:
+**PRIMARY GOAL**
 - Restate user's problem in your own words to show understanding; 
-- Do not provide answers of user's query. 
-- When user's query is related to code, use read-only tools to gather context about the codebase 
-- **Tool Availability**: Only read-only tools (read_file, list_files, grep_files) are available. MCP tools are NOT available in this stage.
-- **Avoid verbose reasoning**: Focus on delivering the answer, not explaining every step of your thought process
+- Understand and clarify any ambiguities in the user's request;
 
-**Stage Flow**: Chat → Analysis (assumptions) → Implementation. Never skip stages. `,
+**DO:**
+✅ Restate user's problem in your own words
+✅ Ask clarifying questions about requirements, constraints, edge cases
+✅ Use read-only tools to gather context about the codebase
+✅ Identify ALL distinct requests in the conversation history
+
+**DO NOT:**
+❌ Provide solutions, code, or implementation ideas
+❌ Jump to analysis without complete understanding
+❌ Use any file modification tools
+
+**EXCEPTION**: For trivial, non-code questions (e.g., "What time is it?"), provide direct answer
+
+**COMPLETION CRITERIA**:
+- You have restated the problem accurately
+- You have asked all necessary clarifying questions
+- You understand ALL user requests
+- User has confirmed your understanding
+
+**NEXT STAGE PROPOSAL**: When understanding is complete, propose: 
+"I now understand your requirements. Shall I move to the Analysis stage to create an implementation plan?"
+
+**ADDITIONAL CONTEXT**:
+- Use read/search tools (read_file, grep_files, list_files) to understand the codebase
+- **Tool Availability**: Only read-only tools (read_file, list_files, grep_files) are available. MCP tools are NOT available in this stage.
+`,
 
       assumptions: `## Current Stage: ASSUMPTIONS/ANALYSIS
+**PRIMARY GOAL**: Create comprehensive implementation plan before writing any code
 
-**Your goal in Assumptions stage:**
-- **Analyze comprehensively**: Review ALL conversation history from the beginning - examine ALL user messages to identify ALL distinct requests, not just the first or most recent one
-- **Identify all requirements**: Count and list all user requests from the conversation history. If there are 3 requests, you must address all 3
-- **Assess complexity**: Determine task complexity based on ALL requirements identified (simple = 1-2 steps, hard = 3+ steps)
-- **Create numbered plan**: You MUST format your plan steps as "Step 1:", "Step 2:", "Step 3:" (with colon) - this is critical for the system to detect complexity correctly
-- **Address all requirements**: Your plan must cover ALL identified user requirements from the conversation, not just one
-- **List assumptions and edge cases**: Clearly state what assumptions you're making and what edge cases to consider
-- Use read/search tools (read_file, grep_files, list_files) to understand the codebase
-- **DO NOT generate actual code** - that's for the Implementation stage
+**MANDATORY FORMAT**: Your plan MUST use numbered steps: "Step 1:", "Step 2:", "Step 3:" (with colon)
 
-**ABSOLUTE REQUIREMENTS:**
-- ❌ DO NOT use any file modification tools and MCP tools
-- ❌ DO NOT provide code snippets or code blocks - that's for Implementation stage
-- ✅ DO review ALL conversation history to identify ALL user requests
-- ✅ DO format your plan with explicit step numbering: "Step 1:", "Step 2:", "Step 3:" (with colon)
-- ✅ DO create a step for each distinct user request you identified
-- ✅ DO explain your assumptions and edge cases clearly
-- ✅ DO describe what needs to be done (not how to implement it in code)`,
+**REQUIREMENTS:**
+1. Review ENTIRE conversation history from the beginning
+2. Count and list ALL user requests (e.g., "3 requests identified")
+3. Create one step for EACH distinct request
+4. Assess complexity: Simple (1-2 steps) vs Hard (3+ steps)
+5. List ALL assumptions and edge cases
+6. Use read/search tools to understand codebase context
 
-      implementation: `## Current Stage: IMPLEMENTATION
+**ABSOLUTE PROHIBITIONS:**
+❌ NO file modification tools
+❌ NO code snippets or implementation details
+❌ NO MCP tools (focus on analysis, not execution)
 
-You are in the **Implementation** stage. Your goal is to:
-- **Follow the plan** created in the Assumptions/Analysis stage
-- **Generate code snippets** - Create the actual code content for each file
-- **MCP Tools are AVAILABLE**: Use MCP tools when needed by calling: \`<tool_call name="tool_name" args='{"param": "value"}' />\`
-- **Call create_file, replace_file, or exec_terminal tools** to implement the plan
-- Use create_file for new files, replace_file for modifying existing files, and exec_terminal for terminal commands
-- All tools are available, including file modification tools and terminal tools
+**COMPLETION CRITERIA**:
+- Restatement of the problem/requirements
+- Numbered plan exists covering ALL user requests
+- Edge cases and special considerations
+- Complexity assessment complete
 
-**Implementation stage will:**
-- Follow your plan from the Assumptions stage
-- Generate code snippets with actual implementation
-- Create/update files using tool calls
-- Run terminal commands when needed (installations, builds, tests, etc.)
+**NEXT STAGE PROPOSAL**: Present plan and ask:
+"Here's my implementation plan. Should I proceed to the Implementation stage to execute it?"
 
-**IMPORTANT**:
-- Your response MUST include a tool call (create_file or replace_file)
-- **Generate the code content** needed for each file based on the plan
-- **DO NOT try to read files that should be created** - If a file doesn't exist yet, just create it directly
-- Follow the numbered steps from the plan created in Assumptions stage
-- Keep responses concise - focus on executing the file creation
-- Example: 
-  <tool_call name="create_file" args='{"file_path": "hello.py", "content": "print(\\\"Hello!\\\")"}' />
-  <tool_call name="exec_terminal" args='{"command": "npm run compile"}' />
+## Additional Context
 
-**Note**: The Assumptions stage provides the plan and analysis. Your job is to implement it by generating actual code and creating files, or running commands.`,
+**IMPORTANT: Comprehensive Analysis**
+- **Review ALL conversation history above** - Examine ALL user messages and assistant responses from the beginning. Do not focus only on the first or most recent message
+- **Identify ALL user requests** - Count and list all distinct user requests/queries from the conversation history. The user may have made multiple separate requests
+- **Analyze the current prompt below** - Consider both the conversation history and the current prompt together
+- **Assess actual complexity** - Determine the complexity based on ALL requirements identified, not just the first one
+- **Create a comprehensive plan** - Your plan must address ALL identified user requirements, not just one
+
+**Creating Your Plan:**
+- **Format steps clearly** - You MUST format your plan steps as "Step 1:", "Step 2:", "Step 3:" (with colon) so the system can detect complexity correctly
+- **One step per requirement** - If you identified 3 distinct user requests, create at least 3 steps (one for each requirement)
+- **Number your steps** - Always use explicit numbering: "Step 1:", "Step 2:", "Step 3:" - this is critical for the system to detect task complexity
+- **Don't combine unrelated requests** - Each distinct user request should have its own step unless they're truly part of one task
+
+**Workflow:**
+- **Analyze comprehensively** - Review ALL conversation history to identify ALL user requests
+- **List assumptions** - Clearly state any assumptions you're making about the codebase, requirements, or context
+- **List edge cases** - Identify edge cases and special considerations that need to be handled
+- **Create numbered plan** - Format your plan with clear step numbering: "Step 1:", "Step 2:", "Step 3:"
+- **DO NOT generate code** - Describe what needs to be done, not the actual implementation. Code generation happens in the Implementation stage.
+
+`,
+
+      implementation: `## Current Stage: IMPLEMENTATION/EXECUTION
+
+**PRIMARY GOAL**: Execute the numbered plan from Analysis stage
+
+**FIRST ACTION**: Review the numbered plan from Assumptions stage
+
+**EXECUTION RULES**:
+1. Follow steps in EXACT order from the plan
+2. For each step, generate the actual code/content
+3. Use appropriate tools:
+   - All tools are available
+   - create_file for new files: <tool_call name="create_file" args='{"file_path": "hello.py", "content": "print(\\\"Hello!\\\")"}' />
+   - replace_file for modifications  
+   - exec_terminal for commands: <tool_call name="exec_terminal" args='{"command": "npm run compile"}' />
+   - MCP tools when relevant :  <tool_call name="tool_name" args='{"param": "value"}' />
+
+**CRITICAL REQUIREMENTS**:
+✅ Your response MUST include at least one tool call if work remains
+✅ Generate actual code content - don't describe, implement
+✅ DO NOT read files that should be created (just create them)
+✅ If step requires multiple files, create them in logical order      
+
+**COMPLETION CHECK**:
+After each tool call, verify:
+- File created/modified successfully
+- Terminal command executed properly
+- Step objectives achieved
+
+**FINALIZATION**: Follow the plan, when ALL plan steps are complete:
+1. Verify all user requests are addressed
+2. Provide execution summary
+3. Ask if user wants to: modify, add features, or end
+`,
     };
 
     return instructions[stage] || "";

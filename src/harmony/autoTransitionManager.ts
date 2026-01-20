@@ -24,26 +24,12 @@ export class AutoTransitionManager {
     toolCalls?: MCPToolCall[],
     originalPrompt?: string
   ): "simple" | "hard" | null {
-    // First, try to detect from LLM response (content + reasoning)
-    // For jinja-only models, reasoning will be empty, so we rely on content
-    const llmText = [content, reasoning].filter(Boolean).join(" ");
+    const llmText = [content, reasoning].filter(Boolean).join(" \n");
+    const llmComplexity = this.detectComplexityUsingParser(llmText);
+    const promptComplexity = originalPrompt
+      ? this.detectComplexityUsingParser(originalPrompt)
+      : null;
 
-    // Check if LLM response has clear step indicators
-    const llmComplexity = this.detectComplexityFromText(llmText);
-
-    // Always check originalPrompt as well, especially when:
-    // - LLM doesn't explicitly repeat the steps in its response
-    // - Using jinja-only models (no reasoning channel)
-    // - LLM analyzes but doesn't format as "Step 1, Step 2, Step 3"
-    // - LLM response returns 'simple' but originalPrompt has 3+ steps
-    let promptComplexity: "simple" | "hard" | null = null;
-    if (originalPrompt) {
-      promptComplexity = this.detectComplexityFromText(originalPrompt);
-    }
-
-    // Priority: prefer 'hard' over 'simple', and prefer detected complexity over null
-    // This ensures that if originalPrompt has 3+ steps, we detect it as 'hard'
-    // even if the LLM response only shows 1-2 steps
     if (llmComplexity === "hard" || promptComplexity === "hard") {
       return "hard";
     }
@@ -51,93 +37,25 @@ export class AutoTransitionManager {
       return "simple";
     }
 
-    // If neither has clear indicators, default to simple
     return "simple";
   }
 
-  /**
-   * Internal helper to detect complexity from a text string
-   */
-  private detectComplexityFromText(text: string): "simple" | "hard" | null {
+  private detectComplexityUsingParser(
+    text: string
+  ): "simple" | "hard" | null {
     if (!text || text.trim().length === 0) {
       return null;
     }
 
-    const lowerText = text.toLowerCase();
+    const parsedSteps = this.extractNormalizedSteps(text);
 
-    // Priority 1: Look for explicit step numbers (most reliable)
-    // Match patterns like: "Step 1", "Step 2", "Step 3", "Step1", "step 1:", "Step 1:", etc.
-    const stepNumberPatterns = [
-      /\b(?:step|stage)\s*(\d+)[:.)]?/gi, // "Step 1", "Step 2:", "Step 3)", "Step1", etc.
-      /(?:^|\n)\s*(\d+)[:.)]\s+/gm, // "1.", "2:", "3)", etc. at start of line
-      /(?:^|\n)\s*(\d+)\s*[-–—]\s+/gm, // "1 -", "2 -", etc. at start of line
-    ];
-
-    let maxStepNumber = 0;
-    for (const pattern of stepNumberPatterns) {
-      const matches = text.matchAll(pattern);
-      for (const match of matches) {
-        const stepNum = parseInt(
-          match[1] || match[0].match(/\d+/)?.[0] || "0",
-          10
-        );
-        if (stepNum > maxStepNumber) {
-          maxStepNumber = stepNum;
-        }
-      }
-    }
-
-    // If we found explicit step numbers, use the maximum
-    if (maxStepNumber >= 3) {
+    if (parsedSteps.length >= 3) {
       return "hard";
     }
-    if (maxStepNumber >= 1) {
-      // We found at least one step, but less than 3
-      // Continue to check other indicators
+    if (parsedSteps.length >= 1) {
+      return "simple";
     }
 
-    // Priority 2: Look for step indicator words
-    const stepIndicatorPatterns = [
-      /\b(step\s+1|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\b/gi,
-      /\b(initially|subsequently|finally|lastly|additionally|furthermore|moreover|next|then|after that|afterward|afterwards)\b/gi,
-    ];
-
-    let stepIndicatorCount = 0;
-    for (const pattern of stepIndicatorPatterns) {
-      const matches = lowerText.match(pattern);
-      if (matches) {
-        stepIndicatorCount += matches.length;
-      }
-    }
-
-    // Combine step number count with indicator count
-    let stepCount = Math.max(maxStepNumber, stepIndicatorCount);
-
-    // Priority 3: Look for numbered list patterns (1., 2., 3., etc.)
-    const numberedListPattern = /(?:^|\n)\s*\d+[.)]\s+/gm;
-    const numberedListMatches = text.match(numberedListPattern);
-    if (numberedListMatches) {
-      const listCount = numberedListMatches.length;
-      stepCount = Math.max(stepCount, listCount);
-    }
-
-    // If we found clear step indicators, return the complexity
-    if (stepCount >= 3) {
-      return "hard";
-    }
-    if (stepCount >= 1) {
-      // Check if it's a straightforward single-file operation
-      const singleFileOperation =
-        /\b(update|create|modify|edit)\s+\w+\.\w{2,4}\b/i.test(text);
-      if (singleFileOperation && stepCount <= 1) {
-        return "simple";
-      }
-      if (stepCount <= 2) {
-        return "simple";
-      }
-    }
-
-    // No clear indicators found in this text
     return null;
   }
 
@@ -152,37 +70,30 @@ export class AutoTransitionManager {
   ): Array<{ goal: string; description?: string }> {
     let steps: Array<{ goal: string; description?: string }> = [];
 
-    // Use StepsMarkdownParser to extract steps
-    const parseResult = StepsMarkdownParser.extractPlanAndSteps(content);
-    let extractedSteps = parseResult.steps;
+    const contentSteps = this.extractNormalizedSteps(content);
+    const promptSteps = originalPrompt
+      ? this.extractNormalizedSteps(originalPrompt)
+      : [];
 
-    // If not found in content, try originalPrompt
-    if (extractedSteps.length < 3 && originalPrompt) {
-      const promptResult = StepsMarkdownParser.extractPlanAndSteps(originalPrompt);
-      // Only use prompt steps if we don't have any from content, or if they're better
-      if (
-        extractedSteps.length === 0 ||
-        (promptResult.steps.length >= 3 && extractedSteps.length < 3)
-      ) {
-        extractedSteps = promptResult.steps;
-      }
+    let selectedSteps = contentSteps;
+    const requiredCount = complexity === "hard" ? 3 : 1;
+
+    if (
+      promptSteps.length >= requiredCount &&
+      (selectedSteps.length < requiredCount ||
+        promptSteps.length > selectedSteps.length)
+    ) {
+      selectedSteps = promptSteps;
     }
 
-    // Filter out edge cases and convert to step format
-    if (extractedSteps.length >= (complexity === "hard" ? 3 : 1)) {
-      extractedSteps
-        .filter((step) => !StepsMarkdownParser.isEdgeCaseStep(step.content))
-        .forEach((step) => {
-          steps.push({
-            goal: `Step ${step.number}: ${step.content}`,
-            description: step.content,
-          });
-        });
+    if (selectedSteps.length >= requiredCount) {
+      steps = selectedSteps.map((step) => ({
+        goal: `Step ${step.number}: ${step.content}`,
+        description: step.content,
+      }));
     }
 
-    // For hard tasks, if we don't have enough steps, try fallback strategies
     if (complexity === "hard" && steps.length < 3) {
-      // Look for file mentions in content or originalPrompt
       const filePattern =
         /\b(create|write|make|implement|add|generate)\s+(\w+\.\w{2,4})/gi;
       const textToSearch = content + " " + (originalPrompt || "");
@@ -202,7 +113,6 @@ export class AutoTransitionManager {
           description: `Implement ${file} based on requirements`,
         }));
       } else {
-        // Generic fallback for hard tasks
         steps = [
           {
             goal: "Step 1: Analyze requirements",
@@ -220,7 +130,6 @@ export class AutoTransitionManager {
       }
     }
 
-    // For simple tasks, if no steps found, create single step
     if ((complexity === "simple" || !complexity) && steps.length === 0) {
       const description = originalPrompt
         ? `Execute the task: ${originalPrompt.substring(0, 100)}${originalPrompt.length > 100 ? "..." : ""}`
@@ -288,100 +197,7 @@ export class AutoTransitionManager {
       // Hard task: create plan first, then transition
       const taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       const prompt = originalPrompt || conversationContext.originalPrompt;
-
-      // Extract steps from content or originalPrompt (improved extraction)
-      let steps: Array<{
-        goal: string;
-        description?: string;
-        tools?: string[];
-      }> = [];
-
-      // Use StepsMarkdownParser to extract steps
-      const parseResult = StepsMarkdownParser.extractPlanAndSteps(content);
-      const promptParseResult = StepsMarkdownParser.extractPlanAndSteps(prompt || "");
-
-      let extractedSteps = parseResult.steps.length > 0 ? parseResult.steps : promptParseResult.steps;
-
-      // Filter out edge cases and convert to step format
-      if (extractedSteps.length >= 3) {
-        extractedSteps
-          .filter((step) => !StepsMarkdownParser.isEdgeCaseStep(step.content))
-          .forEach((step) => {
-            steps.push({
-              goal: `Step ${step.number}: ${step.content}`,
-              description: step.content,
-            });
-          });
-      }
-
-      // Fallback if not enough steps found
-      if (steps.length < 3) {
-        const filePattern =
-          /\b(create|write|make|implement|add|generate)\s+(\w+\.\w{2,4})/gi;
-        const fileMatches = Array.from(content.matchAll(filePattern));
-        const files: string[] = [];
-
-        for (const match of fileMatches) {
-          const file = match[2];
-          if (!files.includes(file)) {
-            files.push(file);
-          }
-        }
-
-        if (files.length >= 3) {
-          // Create steps based on files found
-          files.forEach((file, index) => {
-            steps.push({
-              goal: `Create ${file}`,
-              description: `Implement ${file} based on requirements`,
-            });
-          });
-        } else {
-          // Create meaningful steps based on the original prompt
-          const promptText = prompt || "";
-          if (
-            promptText.includes("hello.py") &&
-            promptText.includes("hello.test.py")
-          ) {
-            // Example: For your specific hello module task
-            steps = [
-              {
-                goal: "Create hello.py with greet function",
-                description:
-                  "Implement the main module with greet() function and main block",
-              },
-              {
-                goal: "Create hello.test.py for testing",
-                description:
-                  "Write unit tests for the greet function using unittest framework",
-              },
-              {
-                goal: "Create hello.md documentation",
-                description:
-                  "Document the module with usage examples and API reference",
-              },
-            ];
-          } else {
-            // Generic but meaningful steps
-            steps = [
-              {
-                goal: "Analyze requirements and plan implementation",
-                description:
-                  "Understand all requirements and create detailed plan",
-              },
-              {
-                goal: "Implement core functionality",
-                description: "Write the main code implementation",
-              },
-              {
-                goal: "Add tests and documentation",
-                description:
-                  "Create tests and documentation for the implementation",
-              },
-            ];
-          }
-        }
-      }
+      const steps = this.extractStepsFromText(content, prompt, complexity);
 
       const plan = this.progressPlanManager.createPlan(
         taskId,
@@ -416,5 +232,141 @@ export class AutoTransitionManager {
       continuationPrompt += `\n\nProgress Plan:\n${plan.steps.map((s) => `${s.stepNumber}. ${s.goal}`).join("\n")}\n\nStart implementing step 1.`;
     }
     return continuationPrompt;
+  }
+
+  private extractNormalizedSteps(
+    text: string
+  ): Array<{ number: number; content: string; isPlanStep: boolean }> {
+    if (!text) {
+      return [];
+    }
+
+    const parsed = StepsMarkdownParser.extractPlanAndSteps(text);
+    return this.normalizeSteps(parsed.steps);
+  }
+
+  private normalizeSteps(
+    steps: Array<{ number: number; content: string; isPlanStep: boolean }>
+  ): Array<{ number: number; content: string; isPlanStep: boolean }> {
+    const filtered = steps.filter((step) => this.isMeaningfulStep(step.content));
+    const grouped = this.groupStepsBySequence(filtered);
+    const bestGroup = this.selectBestStepGroup(grouped);
+
+    const deduped = new Map<
+      number,
+      { number: number; content: string; isPlanStep: boolean }
+    >();
+
+    bestGroup.forEach((step) => {
+      deduped.set(step.number, step);
+    });
+
+    return Array.from(deduped.values()).sort((a, b) => a.number - b.number);
+  }
+
+  private groupStepsBySequence(
+    steps: Array<{ number: number; content: string; isPlanStep: boolean }>
+  ): Array<Array<{ number: number; content: string; isPlanStep: boolean }>> {
+    const groups: Array<
+      Array<{ number: number; content: string; isPlanStep: boolean }>
+    > = [];
+
+    let current: Array<{ number: number; content: string; isPlanStep: boolean }> = [];
+    let lastNumber = 0;
+
+    for (const step of steps) {
+      if (current.length === 0 || step.number > lastNumber) {
+        current.push(step);
+        lastNumber = step.number;
+      } else {
+        if (current.length > 0) {
+          groups.push(current);
+        }
+        current = [step];
+        lastNumber = step.number;
+      }
+    }
+
+    if (current.length > 0) {
+      groups.push(current);
+    }
+
+    return groups;
+  }
+
+  private selectBestStepGroup(
+    groups: Array<Array<{ number: number; content: string; isPlanStep: boolean }>>
+  ): Array<{ number: number; content: string; isPlanStep: boolean }> {
+    if (groups.length === 0) {
+      return [];
+    }
+
+    const startingAtOne = groups.filter((group) => group[0]?.number === 1);
+    const candidates = startingAtOne.length > 0 ? startingAtOne : groups;
+
+    let best: Array<{ number: number; content: string; isPlanStep: boolean }> = [];
+
+    for (const group of candidates) {
+      if (group.length > best.length || group.length === best.length) {
+        best = group;
+      }
+    }
+
+    return best;
+  }
+
+  private isMeaningfulStep(content: string): boolean {
+    if (!content) {
+      return false;
+    }
+
+    const lowerContent = content.toLowerCase();
+    const metaSectionPattern = /^(?:\d+\s*[.:]\s*)?(numbered\s+plan|complexity\s+assessment|plan\s+progress|restatement|analysis|assumptions)/i;
+
+    if (metaSectionPattern.test(lowerContent)) {
+      return false;
+    }
+
+    const extraActionWords = [
+      "calculate",
+      "design",
+      "draft",
+      "outline",
+      "summarize",
+      "document",
+      "provide",
+      "configure",
+      "install",
+      "setup",
+      "set up",
+      "add",
+      "update",
+      "fix",
+      "refactor",
+      "test",
+      "plan",
+      "review",
+      "analyze",
+      "integrate",
+    ];
+
+    const hasAction =
+      StepsMarkdownParser.isExecutionStep(content) ||
+      extraActionWords.some((word) => {
+        const pattern = new RegExp(`\\b${word}\\b`, "i");
+        return pattern.test(content);
+      });
+
+    if (!hasAction) {
+      return false;
+    }
+
+    const edgeCaseLeadPattern = /^(?:step\s*\d+\s*[:.\-–—]?\s*)?(file not found|multiple matches|large file|corrupted|binary reading|size limits|valid|error|reject)/i;
+
+    if (edgeCaseLeadPattern.test(lowerContent)) {
+      return false;
+    }
+
+    return hasAction;
   }
 }

@@ -18,32 +18,27 @@ describe('StageStateMachine', () => {
       // Chat stage restricts to read-only tools, which implies file modification tools are not available
       expect(instructions).toContain('read-only tools');
       expect(instructions).toContain('read_file, list_files, grep_files');
-      expect(instructions).toContain('chat → analysis');
       expect(instructions).toContain('implementation');
     });
 
     it('should return assumptions stage instructions', () => {
-      const instructions = stateMachine.getInstructions('assumptions');
+      const instructions = stateMachine.getInstructions('assumptions').toLocaleLowerCase();
       
-      expect(instructions).toContain('ASSUMPTIONS/ANALYSIS');
-      // Check for key phrases separately to be more robust against wording changes
-      expect(instructions).toMatch(/DO NOT.*file modification tools.*and MCP tools/i);
+      expect(instructions).toContain('assumptions/analysis');
       expect(instructions).toContain('file modification tools');
-      // MCP tools are NOT available in assumptions stage
-      expect(instructions).toContain('Analyze comprehensively');
+      expect(instructions).toContain('analyze comprehensively');
       expect(instructions).toMatch(/format.*plan.*steps|Step 1|Step 2/);
     });
 
     it('should return implementation stage instructions', () => {
-      const instructions = stateMachine.getInstructions('implementation');
+      let instructions = stateMachine.getInstructions('implementation');
+      instructions = instructions.toLowerCase();
       
-      expect(instructions).toContain('IMPLEMENTATION');
+      expect(instructions).toContain('implementation');
       expect(instructions).toContain('create_file');
       expect(instructions).toContain('replace_file');
-      expect(instructions).toContain('All tools are available');
-      expect(instructions).toContain('Follow the plan');
-      expect(instructions).toContain('based on the plan');
-      expect(instructions).toContain('Assumptions stage provides the plan');
+      expect(instructions).toContain('all tools are available');
+      expect(instructions).toContain('follow the plan');
     });
 
     it('should return empty string for invalid stage', () => {
@@ -217,9 +212,39 @@ describe('StageStateMachine', () => {
       expect(nextStage).toBe('chat');
     });
 
+    it('should detect @cmd:back_to_chat command and transition to chat from implementation', () => {
+      const nextStage = stateMachine.determineNextStage('implementation', '@cmd:back_to_chat');
+      expect(nextStage).toBe('chat');
+    });
+
+    it('should detect @cmd:back-to-chat command (with hyphens) and transition to chat from implementation', () => {
+      const nextStage = stateMachine.determineNextStage('implementation', '@cmd:back-to-chat');
+      expect(nextStage).toBe('chat');
+    });
+
     it('should detect code regeneration requests and transition to assumptions from implementation', () => {
       const nextStage = stateMachine.determineNextStage('implementation', 'regenerate the code');
       expect(nextStage).toBe('assumptions');
+    });
+
+    it('should detect @cmd:next as alias for next_step and stay in implementation', () => {
+      const nextStage = stateMachine.determineNextStage('implementation', '@cmd:next');
+      expect(nextStage).toBe('implementation');
+    });
+
+    it('should detect @cmd:next_step (original) and stay in implementation', () => {
+      const nextStage = stateMachine.determineNextStage('implementation', '@cmd:next_step');
+      expect(nextStage).toBe('implementation');
+    });
+
+    it('should detect @cmd:verbose as alias for verbose_info and stay in current stage', () => {
+      const nextStage = stateMachine.determineNextStage('chat', '@cmd:verbose');
+      expect(nextStage).toBe('chat');
+    });
+
+    it('should detect @cmd:verbose_info (original) and stay in current stage', () => {
+      const nextStage = stateMachine.determineNextStage('implementation', '@cmd:verbose_info');
+      expect(nextStage).toBe('implementation');
     });
 
     it('should return null when no transition is needed', () => {
