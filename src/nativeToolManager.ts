@@ -100,6 +100,32 @@ export class NativeToolsManager {
         },
       },
       {
+        name: "edit_file",
+        description:
+          "Edit a specific part of a file by replacing an exact text snippet with new text.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            file_path: {
+              type: "string",
+              description:
+                "Path to the file to edit. Can be relative to workspace root or absolute.",
+            },
+            old_text: {
+              type: "string",
+              description:
+                "Exact text snippet to be replaced. Must match the file content exactly (including whitespace).",
+            },
+            new_text: {
+              type: "string",
+              description:
+                "The replacement text that will substitute `old_text`.",
+            },
+          },
+          required: ["file_path", "old_text", "new_text"],
+        },
+      },
+      {
         name: "list_files",
         description:
           "List files and directories in a directory. Returns file names, types (file/directory), and sizes.",
@@ -227,6 +253,12 @@ export class NativeToolsManager {
           return await this.replaceFile(
             arguments_.file_path,
             arguments_.content
+          );
+        case "edit_file":
+          return await this.editFile(
+            arguments_.file_path,
+            arguments_.old_text,
+            arguments_.new_text
           );
         case "list_files":
           return await this.listFiles(
@@ -488,7 +520,9 @@ export class NativeToolsManager {
         console.log(`[NativeTools] Parent directories already exist`);
       }
 
-      console.log(`[NativeTools] Writing file content (${content.length} bytes) to: ${resolvedPath}`);
+      console.log(
+        `[NativeTools] Writing file content (${content.length} bytes) to: ${resolvedPath}`
+      );
       await writeFile(resolvedPath, content, "utf-8");
       console.log(`[NativeTools] File written successfully`);
       return {
@@ -522,7 +556,9 @@ export class NativeToolsManager {
 
       // Create parent directories if they don't exist
       const dir = path.dirname(resolvedPath);
-      console.log(`[NativeTools] Creating parent directories for replace_file: ${dir}`);
+      console.log(
+        `[NativeTools] Creating parent directories for replace_file: ${dir}`
+      );
       try {
         await mkdir(dir, { recursive: true });
         console.log(`[NativeTools] Parent directories created successfully`);
@@ -533,7 +569,9 @@ export class NativeToolsManager {
         console.log(`[NativeTools] Parent directories already exist`);
       }
 
-      console.log(`[NativeTools] Writing file content (${content.length} bytes) to: ${resolvedPath}`);
+      console.log(
+        `[NativeTools] Writing file content (${content.length} bytes) to: ${resolvedPath}`
+      );
       await writeFile(resolvedPath, content, "utf-8");
       console.log(`[NativeTools] File written successfully`);
       return {
@@ -1112,6 +1150,81 @@ export class NativeToolsManager {
           {
             type: "text",
             text: `Error executing command: ${error.message}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  private async editFile(
+    filePath: string,
+    oldText: string,
+    newText: string
+  ): Promise<NativeToolResult> {
+    try {
+      const resolvedPath = this.resolvePath(filePath);
+      console.log(
+        `[NativeTools] Editing file: "${filePath}" -> resolved to: "${resolvedPath}"`
+      );
+
+      // Read the file content
+      const content = await readFile(resolvedPath, "utf-8");
+
+      // Escape special regex characters in oldText for literal matching
+      const escapedOldText = oldText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+      // Count occurrences of oldText in the file
+      const matchRegex = new RegExp(escapedOldText, "g");
+      const matches = content.match(matchRegex);
+      const occurrences = matches ? matches.length : 0;
+
+      if (occurrences === 0) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: Could not find the specified text in ${filePath}. The old_text must match exactly (including whitespace and line breaks).`,
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      if (occurrences > 1) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: Found ${occurrences} matches for old_text in ${filePath}. Please include more surrounding context (3-5 lines before and after) to make the match unique.`,
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      // Perform the replacement - use the literal oldText for replacement
+      const newContent = content.replace(oldText, newText);
+
+      // Write the updated content back to the file
+      await writeFile(resolvedPath, newContent, "utf-8");
+
+      console.log(`[NativeTools] File edited successfully`);
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Successfully edited ${filePath}`,
+          },
+        ],
+      };
+    } catch (error: any) {
+      console.error(`[NativeTools] Error in editFile: ${error.message}`);
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error editing file ${filePath}: ${error.message}`,
           },
         ],
         isError: true,

@@ -165,23 +165,23 @@ export class ImplementationManager {
       return undefined;
     }
 
-    const nextStep = plan.steps.find(step => step.status === 'pending');
-    if (!nextStep) {
+    const currentStep = plan.steps.find(step => step.status === 'pending');
+    if (!currentStep) {
       return undefined;
     }
 
     const success = this.progressPlanManager.updateStepStatus(
       this.state.taskId,
-      nextStep.stepNumber,
+      currentStep.stepNumber,
       'in_progress'
     );
 
     if (success) {
       this.state.lastUpdated = Date.now();
-      console.log(`[ImplementationManager] Advanced to step ${nextStep.stepNumber}: ${nextStep.goal}`);
+      console.log(`[ImplementationManager] Advanced to step ${currentStep.stepNumber}: ${currentStep.goal}`);
     }
 
-    return success ? nextStep : undefined;
+    return success ? currentStep : undefined;
   }
 
   /**

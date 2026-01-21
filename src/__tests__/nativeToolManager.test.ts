@@ -132,6 +132,7 @@ describe("NativeToolsManager", () => {
       expect(toolNames).toContain("read_file");
       expect(toolNames).toContain("create_file");
       expect(toolNames).toContain("replace_file");
+      expect(toolNames).toContain("edit_file");
       expect(toolNames).toContain("list_files");
       expect(toolNames).toContain("find_files");
       expect(toolNames).toContain("grep_files");
@@ -216,6 +217,22 @@ describe("NativeToolsManager", () => {
       expect(execTool?.inputSchema.properties.command).toBeDefined();
       expect(execTool?.inputSchema.properties.working_directory).toBeDefined();
       expect(execTool?.inputSchema.required).toContain("command");
+    });
+
+    it("should have correct schema for edit_file tool", () => {
+      const tools = manager.getAvailableTools();
+      const editFileTool = tools.find((t) => t.name === "edit_file");
+
+      expect(editFileTool).toBeDefined();
+      expect(editFileTool?.description).toContain(
+        "Edit a specific part of a file"
+      );
+      expect(editFileTool?.inputSchema.properties.file_path).toBeDefined();
+      expect(editFileTool?.inputSchema.properties.old_text).toBeDefined();
+      expect(editFileTool?.inputSchema.properties.new_text).toBeDefined();
+      expect(editFileTool?.inputSchema.required).toContain("file_path");
+      expect(editFileTool?.inputSchema.required).toContain("old_text");
+      expect(editFileTool?.inputSchema.required).toContain("new_text");
     });
   });
 
@@ -881,7 +898,7 @@ describe("NativeToolsManager", () => {
       expect(result.isError).toBeUndefined();
       expect(result.content[0].text).toContain("Successfully created file");
       expect(mockMkdir).toHaveBeenCalledWith(
-        expect.stringContaining("src/__tests__/nested/deep"),
+        expect.stringMatching(/src[/\\]__tests__[/\\]nested[/\\]deep/),
         { recursive: true }
       );
       expect(mockWriteFile).toHaveBeenCalled();
@@ -973,9 +990,341 @@ describe("NativeToolsManager", () => {
 
       expect(result.isError).toBeUndefined();
       expect(mockMkdir).toHaveBeenCalledWith(
-        expect.stringContaining("level1/level2/level3/level4/deeply/nested"),
+        expect.stringMatching(
+          /level1[/\\]level2[/\\]level3[/\\]level4[/\\]deeply[/\\]nested/
+        ),
         { recursive: true }
       );
+    });
+  });
+
+  describe("edit_file", () => {
+    it("should edit a file by replacing exact text match", async () => {
+      const filePath = "test.js";
+      const resolvedPath = path.resolve(workspaceRoot, filePath);
+      const originalContent = `function hello() {
+  console.log("Hello");
+}
+
+function goodbye() {
+  console.log("Goodbye");
+}`;
+      const oldText = `function hello() {
+  console.log("Hello");
+}`;
+      const newText = `function hello(name) {
+  console.log("Hello, " + name);
+}`;
+      const expectedContent = `function hello(name) {
+  console.log("Hello, " + name);
+}
+
+function goodbye() {
+  console.log("Goodbye");
+}`;
+
+      (mockFs.promises.readFile as jest.Mock).mockResolvedValue(
+        originalContent
+      );
+      (mockFs.promises.writeFile as jest.Mock).mockResolvedValue(undefined);
+
+      const result = await manager.callTool("edit_file", {
+        file_path: filePath,
+        old_text: oldText,
+        new_text: newText,
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.content).toHaveLength(1);
+      expect(result.content[0].text).toContain("Successfully edited");
+      expect(mockFs.promises.readFile).toHaveBeenCalledWith(
+        resolvedPath,
+        "utf-8"
+      );
+      expect(mockFs.promises.writeFile).toHaveBeenCalledWith(
+        resolvedPath,
+        expectedContent,
+        "utf-8"
+      );
+    });
+
+    it("should handle edits with surrounding context", async () => {
+      const filePath = "example.py";
+      const resolvedPath = path.resolve(workspaceRoot, filePath);
+      const originalContent = `import os
+import sys
+
+def main():
+    print("Running")
+    x = 5
+    print(x)
+
+if __name__ == "__main__":
+    main()`;
+      const oldText = `def main():
+    print("Running")
+    x = 5
+    print(x)`;
+      const newText = `def main():
+    print("Running")
+    x = 10
+    y = 20
+    print(x + y)`;
+
+      (mockFs.promises.readFile as jest.Mock).mockResolvedValue(
+        originalContent
+      );
+      (mockFs.promises.writeFile as jest.Mock).mockResolvedValue(undefined);
+
+      const result = await manager.callTool("edit_file", {
+        file_path: filePath,
+        old_text: oldText,
+        new_text: newText,
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain("Successfully edited");
+    });
+
+    it("should error when old_text is not found", async () => {
+      const filePath = "test.js";
+      const resolvedPath = path.resolve(workspaceRoot, filePath);
+      const originalContent = `function hello() {
+  console.log("Hello");
+}`;
+      const oldText = `function goodbye() {
+  console.log("Goodbye");
+}`;
+      const newText = `function goodbye(name) {
+  console.log("Goodbye, " + name);
+}`;
+
+      (mockFs.promises.readFile as jest.Mock).mockResolvedValue(
+        originalContent
+      );
+
+      const result = await manager.callTool("edit_file", {
+        file_path: filePath,
+        old_text: oldText,
+        new_text: newText,
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("Could not find");
+      expect(result.content[0].text).toContain("must match exactly");
+      expect(mockFs.promises.writeFile).not.toHaveBeenCalled();
+    });
+
+    it("should error when old_text matches multiple times", async () => {
+      const filePath = "test.js";
+      const resolvedPath = path.resolve(workspaceRoot, filePath);
+      const originalContent = `function hello() {
+  console.log("Hello");
+}
+
+function hello() {
+  console.log("Hello");
+}`;
+      const oldText = `function hello() {
+  console.log("Hello");
+}`;
+      const newText = `function hello(name) {
+  console.log("Hello, " + name);
+}`;
+
+      (mockFs.promises.readFile as jest.Mock).mockResolvedValue(
+        originalContent
+      );
+
+      const result = await manager.callTool("edit_file", {
+        file_path: filePath,
+        old_text: oldText,
+        new_text: newText,
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("Found 2 matches");
+      expect(result.content[0].text).toContain(
+        "include more surrounding context"
+      );
+      expect(mockFs.promises.writeFile).not.toHaveBeenCalled();
+    });
+
+    it("should handle file read errors", async () => {
+      const filePath = "nonexistent.js";
+      const error = new Error("ENOENT: no such file or directory");
+
+      (mockFs.promises.readFile as jest.Mock).mockRejectedValue(error);
+
+      const result = await manager.callTool("edit_file", {
+        file_path: filePath,
+        old_text: "something",
+        new_text: "something else",
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("Error editing file");
+      expect(mockFs.promises.writeFile).not.toHaveBeenCalled();
+    });
+
+    it("should handle file write errors", async () => {
+      const filePath = "test.js";
+      const resolvedPath = path.resolve(workspaceRoot, filePath);
+      const originalContent = `console.log("test");`;
+      const oldText = `console.log("test");`;
+      const newText = `console.log("updated");`;
+
+      (mockFs.promises.readFile as jest.Mock).mockResolvedValue(
+        originalContent
+      );
+      (mockFs.promises.writeFile as jest.Mock).mockRejectedValue(
+        new Error("Permission denied")
+      );
+
+      const result = await manager.callTool("edit_file", {
+        file_path: filePath,
+        old_text: oldText,
+        new_text: newText,
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("Error editing file");
+      expect(result.content[0].text).toContain("Permission denied");
+    });
+
+    it("should work with absolute file paths", async () => {
+      const filePath = "/absolute/path/test.js";
+      const originalContent = `const x = 1;`;
+      const oldText = `const x = 1;`;
+      const newText = `const x = 2;`;
+
+      (mockFs.promises.readFile as jest.Mock).mockResolvedValue(
+        originalContent
+      );
+      (mockFs.promises.writeFile as jest.Mock).mockResolvedValue(undefined);
+
+      const result = await manager.callTool("edit_file", {
+        file_path: filePath,
+        old_text: oldText,
+        new_text: newText,
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain("Successfully edited");
+      expect(mockFs.promises.readFile).toHaveBeenCalledWith(filePath, "utf-8");
+      expect(mockFs.promises.writeFile).toHaveBeenCalledWith(
+        filePath,
+        newText,
+        "utf-8"
+      );
+    });
+
+    it("should handle edits with special regex characters", async () => {
+      const filePath = "test.js";
+      const resolvedPath = path.resolve(workspaceRoot, filePath);
+      const originalContent = `const regex = /test.*pattern/;`;
+      const oldText = `const regex = /test.*pattern/;`;
+      const newText = `const regex = /test[0-9]+pattern/;`;
+
+      (mockFs.promises.readFile as jest.Mock).mockResolvedValue(
+        originalContent
+      );
+      (mockFs.promises.writeFile as jest.Mock).mockResolvedValue(undefined);
+
+      const result = await manager.callTool("edit_file", {
+        file_path: filePath,
+        old_text: oldText,
+        new_text: newText,
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain("Successfully edited");
+    });
+
+    it("should preserve whitespace and indentation", async () => {
+      const filePath = "test.py";
+      const resolvedPath = path.resolve(workspaceRoot, filePath);
+      const originalContent = `class MyClass:
+    def __init__(self):
+        self.value = 5
+        
+    def get_value(self):
+        return self.value`;
+      const oldText = `    def get_value(self):
+        return self.value`;
+      const newText = `    def get_value(self):
+        # Return the stored value
+        return self.value`;
+
+      (mockFs.promises.readFile as jest.Mock).mockResolvedValue(
+        originalContent
+      );
+      (mockFs.promises.writeFile as jest.Mock).mockResolvedValue(undefined);
+
+      const result = await manager.callTool("edit_file", {
+        file_path: filePath,
+        old_text: oldText,
+        new_text: newText,
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain("Successfully edited");
+    });
+
+    it("should handle empty string replacement", async () => {
+      const filePath = "test.js";
+      const resolvedPath = path.resolve(workspaceRoot, filePath);
+      const originalContent = `console.log("debug");
+console.log("Hello");`;
+      const oldText = `console.log("debug");
+`;
+      const newText = ``;
+
+      (mockFs.promises.readFile as jest.Mock).mockResolvedValue(
+        originalContent
+      );
+      (mockFs.promises.writeFile as jest.Mock).mockResolvedValue(undefined);
+
+      const result = await manager.callTool("edit_file", {
+        file_path: filePath,
+        old_text: oldText,
+        new_text: newText,
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain("Successfully edited");
+      expect(mockFs.promises.writeFile).toHaveBeenCalledWith(
+        resolvedPath,
+        `console.log("Hello");`,
+        "utf-8"
+      );
+    });
+
+    it("should handle multiline edits with different line counts", async () => {
+      const filePath = "config.json";
+      const resolvedPath = path.resolve(workspaceRoot, filePath);
+      const originalContent = `{
+  "name": "test",
+  "version": "1.0.0"
+}`;
+      const oldText = `  "version": "1.0.0"`;
+      const newText = `  "version": "2.0.0",
+  "description": "Updated version",
+  "author": "Test Author"`;
+
+      (mockFs.promises.readFile as jest.Mock).mockResolvedValue(
+        originalContent
+      );
+      (mockFs.promises.writeFile as jest.Mock).mockResolvedValue(undefined);
+
+      const result = await manager.callTool("edit_file", {
+        file_path: filePath,
+        old_text: oldText,
+        new_text: newText,
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain("Successfully edited");
     });
   });
 });

@@ -14,7 +14,11 @@ import { FileManager } from "./utils/fileManager";
 import { FileReader } from "./utils/fileReader";
 import { cleanVerboseResponse } from "./utils/responseCleaner";
 import { StageStateMachine, WorkflowStage } from "./harmony/stageStateMachine";
-import { FileExtractionResult, VerboseInfoBuilder, VerboseInfoFormatter } from "./utils/verboseInfo";
+import {
+  FileExtractionResult,
+  VerboseInfoBuilder,
+  VerboseInfoFormatter,
+} from "./utils/verboseInfo";
 import { CommandExtractor } from "./utils/commandExtractor";
 import { ConfirmationManager } from "./harmony/confirmationManager";
 
@@ -47,13 +51,18 @@ export class HarmonyAssistant {
     this.fileManager = new FileManager();
     this.fileReader = new FileReader();
     this.confirmationManager = new ConfirmationManager();
-    this.harmonyClient = new HarmonyClient(this.config, this.mcpManager, this.rulesManager, this.nativeToolsManager);
-    
+    this.harmonyClient = new HarmonyClient(
+      this.config,
+      this.mcpManager,
+      this.rulesManager,
+      this.nativeToolsManager
+    );
+
     // Set up callback to send verboseInfo to webview before stage transitions
     this.harmonyClient.setVerboseInfoCallback(async (verboseInfo) => {
       await this.webviewManager.sendMessage({
-        content: '', // Empty content for pre-transition verbose info
-        verboseInfo: verboseInfo
+        content: "", // Empty content for pre-transition verbose info
+        verboseInfo: verboseInfo,
       });
     });
 
@@ -61,8 +70,11 @@ export class HarmonyAssistant {
     this.harmonyClient.setIntermediateResponseCallback(async (response) => {
       await this.webviewManager.sendMessage(response);
     });
-    
-    this.templateRenderer = new TemplateRenderer(context, this.config.harmonyMode);
+
+    this.templateRenderer = new TemplateRenderer(
+      context,
+      this.config.harmonyMode
+    );
     this.codeActions = new CodeActions(
       this.harmonyClient,
       this.templateRenderer
@@ -86,7 +98,9 @@ export class HarmonyAssistant {
 
   private async initializeMCP(): Promise<void> {
     if (this.config.mcpServers.length > 0) {
-      console.log(`[MCP] Initializing ${this.config.mcpServers.length} MCP server(s)`);
+      console.log(
+        `[MCP] Initializing ${this.config.mcpServers.length} MCP server(s)`
+      );
       try {
         await this.mcpManager.initializeServers(this.config.mcpServers);
         const tools = this.mcpManager.getAllTools();
@@ -99,7 +113,9 @@ export class HarmonyAssistant {
 
   private async initializeRules(): Promise<void> {
     if (this.config.rulesPaths.length > 0) {
-      console.log(`[Rules] Loading ${this.config.rulesPaths.length} rule file(s)`);
+      console.log(
+        `[Rules] Loading ${this.config.rulesPaths.length} rule file(s)`
+      );
       try {
         await this.rulesManager.loadRules(this.config.rulesPaths);
         const rules = this.rulesManager.getAllRules();
@@ -111,68 +127,91 @@ export class HarmonyAssistant {
   }
 
   private setupConfigWatcher(context: vscode.ExtensionContext): void {
-    const configWatcher = vscode.workspace.onDidChangeConfiguration(async (event) => {
-      if (event.affectsConfiguration("harmony.mcpServers")) {
-        console.log("[MCP] MCP servers configuration changed, reinitializing...");
-        this.config = loadConfig();
-        await this.initializeMCP();
-      } else if (event.affectsConfiguration("harmony.rulesPaths")) {
-        console.log("[Rules] Rules paths configuration changed, reloading...");
-        this.config = loadConfig();
-        await this.initializeRules();
-        this.harmonyClient = new HarmonyClient(this.config, this.mcpManager, this.rulesManager, this.nativeToolsManager);
-        this.harmonyClient.setVerboseInfoCallback(async (verboseInfo) => {
-          await this.webviewManager.sendMessage({
-            content: '',
-            verboseInfo: verboseInfo
+    const configWatcher = vscode.workspace.onDidChangeConfiguration(
+      async (event) => {
+        if (event.affectsConfiguration("harmony.mcpServers")) {
+          console.log(
+            "[MCP] MCP servers configuration changed, reinitializing..."
+          );
+          this.config = loadConfig();
+          await this.initializeMCP();
+        } else if (event.affectsConfiguration("harmony.rulesPaths")) {
+          console.log(
+            "[Rules] Rules paths configuration changed, reloading..."
+          );
+          this.config = loadConfig();
+          await this.initializeRules();
+          this.harmonyClient = new HarmonyClient(
+            this.config,
+            this.mcpManager,
+            this.rulesManager,
+            this.nativeToolsManager
+          );
+          this.harmonyClient.setVerboseInfoCallback(async (verboseInfo) => {
+            await this.webviewManager.sendMessage({
+              content: "",
+              verboseInfo: verboseInfo,
+            });
           });
-        });
-        this.codeActions = new CodeActions(
-          this.harmonyClient,
-          this.templateRenderer
-        );
-      } else if (event.affectsConfiguration("harmony.harmonyMode")) {
-        // Reload config and recreate components that depend on harmonyMode
-        console.log("[Harmony] Harmony mode configuration changed, reinitializing...");
-        this.config = loadConfig();
-        this.templateRenderer = new TemplateRenderer(context, this.config.harmonyMode);
-        this.harmonyClient = new HarmonyClient(this.config, this.mcpManager, this.rulesManager, this.nativeToolsManager);
-        this.harmonyClient.setVerboseInfoCallback(async (verboseInfo) => {
-          await this.webviewManager.sendMessage({
-            content: '',
-            verboseInfo: verboseInfo
+          this.codeActions = new CodeActions(
+            this.harmonyClient,
+            this.templateRenderer
+          );
+        } else if (event.affectsConfiguration("harmony.harmonyMode")) {
+          // Reload config and recreate components that depend on harmonyMode
+          console.log(
+            "[Harmony] Harmony mode configuration changed, reinitializing..."
+          );
+          this.config = loadConfig();
+          this.templateRenderer = new TemplateRenderer(
+            context,
+            this.config.harmonyMode
+          );
+          this.harmonyClient = new HarmonyClient(
+            this.config,
+            this.mcpManager,
+            this.rulesManager,
+            this.nativeToolsManager
+          );
+          this.harmonyClient.setVerboseInfoCallback(async (verboseInfo) => {
+            await this.webviewManager.sendMessage({
+              content: "",
+              verboseInfo: verboseInfo,
+            });
           });
-        });
-        this.codeActions = new CodeActions(
-          this.harmonyClient,
-          this.templateRenderer
-        );
-      } else if (event.affectsConfiguration("harmony")) {
-        // Reload other config
-        this.config = loadConfig();
-        this.harmonyClient = new HarmonyClient(this.config, this.mcpManager, this.rulesManager, this.nativeToolsManager);
-        this.harmonyClient.setVerboseInfoCallback(async (verboseInfo) => {
-          await this.webviewManager.sendMessage({
-            content: '',
-            verboseInfo: verboseInfo
+          this.codeActions = new CodeActions(
+            this.harmonyClient,
+            this.templateRenderer
+          );
+        } else if (event.affectsConfiguration("harmony")) {
+          // Reload other config
+          this.config = loadConfig();
+          this.harmonyClient = new HarmonyClient(
+            this.config,
+            this.mcpManager,
+            this.rulesManager,
+            this.nativeToolsManager
+          );
+          this.harmonyClient.setVerboseInfoCallback(async (verboseInfo) => {
+            await this.webviewManager.sendMessage({
+              content: "",
+              verboseInfo: verboseInfo,
+            });
           });
-        });
-        this.codeActions = new CodeActions(
-          this.harmonyClient,
-          this.templateRenderer
-        );
+          this.codeActions = new CodeActions(
+            this.harmonyClient,
+            this.templateRenderer
+          );
+        }
       }
-    });
+    );
     context.subscriptions.push(configWatcher);
   }
 
   private setupWebviewHandlers(): void {
     // Test handler
     this.webviewManager.registerMessageHandler("test", (message) => {
-      console.log(
-        `[DEBUG] Received test message from webview:`,
-        message.text
-      );
+      console.log(`[DEBUG] Received test message from webview:`, message.text);
       // Send a test response back
       this.webviewManager.sendMessage({
         content: "✅ All set! Feel free to start a conversation.",
@@ -180,42 +219,46 @@ export class HarmonyAssistant {
     });
 
     // Send message handler
-    this.webviewManager.registerMessageHandler("sendMessage", async (message) => {
-      console.log(
-        `[DEBUG] Handling sendMessage with text:`,
-        message.text?.substring(0, 100)
-      );
-      
-      // Extract file references to get file list
-      const { fileContexts } = await FileContextExtractor.extractFileReferences(message.text || "");
-      
-      // Enhance contextSummary with rules, MCP tools count, and files
-      const contextSummary = message.contextSummary || {};
-      
-      // Get rules count
-      const rules = this.rulesManager.getAllRules();
-      contextSummary.rulesCount = rules.length;
-      
-      // Get MCP tools count
-      const mcpTools = this.mcpManager.getAllTools();
-      contextSummary.mcpToolsCount = mcpTools.length;
-      
-      // Add file paths (using relative paths for display)
-      if (fileContexts.length > 0) {
-        contextSummary.files = fileContexts.map(fc => {
-          try {
-            return vscode.workspace.asRelativePath(fc.path, false);
-          } catch {
-            return path.basename(fc.path);
-          }
-        });
+    this.webviewManager.registerMessageHandler(
+      "sendMessage",
+      async (message) => {
+        console.log(
+          `[DEBUG] Handling sendMessage with text:`,
+          message.text?.substring(0, 100)
+        );
+
+        // Extract file references to get file list
+        const { fileContexts } =
+          await FileContextExtractor.extractFileReferences(message.text || "");
+
+        // Enhance contextSummary with rules, MCP tools count, and files
+        const contextSummary = message.contextSummary || {};
+
+        // Get rules count
+        const rules = this.rulesManager.getAllRules();
+        contextSummary.rulesCount = rules.length;
+
+        // Get MCP tools count
+        const mcpTools = this.mcpManager.getAllTools();
+        contextSummary.mcpToolsCount = mcpTools.length;
+
+        // Add file paths (using relative paths for display)
+        if (fileContexts.length > 0) {
+          contextSummary.files = fileContexts.map((fc) => {
+            try {
+              return vscode.workspace.asRelativePath(fc.path, false);
+            } catch {
+              return path.basename(fc.path);
+            }
+          });
+        }
+
+        // Send enhanced contextSummary back to webview
+        await this.webviewManager.updateContextSummary(contextSummary);
+
+        await this.handleChatMessage(message.text || "");
       }
-      
-      // Send enhanced contextSummary back to webview
-      await this.webviewManager.updateContextSummary(contextSummary);
-      
-      await this.handleChatMessage(message.text || "");
-    });
+    );
 
     // Get code context handler
     this.webviewManager.registerMessageHandler("getCodeContext", async () => {
@@ -224,40 +267,51 @@ export class HarmonyAssistant {
     });
 
     // Request file list for autocomplete handler
-    this.webviewManager.registerMessageHandler("requestFileList", async (message: WebviewMessage) => {
-      console.log(`[DEBUG] Handling requestFileList`);
-      const searchTerm = (message as any).searchTerm || '';
-      await this.sendFileList(searchTerm);
-    });
+    this.webviewManager.registerMessageHandler(
+      "requestFileList",
+      async (message: WebviewMessage) => {
+        console.log(`[DEBUG] Handling requestFileList`);
+        const searchTerm = (message as any).searchTerm || "";
+        await this.sendFileList(searchTerm);
+      }
+    );
 
     // Insert file reference handler
-    this.webviewManager.registerMessageHandler("insertFileReference", async () => {
-      console.log(`[DEBUG] Handling insertFileReference`);
-      await this.showFilePicker();
-    });
+    this.webviewManager.registerMessageHandler(
+      "insertFileReference",
+      async () => {
+        console.log(`[DEBUG] Handling insertFileReference`);
+        await this.showFilePicker();
+      }
+    );
   }
 
   public async openChat(): Promise<void> {
     // Track the last active text editor before opening the webview
     // This ensures we can still access the source file even when webview is active
     const currentEditor = vscode.window.activeTextEditor;
-    if (currentEditor && currentEditor.document.uri.scheme !== 'vscode-webview') {
+    if (
+      currentEditor &&
+      currentEditor.document.uri.scheme !== "vscode-webview"
+    ) {
       this.lastActiveTextEditor = currentEditor;
     }
-    
+
     // Dispose existing listener if any
     if (this.editorChangeDisposable) {
       this.editorChangeDisposable.dispose();
     }
-    
+
     // Listen for editor changes to keep track of the last text editor
-    this.editorChangeDisposable = vscode.window.onDidChangeActiveTextEditor((editor) => {
-      // Only update if it's a text editor (not the webview)
-      if (editor && editor.document.uri.scheme !== 'vscode-webview') {
-        this.lastActiveTextEditor = editor;
+    this.editorChangeDisposable = vscode.window.onDidChangeActiveTextEditor(
+      (editor) => {
+        // Only update if it's a text editor (not the webview)
+        if (editor && editor.document.uri.scheme !== "vscode-webview") {
+          this.lastActiveTextEditor = editor;
+        }
       }
-    });
-    
+    );
+
     await this.webviewManager.openChat();
   }
 
@@ -273,19 +327,23 @@ export class HarmonyAssistant {
 
     try {
       // STEP 1: Extract @cmd: commands FIRST (before file extraction)
-      const { command, cleanMessage: messageAfterCommand } = CommandExtractor.extractCommand(text);
-      
+      const { command, cleanMessage: messageAfterCommand } =
+        CommandExtractor.extractCommand(text);
+
       let commandHandled = false;
       let newStage: WorkflowStage | undefined;
-      
+
       if (command) {
         console.log(`[CommandExtractor] Detected command: ${command.command}`);
-        const commandResult = await this.handleCommand(command.command, messageAfterCommand);
-        
+        const commandResult = await this.handleCommand(
+          command.command,
+          messageAfterCommand
+        );
+
         if (commandResult.handled) {
           commandHandled = true;
           newStage = commandResult.newStage;
-          
+
           if (commandResult.shouldReturn) {
             // Command was handled and we should return early (e.g., error message)
             if (commandResult.message) {
@@ -295,86 +353,114 @@ export class HarmonyAssistant {
             }
             return;
           }
-          
+
           // Use cleaned message for remaining processing
           // Commands are now handled by state machine, so pass through the cleaned message
           if (commandResult.modifiedMessage !== undefined) {
             // Use modified message if provided (e.g., to preserve command for later processing)
             text = commandResult.modifiedMessage;
-            console.log(`[CommandExtractor] Using modified message from command handler`);
+            console.log(
+              `[CommandExtractor] Using modified message from command handler`
+            );
           } else {
             text = messageAfterCommand;
           }
-          
+
           // If stage was changed, log it
           if (newStage) {
-            console.log(`[CommandExtractor] Command changed stage to: ${newStage}`);
+            console.log(
+              `[CommandExtractor] Command changed stage to: ${newStage}`
+            );
           }
         }
       }
-      
+
       // STEP 2: Continue with existing flow (FileContextExtractor, etc.)
       // Extract file references and clean the message (explicit @file syntax)
-      const { cleanMessage, fileContexts } = await FileContextExtractor.extractFileReferences(text);
-      
+      const { cleanMessage, fileContexts } =
+        await FileContextExtractor.extractFileReferences(text);
+
       let finalMessage = cleanMessage;
-      let fileContextText = '';
-      
+      let fileContextText = "";
+
       // Add explicit file contexts from @file syntax
       if (fileContexts.length > 0) {
         fileContextText = FileContextExtractor.formatFileContexts(fileContexts);
-        console.log(`[Harmony] Added ${fileContexts.length} explicit file context(s) to message`);
+        console.log(
+          `[Harmony] Added ${fileContexts.length} explicit file context(s) to message`
+        );
       }
 
       // At chat stage, use FileManager to detect files from natural language queries
       // This supports problem restatement (first priority) by providing file context
       const currentStageForFileDetection = this.harmonyClient.getCurrentStage();
       let fileExtractionResult: FileExtractionResult | undefined;
-      
-      if (currentStageForFileDetection === 'chat' || !currentStageForFileDetection) {
+
+      if (
+        currentStageForFileDetection === "chat" ||
+        !currentStageForFileDetection
+      ) {
         try {
           // Detect files from the cleaned message (after @file extraction)
-          const fileDetection = await this.fileManager.detectAndCollectFiles(cleanMessage, {
-            includeContent: true,
-            maxFiles: 5,
-            confidenceThreshold: 'medium',
-            includeWorkspaceContext: false // Don't include workspace context by default to keep prompt focused
-          });
+          const fileDetection = await this.fileManager.detectAndCollectFiles(
+            cleanMessage,
+            {
+              includeContent: true,
+              maxFiles: 5,
+              confidenceThreshold: "medium",
+              includeWorkspaceContext: false, // Don't include workspace context by default to keep prompt focused
+            }
+          );
 
-          if (fileDetection.detectedFiles.length > 0 || fileDetection.ambiguousMatches.length > 0) {
-            const detectedFileContext = this.fileManager.formatForChatPrompt(fileDetection, false);
-            
+          if (
+            fileDetection.detectedFiles.length > 0 ||
+            fileDetection.ambiguousMatches.length > 0
+          ) {
+            const detectedFileContext = this.fileManager.formatForChatPrompt(
+              fileDetection,
+              false
+            );
+
             // Combine with explicit file contexts
             if (fileContextText) {
-              fileContextText = fileContextText + '\n\n' + detectedFileContext;
+              fileContextText = fileContextText + "\n\n" + detectedFileContext;
             } else {
               fileContextText = detectedFileContext;
             }
-            
-            console.log(`[Harmony] FileManager detected ${fileDetection.detectedFiles.length} file(s) and ${fileDetection.ambiguousMatches.length} ambiguous match(es)`);
+
+            console.log(
+              `[Harmony] FileManager detected ${fileDetection.detectedFiles.length} file(s) and ${fileDetection.ambiguousMatches.length} ambiguous match(es)`
+            );
           }
-          
+
           // Build file extraction result for verbose info
           fileExtractionResult = {
             explicitFiles: fileContexts
-              .filter(fc => fc.type === 'file' || fc.type === 'directory' || fc.type === 'selection')
-              .map(fc => ({
+              .filter(
+                (fc) =>
+                  fc.type === "file" ||
+                  fc.type === "directory" ||
+                  fc.type === "selection"
+              )
+              .map((fc) => ({
                 path: fc.path,
-                type: (fc.type === 'selection' ? 'file' : fc.type) as 'file' | 'directory',
-                extractedAt: Date.now()
+                type: (fc.type === "selection" ? "file" : fc.type) as
+                  | "file"
+                  | "directory",
+                extractedAt: Date.now(),
               })),
             detectedFiles: fileDetection.detectedFiles
-              .filter(f => f.type === 'file' || f.type === 'directory')
-              .map(f => ({
+              .filter((f) => f.type === "file" || f.type === "directory")
+              .map((f) => ({
                 path: f.path,
-                type: f.type as 'file' | 'directory',
+                type: f.type as "file" | "directory",
                 confidence: f.confidence,
-                extractedAt: Date.now()
+                extractedAt: Date.now(),
               })),
-            ambiguousMatches: fileDetection.ambiguousMatches.map(m => ({
+            ambiguousMatches: fileDetection.ambiguousMatches.map((m) => ({
               path: m.path,
-              reason: `Confidence: ${m.confidence}`
-            }))
+              reason: `Confidence: ${m.confidence}`,
+            })),
           };
         } catch (error: any) {
           // Log but don't fail if FileManager encounters an error
@@ -383,12 +469,19 @@ export class HarmonyAssistant {
           if (fileContexts.length > 0) {
             fileExtractionResult = {
               explicitFiles: fileContexts
-                .filter(fc => fc.type === 'file' || fc.type === 'directory' || fc.type === 'selection')
-                .map(fc => ({
+                .filter(
+                  (fc) =>
+                    fc.type === "file" ||
+                    fc.type === "directory" ||
+                    fc.type === "selection"
+                )
+                .map((fc) => ({
                   path: fc.path,
-                  type: (fc.type === 'selection' ? 'file' : fc.type) as 'file' | 'directory',
-                  extractedAt: Date.now()
-                }))
+                  type: (fc.type === "selection" ? "file" : fc.type) as
+                    | "file"
+                    | "directory",
+                  extractedAt: Date.now(),
+                })),
             };
           }
         }
@@ -396,59 +489,80 @@ export class HarmonyAssistant {
         // For non-chat stages, still track explicit files
         fileExtractionResult = {
           explicitFiles: fileContexts
-            .filter(fc => fc.type === 'file' || fc.type === 'directory' || fc.type === 'selection')
-            .map(fc => ({
+            .filter(
+              (fc) =>
+                fc.type === "file" ||
+                fc.type === "directory" ||
+                fc.type === "selection"
+            )
+            .map((fc) => ({
               path: fc.path,
-              type: (fc.type === 'selection' ? 'file' : fc.type) as 'file' | 'directory',
-              extractedAt: Date.now()
-            }))
+              type: (fc.type === "selection" ? "file" : fc.type) as
+                | "file"
+                | "directory",
+              extractedAt: Date.now(),
+            })),
         };
       }
-      
+
       // Add file context to the message if any was found
       if (fileContextText) {
-        finalMessage = fileContextText + '\n\n' + 'USER REQUEST:\n' + finalMessage;
+        finalMessage =
+          fileContextText + "\n\n" + "USER REQUEST:\n" + finalMessage;
       }
 
       // Add user message to history (store original message)
       const userMessage: ChatMessage = {
-        role: 'user',
+        role: "user",
         content: text, // Store original message with @file references
       };
       this.conversationManager.addMessage(userMessage);
 
-      console.log(`[DEBUG] Calling Harmony server with ${this.conversationManager.getLength()} messages in history...`);
-      
+      console.log(
+        `[DEBUG] Calling Harmony server with ${this.conversationManager.getLength()} messages in history...`
+      );
+
       // Select template based on current stage
       // First try to get stage from existing context, otherwise detect from prompt
       let currentStage = this.harmonyClient.getCurrentStage();
-      
+
       // Track queries in ChatManager when in chat stage or init stage (init will transition to chat)
       // This ensures the first query is always tracked even if stage hasn't been updated yet
       const chatManager = this.harmonyClient.getChatManager();
-      if (currentStage === 'chat' || currentStage === 'init' || !currentStage) {
+      if (currentStage === "chat" || currentStage === "init" || !currentStage) {
         // Initialize ChatManager if not already initialized (for init stage)
         // Only initialize if it doesn't already have content to avoid losing existing queries/files
-        if ((currentStage === 'init' || !currentStage) && !chatManager.hasContent()) {
+        if (
+          (currentStage === "init" || !currentStage) &&
+          !chatManager.hasContent()
+        ) {
           chatManager.initialize();
         }
-        
+
         // Add query with file extraction handled by ChatManager
-        chatManager.addQueryWithFiles(cleanMessage, fileContexts, fileExtractionResult);
-        console.log(`[ChatManager] Tracked query in ${currentStage || 'init'} stage: "${cleanMessage.substring(0, 50)}..."`);
+        chatManager.addQueryWithFiles(
+          cleanMessage,
+          fileContexts,
+          fileExtractionResult
+        );
+        console.log(
+          `[ChatManager] Tracked query in ${currentStage || "init"} stage: "${cleanMessage.substring(0, 50)}..."`
+        );
       }
-      
+
       // If command changed the stage, use that and prepend natural language equivalent for stageDetector
       if (commandHandled && newStage) {
         currentStage = newStage;
-        console.log(`[Harmony] Using stage from @cmd: command: ${currentStage}`);
-        
+        console.log(
+          `[Harmony] Using stage from @cmd: command: ${currentStage}`
+        );
+
         // Prepend natural language equivalent so harmonyClient's stageDetector can detect it
         // This ensures the stage is properly updated in the context manager
         const stageCommandMap: Record<string, string> = {
-          'assumptions': 'move to assumptions',
-          'implementation': 'move to implementation',
-          'chat': 'move to chat'
+          assumptions: "move to assumptions",
+          implementation: "move to implementation",
+          chat: "move to chat",
         };
         const naturalLanguageCommand = stageCommandMap[newStage];
         if (naturalLanguageCommand && finalMessage.trim()) {
@@ -458,13 +572,15 @@ export class HarmonyAssistant {
           // If no remaining message, just use the command
           finalMessage = naturalLanguageCommand;
         }
-        console.log(`[Harmony] Prepended natural language command "${naturalLanguageCommand}" for stageDetector`);
+        console.log(
+          `[Harmony] Prepended natural language command "${naturalLanguageCommand}" for stageDetector`
+        );
       } else {
         // Check if prompt indicates a stage transition (e.g., "move to implementation")
         // This must be done BEFORE template selection to use the correct template
         // (fallback to regex detection for backward compatibility)
         const history = this.conversationManager.getHistoryForTemplate();
-        if (currentStage !== 'chat') {
+        if (currentStage !== "chat") {
           // If we have a context, check for stage transitions from the current stage
           const detectedStage = this.stageStateMachine.determineNextStage(
             currentStage,
@@ -473,7 +589,9 @@ export class HarmonyAssistant {
             this.confirmationManager
           );
           if (detectedStage && detectedStage !== currentStage) {
-            console.log(`[Harmony] Stage transition detected in extension (regex fallback): ${currentStage} -> ${detectedStage}`);
+            console.log(
+              `[Harmony] Stage transition detected in extension (regex fallback): ${currentStage} -> ${detectedStage}`
+            );
             // Clear confirmation after successful transition
             this.confirmationManager.clear();
             currentStage = detectedStage;
@@ -481,19 +599,21 @@ export class HarmonyAssistant {
         } else {
           // If no context exists or we're in chat, detect stage from prompt
           const detectedStage = this.stageStateMachine.determineNextStage(
-            'chat',
+            "chat",
             finalMessage,
             history,
             this.confirmationManager
           );
           if (detectedStage && detectedStage !== currentStage) {
             // If transitioning to assumptions, check if there are unanswered problems
-            if (detectedStage === 'assumptions') {
+            if (detectedStage === "assumptions") {
               const hasUnanswered = chatManager.hasUnansweredProblems();
               if (!hasUnanswered) {
-                console.log(`[Harmony] Blocking transition to assumptions - all problems have been solved`);
+                console.log(
+                  `[Harmony] Blocking transition to assumptions - all problems have been solved`
+                );
                 // Stay in chat stage
-                currentStage = 'chat';
+                currentStage = "chat";
               } else {
                 // Clear confirmation after successful transition
                 this.confirmationManager.clear();
@@ -505,22 +625,25 @@ export class HarmonyAssistant {
               currentStage = detectedStage;
             }
           } else {
-            currentStage = detectedStage || 'chat';
+            currentStage = detectedStage || "chat";
           }
         }
       }
-      
+
       // Detect and activate first-principles mode if triggered or enabled in config
       // This should happen when entering assumptions stage or if already in assumptions stage
-      if (currentStage === 'assumptions') {
+      if (currentStage === "assumptions") {
         // Check if first-principles is triggered in the current message OR enabled in config
-        const shouldActivate = this.harmonyClient.shouldActivateFirstPrinciples(finalMessage) || 
-                               this.config.firstPrinciplesMode === true;
-        
+        const shouldActivate =
+          this.harmonyClient.shouldActivateFirstPrinciples(finalMessage) ||
+          this.config.firstPrinciplesMode === true;
+
         if (shouldActivate && !this.harmonyClient.isFirstPrinciplesMode()) {
           // Activate first-principles mode
           this.harmonyClient.setFirstPrinciplesMode(true);
-          const reason = this.config.firstPrinciplesMode ? 'config setting' : 'user trigger';
+          const reason = this.config.firstPrinciplesMode
+            ? "config setting"
+            : "user trigger";
           console.log(`[Harmony] First-principles mode activated (${reason})`);
         }
       } else {
@@ -528,60 +651,68 @@ export class HarmonyAssistant {
         // (unless config says to keep it enabled - but we reset per conversation)
         if (this.harmonyClient.isFirstPrinciplesMode()) {
           this.harmonyClient.setFirstPrinciplesMode(false);
-          console.log(`[Harmony] First-principles mode deactivated (left assumptions stage)`);
+          console.log(
+            `[Harmony] First-principles mode deactivated (left assumptions stage)`
+          );
         }
       }
-      
+
       let templateName: string;
       switch (currentStage) {
-        case 'assumptions':
+        case "assumptions":
           // Check if first-principles mode is active
           if (this.harmonyClient.isFirstPrinciplesMode()) {
-            templateName = 'first-principles';
-            console.log(`[Harmony] First-principles mode active in assumptions stage`);
+            templateName = "first-principles";
+            console.log(
+              `[Harmony] First-principles mode active in assumptions stage`
+            );
           } else {
-            templateName = 'assumptions';
+            templateName = "assumptions";
           }
           break;
-        case 'implementation':
-          templateName = 'implementation';
+        case "implementation":
+          templateName = "implementation";
           break;
-        case 'chat':
+        case "chat":
         default:
-          templateName = 'chat';
+          templateName = "chat";
           break;
       }
-      
-      console.log(`[Harmony] Using template: ${templateName}.j2 for stage: ${currentStage}`);
-      
+
+      console.log(
+        `[Harmony] Using template: ${templateName}.j2 for stage: ${currentStage}`
+      );
+
       // For stage transitions, pass full history (including current message) so fallback logic can capture all queries
       // Otherwise use getHistoryForTemplate() to exclude current message for template rendering
       const fullHistory = this.conversationManager.getHistory();
-      const historyForTemplate = this.conversationManager.getHistoryForTemplate();
-      
+      const historyForTemplate =
+        this.conversationManager.getHistoryForTemplate();
+
       const response = await this.harmonyClient.callServer(
         finalMessage, // Use message with file context
         templateName,
-        (name, ctx) => this.templateRenderer.applyTemplate(name, ctx, historyForTemplate),
+        (name, ctx) =>
+          this.templateRenderer.applyTemplate(name, ctx, historyForTemplate),
         false,
         fullHistory, // Pass full history so fallback logic can capture all queries including current one
         fileExtractionResult // Pass file extraction results for verbose info
       );
-      
+
       console.log(
         `[Harmony] Sending response to webview. Content length: ${response.content?.length || 0}`
       );
 
       // Clean verbose responses to improve readability (apply cleaning even in verbose mode)
-      const cleanedContent = cleanVerboseResponse(response.content || '');
+      const cleanedContent = cleanVerboseResponse(response.content || "");
       const cleanedResponse = {
         ...response,
-        content: cleanedContent
+        content: cleanedContent,
       };
 
       // Add assistant response to history (use cleaned content for display)
       this.conversationManager.addMessage({
-        role: 'assistant',
+        role: "assistant",
         content: cleanedContent,
         reasoning: response.reasoning,
       });
@@ -595,7 +726,7 @@ export class HarmonyAssistant {
       );
 
       // Process response and update problems in ChatManager if in chat stage
-      if (currentStage === 'chat' && cleanedContent) {
+      if (currentStage === "chat" && cleanedContent) {
         chatManager.processResponse(cleanedContent, cleanMessage);
       }
 
@@ -614,16 +745,19 @@ export class HarmonyAssistant {
    * @param targetType - Target format type (e.g., "markdown", "html")
    * @returns MCP tool name or null if not supported
    */
-  private getConversionToolName(sourceType: string, targetType: string): string | null {
+  private getConversionToolName(
+    sourceType: string,
+    targetType: string
+  ): string | null {
     const source = sourceType.toLowerCase();
     const target = targetType.toLowerCase();
 
     // Map source/target combinations to MCP tool names
-    if (source === 'docx' && target === 'markdown') {
-      return 'convert_docx_to_markdown';
+    if (source === "docx" && target === "markdown") {
+      return "convert_docx_to_markdown";
     }
-    if (source === 'pdf' && target === 'markdown') {
-      return 'extract_pdf_text';
+    if (source === "pdf" && target === "markdown") {
+      return "extract_pdf_text";
     }
     // Add more mappings as MCP tools become available
     // if (source === 'docx' && target === 'html') {
@@ -641,7 +775,7 @@ export class HarmonyAssistant {
    */
   private async executeConversion(
     filename: string,
-    targetType: string = 'markdown'
+    targetType: string = "markdown"
   ): Promise<{ message: string }> {
     console.log(`[Conversion] Converting file: ${filename} to ${targetType}`);
 
@@ -654,7 +788,9 @@ export class HarmonyAssistant {
       }
 
       // Determine source type from file extension
-      const sourceType = filename.toLowerCase().endsWith('.docx') ? 'docx' : 'pdf';
+      const sourceType = filename.toLowerCase().endsWith(".docx")
+        ? "docx"
+        : "pdf";
 
       // Get MCP tool name for this conversion
       const toolName = this.getConversionToolName(sourceType, targetType);
@@ -683,7 +819,7 @@ export class HarmonyAssistant {
       });
 
       if (mcpResult.isError) {
-        const errorText = mcpResult.content?.[0]?.text || 'Unknown error';
+        const errorText = mcpResult.content?.[0]?.text || "Unknown error";
         return {
           message: `❌ Error converting file: ${errorText}`,
         };
@@ -692,26 +828,28 @@ export class HarmonyAssistant {
       // Parse result (MCP tools return JSON strings)
       let resultData: any;
       try {
-        const resultText = mcpResult.content?.[0]?.text || '{}';
+        const resultText = mcpResult.content?.[0]?.text || "{}";
         resultData = JSON.parse(resultText);
       } catch (parseError) {
         // If parsing fails, use the raw text
-        resultData = { markdown: mcpResult.content?.[0]?.text || '' };
+        resultData = { markdown: mcpResult.content?.[0]?.text || "" };
       }
 
       // Format and return result
       // Handle different target types in the response
       let content: string | undefined;
-      if (targetType === 'markdown') {
+      if (targetType === "markdown") {
         content = resultData.markdown || resultData.content;
       } else {
         // For other target types, try common field names
-        content = resultData.content || resultData[targetType] || resultData.markdown;
+        content =
+          resultData.content || resultData[targetType] || resultData.markdown;
       }
 
       if (resultData.success && content) {
         return {
-          message: `✅ Successfully converted "${fileResult.filename}" to ${targetType}:\n\n` +
+          message:
+            `✅ Successfully converted "${fileResult.filename}" to ${targetType}:\n\n` +
             `---\n\n` +
             content,
         };
@@ -749,36 +887,40 @@ export class HarmonyAssistant {
     const commandLower = command.toLowerCase().trim();
 
     switch (commandLower) {
-      case 'move_to_implementation': {
+      case "move_to_implementation": {
         const currentStage = this.harmonyClient.getCurrentStage();
         // Validate transition
-        if (!this.stageStateMachine.canTransition(currentStage, 'implementation')) {
+        if (
+          !this.stageStateMachine.canTransition(currentStage, "implementation")
+        ) {
           return {
             handled: true,
             shouldReturn: true,
-            message: `Cannot transition to implementation stage from ${currentStage}. Valid transitions: ${currentStage === 'chat' ? 'chat -> assumptions' : currentStage === 'assumptions' ? 'assumptions -> implementation' : 'N/A'}`,
+            message: `Cannot transition to implementation stage from ${currentStage}. Valid transitions: ${currentStage === "chat" ? "chat -> assumptions" : currentStage === "assumptions" ? "assumptions -> implementation" : "N/A"}`,
           };
         }
         return {
           handled: true,
           shouldReturn: false,
-          newStage: 'implementation',
+          newStage: "implementation",
         };
       }
 
-      case 'move_to_assumptions': {
+      case "move_to_assumptions": {
         const currentStage = this.harmonyClient.getCurrentStage();
         // Validate transition
-        if (!this.stageStateMachine.canTransition(currentStage, 'assumptions')) {
+        if (
+          !this.stageStateMachine.canTransition(currentStage, "assumptions")
+        ) {
           return {
             handled: true,
             shouldReturn: true,
-            message: `Cannot transition to assumptions stage from ${currentStage}. Valid transitions: ${currentStage === 'chat' ? 'chat -> assumptions' : currentStage === 'implementation' ? 'implementation -> assumptions' : 'N/A'}`,
+            message: `Cannot transition to assumptions stage from ${currentStage}. Valid transitions: ${currentStage === "chat" ? "chat -> assumptions" : currentStage === "implementation" ? "implementation -> assumptions" : "N/A"}`,
           };
         }
-        
+
         // If transitioning from chat, check if there are unanswered problems
-        if (currentStage === 'chat') {
+        if (currentStage === "chat") {
           const chatManager = this.harmonyClient.getChatManager();
           const hasUnanswered = chatManager.hasUnansweredProblems();
           if (!hasUnanswered) {
@@ -789,67 +931,73 @@ export class HarmonyAssistant {
             };
           }
         }
-        
+
         return {
           handled: true,
           shouldReturn: false,
-          newStage: 'assumptions',
+          newStage: "assumptions",
         };
       }
 
-      case 'move_to_chat': {
+      case "move_to_chat": {
         const currentStage = this.harmonyClient.getCurrentStage();
         // Validate transition
-        if (!this.stageStateMachine.canTransition(currentStage, 'chat')) {
+        if (!this.stageStateMachine.canTransition(currentStage, "chat")) {
           return {
             handled: true,
             shouldReturn: true,
-            message: `Cannot transition to chat stage from ${currentStage}. Valid transitions: ${currentStage === 'assumptions' ? 'assumptions -> chat' : currentStage === 'implementation' ? 'implementation -> chat' : 'N/A'}`,
+            message: `Cannot transition to chat stage from ${currentStage}. Valid transitions: ${currentStage === "assumptions" ? "assumptions -> chat" : currentStage === "implementation" ? "implementation -> chat" : "N/A"}`,
           };
         }
         return {
           handled: true,
           shouldReturn: false,
-          newStage: 'chat',
+          newStage: "chat",
         };
       }
 
       // next_step, auto, and verbose_info are now handled by state machine as events
       // They are detected by StageStateMachine.detectTrigger() and handled in stage handlers
       // No command handling needed here - pass through to state machine
-      case 'next_step':
-      case 'auto':
-      case 'verbose_info':
+      case "next_step":
+      case "next-step":
+      case "auto":
+      case "verbose":
+      case "verbose_info":
+      case "verbose-info":
         // These commands are passed through to the state machine as triggers
         // They will be detected by StageStateMachine.detectTrigger() and handled in stage handlers
         return { handled: false, shouldReturn: false };
 
-      case 'convert': {
+      case "convert": {
         // Convert DOCX/PDF file to markdown
         // Flow: chat (verify file, create plan) -> assumptions (pass through) -> implementation (execute)
         const currentStage = this.harmonyClient.getCurrentStage();
-        
+
         // Parse: @cmd:convert filename.docx [targetType]
         // Example: @cmd:convert file.docx markdown
         // Example: @cmd:convert file.docx (defaults to markdown)
         const trimmed = remainingMessage.trim();
-        
+
         // Match filename (with extension) and optional target type
         // Pattern: filename.ext [targetType]
-        const match = trimmed.match(/^([\w.-\/\\]+\.(?:docx|pdf))(?:\s+(\w+))?$/i);
+        const match = trimmed.match(
+          /^([\w.-\/\\]+\.(?:docx|pdf))(?:\s+(\w+))?$/i
+        );
         if (!match) {
           return {
             handled: true,
             shouldReturn: true,
-            message: 'Usage: @cmd:convert filename.docx [targetType]\nExample: @cmd:convert file.docx markdown\n(If targetType is omitted, defaults to markdown)',
+            message:
+              "Usage: @cmd:convert filename.docx [targetType]\nExample: @cmd:convert file.docx markdown\n(If targetType is omitted, defaults to markdown)",
           };
         }
 
         const filename = match[1];
-        const targetType = (match[2] || 'markdown').toLowerCase();
+        const targetType = (match[2] || "markdown").toLowerCase();
 
         // Chat stage: Verify file exists and create default plan
-        if (currentStage === 'chat') {
+        if (currentStage === "chat") {
           // Verify file exists using FileReader (lightweight check without reading file content)
           const fileExists = await this.fileReader.checkFileExists(filename);
           if (!fileExists) {
@@ -870,7 +1018,9 @@ export class HarmonyAssistant {
           }
 
           // Check if MCP tool is available
-          const sourceType = filename.toLowerCase().endsWith('.docx') ? 'docx' : 'pdf';
+          const sourceType = filename.toLowerCase().endsWith(".docx")
+            ? "docx"
+            : "pdf";
           const toolName = this.getConversionToolName(sourceType, targetType);
           if (!toolName) {
             return {
@@ -892,7 +1042,9 @@ export class HarmonyAssistant {
           // Create default plan automatically
           // The plan will be created by the assumptions stage handler when it processes the message
           // Transition to assumptions stage with the convert command preserved
-          if (!this.stageStateMachine.canTransition(currentStage, 'assumptions')) {
+          if (
+            !this.stageStateMachine.canTransition(currentStage, "assumptions")
+          ) {
             return {
               handled: true,
               shouldReturn: true,
@@ -905,15 +1057,17 @@ export class HarmonyAssistant {
           return {
             handled: true,
             shouldReturn: false,
-            newStage: 'assumptions',
+            newStage: "assumptions",
             modifiedMessage: convertCommand, // Preserve command for processing in assumptions stage
           };
         }
 
         // Assumptions stage: Detect command, verify MCP tool, transform message for LLM
-        if (currentStage === 'assumptions') {
+        if (currentStage === "assumptions") {
           // Verify MCP tool is still available (safety check)
-          const sourceType = filename.toLowerCase().endsWith('.docx') ? 'docx' : 'pdf';
+          const sourceType = filename.toLowerCase().endsWith(".docx")
+            ? "docx"
+            : "pdf";
           const toolName = this.getConversionToolName(sourceType, targetType);
           if (!toolName) {
             return {
@@ -935,7 +1089,7 @@ export class HarmonyAssistant {
           // Transform command to natural language for LLM
           // Remove @cmd:convert syntax and convert to natural language
           const naturalLanguageMessage = `Convert ${filename} to ${targetType} format`;
-          
+
           return {
             handled: true,
             shouldReturn: false,
@@ -944,7 +1098,7 @@ export class HarmonyAssistant {
         }
 
         // Implementation stage: Execute conversion
-        if (currentStage === 'implementation') {
+        if (currentStage === "implementation") {
           const result = await this.executeConversion(filename, targetType);
           return {
             handled: true,
@@ -954,12 +1108,14 @@ export class HarmonyAssistant {
         }
 
         // Unknown stage - try to transition to implementation
-        if (this.stageStateMachine.canTransition(currentStage, 'implementation')) {
+        if (
+          this.stageStateMachine.canTransition(currentStage, "implementation")
+        ) {
           const result = await this.executeConversion(filename, targetType);
           return {
             handled: true,
             shouldReturn: true,
-            newStage: 'implementation',
+            newStage: "implementation",
             message: result.message,
           };
         }
@@ -981,7 +1137,7 @@ export class HarmonyAssistant {
   /**
    * Send file list to webview for autocomplete
    */
-  private async sendFileList(searchTerm: string = ''): Promise<void> {
+  private async sendFileList(searchTerm: string = ""): Promise<void> {
     try {
       const workspaceFolders = vscode.workspace.workspaceFolders;
       if (!workspaceFolders || workspaceFolders.length === 0) {
@@ -990,48 +1146,53 @@ export class HarmonyAssistant {
 
       // Get files from workspace (excluding large directories)
       const excludePatterns = [
-        '**/node_modules/**',
-        '**/.git/**',
-        '**/dist/**',
-        '**/build/**',
-        '**/.build/**',
-        '**/out/**',
-        '**/output/**',
-        '**/.next/**',
-        '**/target/**',
-        '**/*.min.*',
-        '**/*.bundle.*',
-        '**/.cache/**',
-        '**/coverage/**'
-      ].join(',');
-      const files = await vscode.workspace.findFiles('**/*', excludePatterns);
-      
+        "**/node_modules/**",
+        "**/.git/**",
+        "**/dist/**",
+        "**/build/**",
+        "**/.build/**",
+        "**/out/**",
+        "**/output/**",
+        "**/.next/**",
+        "**/target/**",
+        "**/*.min.*",
+        "**/*.bundle.*",
+        "**/.cache/**",
+        "**/coverage/**",
+      ].join(",");
+      const files = await vscode.workspace.findFiles("**/*", excludePatterns);
+
       // Format files for display
       let fileItems = files
-        .map(file => ({
+        .map((file) => ({
           label: vscode.workspace.asRelativePath(file),
-          path: vscode.workspace.asRelativePath(file)
+          path: vscode.workspace.asRelativePath(file),
         }))
-        .filter(file => {
+        .filter((file) => {
           // Explicitly filter out .build folder and any files inside it
-          const normalizedPath = file.path.replace(/\\/g, '/');
-          return !normalizedPath.includes('/.build/') && !normalizedPath.startsWith('.build/');
+          const normalizedPath = file.path.replace(/\\/g, "/");
+          return (
+            !normalizedPath.includes("/.build/") &&
+            !normalizedPath.startsWith(".build/")
+          );
         });
 
       // Filter files based on search term (exact substring match)
       if (searchTerm) {
         const searchLower = searchTerm.toLowerCase();
-        fileItems = fileItems.filter(file => {
+        fileItems = fileItems.filter((file) => {
           const fileName = file.label.toLowerCase();
           // Only match if the filename contains the exact search term as a substring
           return fileName.includes(searchLower);
         });
       }
-      
+
       // Limit to 50 for performance
       fileItems = fileItems.slice(0, 50);
 
-      console.log(`[Harmony] Sending ${fileItems.length} files for autocomplete${searchTerm ? ` (filtered by "${searchTerm}")` : ''}`);
+      console.log(
+        `[Harmony] Sending ${fileItems.length} files for autocomplete${searchTerm ? ` (filtered by "${searchTerm}")` : ""}`
+      );
       await this.webviewManager.sendFileList(fileItems);
     } catch (error) {
       console.error(`[Harmony] Error getting file list:`, error);
@@ -1045,7 +1206,7 @@ export class HarmonyAssistant {
     try {
       const workspaceFolders = vscode.workspace.workspaceFolders;
       if (!workspaceFolders || workspaceFolders.length === 0) {
-        vscode.window.showWarningMessage('No workspace folder open');
+        vscode.window.showWarningMessage("No workspace folder open");
         return;
       }
 
@@ -1053,48 +1214,50 @@ export class HarmonyAssistant {
       //const excludePatterns = '**/node_modules/**,**/.git/**,**/dist/**,**/build/**,**/*.min.*,**/*.bundle.*';
 
       const excludePatterns = [
-        '**/node_modules/**',
-        '**/.git/**',
-        '**/dist/**',
-        '**/build/**',
-        '**/.build/**',
-        '**/out/**',
-        '**/output/**',
-        '**/.next/**',
-        '**/target/**',
-        '**/*.min.*',
-        '**/*.bundle.*',
-        '**/.cache/**',
-        '**/coverage/**',
-        '**/.vscode-test/**'
-      ].join(',');
-      
+        "**/node_modules/**",
+        "**/.git/**",
+        "**/dist/**",
+        "**/build/**",
+        "**/.build/**",
+        "**/out/**",
+        "**/output/**",
+        "**/.next/**",
+        "**/target/**",
+        "**/*.min.*",
+        "**/*.bundle.*",
+        "**/.cache/**",
+        "**/coverage/**",
+        "**/.vscode-test/**",
+      ].join(",");
 
-      const files = await vscode.workspace.findFiles('**/*', excludePatterns);
-      
+      const files = await vscode.workspace.findFiles("**/*", excludePatterns);
+
       const items = files
-        .map(file => ({
+        .map((file) => ({
           label: vscode.workspace.asRelativePath(file),
-          description: '',
+          description: "",
           detail: file.fsPath,
-          filePath: vscode.workspace.asRelativePath(file)
+          filePath: vscode.workspace.asRelativePath(file),
         }))
-        .filter(item => {
+        .filter((item) => {
           // Explicitly filter out .build folder and any files inside it
-          const normalizedPath = item.filePath.replace(/\\/g, '/');
-          return !normalizedPath.includes('/.build/') && !normalizedPath.startsWith('.build/');
+          const normalizedPath = item.filePath.replace(/\\/g, "/");
+          return (
+            !normalizedPath.includes("/.build/") &&
+            !normalizedPath.startsWith(".build/")
+          );
         });
 
       // Sort alphabetically
       items.sort((a, b) => a.label.localeCompare(b.label));
 
       const selected = await vscode.window.showQuickPick(items, {
-        placeHolder: 'Select a file to reference',
+        placeHolder: "Select a file to reference",
         matchOnDescription: true,
         matchOnDetail: true,
-        canPickMany: false
+        canPickMany: false,
       });
-      
+
       if (selected) {
         // Insert @file reference into webview input
         const reference = `@file:${selected.filePath}`;
@@ -1120,20 +1283,20 @@ export class HarmonyAssistant {
   private async sendCodeContext(): Promise<void> {
     // Try to get the active editor first
     let editor = vscode.window.activeTextEditor;
-    
+
     // If active editor is null or is the webview, use the last tracked text editor
-    if (!editor || editor.document.uri.scheme === 'vscode-webview') {
+    if (!editor || editor.document.uri.scheme === "vscode-webview") {
       editor = this.lastActiveTextEditor;
     }
-    
+
     // If still no editor, try to get the first visible text editor
     if (!editor && vscode.window.visibleTextEditors.length > 0) {
       // Find the first editor that's not a webview
       editor = vscode.window.visibleTextEditors.find(
-        e => e.document.uri.scheme !== 'vscode-webview'
+        (e) => e.document.uri.scheme !== "vscode-webview"
       );
     }
-    
+
     if (editor) {
       const document = editor.document;
       const selection = editor.selection;
@@ -1152,7 +1315,9 @@ export class HarmonyAssistant {
       await this.webviewManager.sendCodeContext(context);
     } else {
       // Show a message if no editor is available
-      vscode.window.showWarningMessage('No active file found. Please open a file in the editor first.');
+      vscode.window.showWarningMessage(
+        "No active file found. Please open a file in the editor first."
+      );
     }
   }
 
@@ -1160,18 +1325,20 @@ export class HarmonyAssistant {
     await this.codeActions.explainCode();
   }
 
-
   /**
    * Read a file using the native tools manager
    */
   public async readFile(filePath: string): Promise<NativeToolResult> {
-    return await this.nativeToolsManager.callTool("read_file", { file_path: filePath });
+    return await this.nativeToolsManager.callTool("read_file", {
+      file_path: filePath,
+    });
   }
 
   async testReadFile(): Promise<void> {
     const testPath = "README.md"; // Common file in workspace root
     const result = await this.readFile(testPath);
-    console.log(`Test read ${testPath}:`, 
+    console.log(
+      `Test read ${testPath}:`,
       result.isError ? "ERROR" : "SUCCESS",
       result.content[0]?.text?.substring(0, 100) + "..."
     );
@@ -1198,16 +1365,22 @@ export function activate(context: vscode.ExtensionContext) {
       _context: vscode.WebviewViewResolveContext,
       _token: vscode.CancellationToken
     ) => {
-      assistant.getWebviewManager().resolveWebviewView(webviewView, _context, _token);
-    }
+      assistant
+        .getWebviewManager()
+        .resolveWebviewView(webviewView, _context, _token);
+    },
   };
 
   context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider('harmonyChat', webviewViewProvider, {
-      webviewOptions: {
-        retainContextWhenHidden: true
+    vscode.window.registerWebviewViewProvider(
+      "harmonyChat",
+      webviewViewProvider,
+      {
+        webviewOptions: {
+          retainContextWhenHidden: true,
+        },
       }
-    })
+    )
   );
 
   // Register commands
@@ -1223,7 +1396,7 @@ export function activate(context: vscode.ExtensionContext) {
     }),
     vscode.commands.registerCommand("harmony.clearHistory", () => {
       assistant.clearConversationHistory();
-      vscode.window.showInformationMessage('Conversation history cleared');
+      vscode.window.showInformationMessage("Conversation history cleared");
     }),
     // Add a command to insert file reference directly
     vscode.commands.registerCommand("harmony.insertFileReference", async () => {

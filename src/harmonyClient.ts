@@ -193,7 +193,9 @@ export class HarmonyClient {
   ): Promise<HarmonyResponse> {
     try {
       // Detect if this is auto mode trigger (first time only)
-      const isAutoModeStart = !isAutoMode && /@cmd:auto|auto\s+mode|execute\s+all/i.test(prompt.toLowerCase());
+      const isAutoModeStart =
+        !isAutoMode &&
+        /@cmd:auto|auto\s+mode|execute\s+all/i.test(prompt.toLowerCase());
       const effectiveAutoMode = isAutoMode || isAutoModeStart;
 
       // Phase 1: Initialize conversation and handle state transitions
@@ -225,26 +227,31 @@ export class HarmonyClient {
 
       // Phase 4: Handle auto mode continuation
       // If we're in implementation stage and auto mode is active, check if plan is complete
-      if (effectiveAutoMode && currentStage === 'implementation') {
+      if (effectiveAutoMode && currentStage === "implementation") {
         const isPlanCompleted = this.isProgressPlanCompleted();
         if (!isPlanCompleted) {
           // Plan not complete - send intermediate response and continue with next step in auto mode
-          console.log(`[Harmony] Auto mode: Step completed, sending intermediate result to UI...`);
-          
+          console.log(
+            `[Harmony] Auto mode: Step completed, sending intermediate result to UI...`
+          );
+
           // Send intermediate response to webview UI if callback is available
           if (this.intermediateResponseCallback) {
             try {
               await this.intermediateResponseCallback(response);
             } catch (error: any) {
-              console.warn(`[Harmony] Error sending intermediate response:`, error);
+              console.warn(
+                `[Harmony] Error sending intermediate response:`,
+                error
+              );
             }
           }
-          
+
           console.log(`[Harmony] Auto mode: Continuing to next step...`);
-          
+
           // Recursively call with @cmd:auto to trigger next step, passing isAutoMode=true
           const continuationResponse = await this.callServer(
-            '@cmd:auto',
+            "@cmd:auto",
             templateName,
             applyTemplate,
             true,
@@ -255,7 +262,8 @@ export class HarmonyClient {
 
           // Append continuation response to current response
           return {
-            content: response.content + "\n\n---\n\n" + continuationResponse.content,
+            content:
+              response.content + "\n\n---\n\n" + continuationResponse.content,
             reasoning: response.reasoning || continuationResponse.reasoning,
             commentary: response.commentary || continuationResponse.commentary,
             final: response.final || continuationResponse.final,
@@ -348,9 +356,6 @@ export class HarmonyClient {
     } catch (e) {
       // ignore
     }
-
-    delete verboseInfo.step;
-    delete verboseInfo.maxSteps;
 
     try {
       withToString(verboseInfo).toString();
@@ -731,9 +736,6 @@ export class HarmonyClient {
       this.progressPlanManager,
       fileOperations
     );
-
-    delete verboseInfo.step;
-    delete verboseInfo.maxSteps;
 
     try {
       withToString(verboseInfo).toString();
@@ -1180,9 +1182,6 @@ export class HarmonyClient {
       );
     }
 
-    delete verboseInfo.step;
-    delete verboseInfo.maxSteps;
-
     try {
       withToString(verboseInfo).toString();
     } catch (e) {
@@ -1322,37 +1321,14 @@ export class HarmonyClient {
           ? VerboseInfoBuilder.forAssumptionStage(context, undefined, conversationHistory)
           : VerboseInfoBuilder.forImplementationStage(context, this.progressPlanManager);
         // VerboseInfoBuilder determines `isComplete` from the progress plan.
-        // Do not set `isComplete` here — keep it readonly and derived from steps.
-        // Ensure callers understand the task is complete when max steps exceeded
-        try {
-          // If builder didn't mark it complete, set it here to reflect that no further steps will run
-          if (!verboseInfo.isComplete) {
-            (verboseInfo as any).isComplete = true;
-          }
-        } catch (e) {
-          // ignore
-        }
+        // Do NOT force isComplete=true here - let it reflect actual step completion status
+        // This ensures "Complete" only shows when steps are actually completed
 
-        delete verboseInfo.step;
-        delete verboseInfo.maxSteps;
-        
         // Log using toString() (doesn't affect returned object)
         try {
           withToString(verboseInfo).toString();
         } catch (e) {
           // Ignore logging errors
-        }
-
-        // If we've already reached or are at max steps, mark as complete
-        try {
-          const finalContextCheck = this.contextManager.getContext();
-          if (finalContextCheck && finalContextCheck.currentStep >= finalContextCheck.maxSteps) {
-            if (!verboseInfo.isComplete) {
-              (verboseInfo as any).isComplete = true;
-            }
-          }
-        } catch (e) {
-          // ignore
         }
         
         return {
@@ -1600,8 +1576,6 @@ export class HarmonyClient {
             );
             // Don't override isComplete - VerboseInfoBuilder already calculates it correctly
             // based on whether the plan is actually completed
-            delete verboseInfo.step;
-            delete verboseInfo.maxSteps;
             
             // Log using toString() (doesn't affect returned object)
             try {
@@ -2311,8 +2285,6 @@ export class HarmonyClient {
             } catch (e) {
               // ignore
             }
-            delete verboseInfo.step;
-            delete verboseInfo.maxSteps;
             return {
               content: finalContent,
               reasoning: parsed.reasoning,
@@ -2509,9 +2481,6 @@ export class HarmonyClient {
       // Don't override isComplete - VerboseInfoBuilder already calculates it correctly
       // based on progress steps. `isComplete` is treated as readonly here.
 
-      delete verboseInfo.step;
-      delete verboseInfo.maxSteps;
-
       // Log using toString() (doesn't affect returned object)
       try {
         withToString(verboseInfo).toString();
@@ -2519,17 +2488,8 @@ export class HarmonyClient {
         // Ignore logging errors
       }
 
-      // If we've already reached or are at max steps, mark as complete
-      try {
-        const ctx = this.contextManager.getContext();
-        if (ctx && ctx.currentStep >= ctx.maxSteps) {
-          if (!verboseInfo.isComplete) {
-            (verboseInfo as any).isComplete = true;
-          }
-        }
-      } catch (e) {
-        // ignore
-      }
+      // Do NOT force isComplete=true when maxSteps is reached
+      // Let the verboseInfo builder determine completion based on actual step status
 
       // Clear lastStageTransition after using it
       if (finalContextForVerbose?.lastStageTransition) {
@@ -2815,8 +2775,10 @@ export class HarmonyClient {
     }
 
     const currentStage = context.currentStage;
+    let verboseInfo: VerboseInfo;
+
     if (currentStage === "chat") {
-      return VerboseInfoBuilder.forChatStage(
+      verboseInfo = VerboseInfoBuilder.forChatStage(
         context,
         undefined,
         undefined,
@@ -2825,17 +2787,20 @@ export class HarmonyClient {
         conversationHistory
       );
     } else if (currentStage === "assumptions") {
-      return VerboseInfoBuilder.forAssumptionStage(
+      verboseInfo = VerboseInfoBuilder.forAssumptionStage(
         context,
         undefined,
         conversationHistory
       );
     } else {
-      return VerboseInfoBuilder.forImplementationStage(
+      verboseInfo = VerboseInfoBuilder.forImplementationStage(
         context,
         this.progressPlanManager
       );
     }
+
+    // Wrap with getters (required for ImplementationVerboseInfo.isComplete to work dynamically)
+    return withToString(verboseInfo) as VerboseInfo;
   }
 
   /**
@@ -2916,7 +2881,9 @@ export class HarmonyClient {
     this.verboseInfoCallback = callback;
   }
 
-  setIntermediateResponseCallback(callback: IntermediateResponseCallback): void {
+  setIntermediateResponseCallback(
+    callback: IntermediateResponseCallback
+  ): void {
     this.intermediateResponseCallback = callback;
   }
 

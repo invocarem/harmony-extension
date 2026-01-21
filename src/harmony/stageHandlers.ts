@@ -678,7 +678,9 @@ class ImplementationStageHandler implements StageHandler {
       // After completing a step, the next step is automatically advanced to in_progress
       // User can call @cmd:next_step to execute the next step
       const plan = this.implementationManager.getProgressPlan();
-      const nextInProgressStep = plan?.steps.find((s) => s.status === "in_progress");
+      const nextInProgressStep = plan?.steps.find(
+        (s) => s.status === "in_progress"
+      );
       if (nextInProgressStep) {
         console.log(
           `[StageHandler:Implementation] Step ${currentStep.stepNumber} completed. Next step ${nextInProgressStep.stepNumber} is now in_progress (ready for @cmd:next_step to execute)`

@@ -377,6 +377,7 @@ export class StageStateMachine {
         "replace_file",
         "write_file",
         "update_file",
+        "edit_file",
       ].includes(tr.name);
       const hasError = tr.result?.isError;
       const errorText = tr.result?.content?.[0]?.text?.toLowerCase() || "";
@@ -411,6 +412,7 @@ This stage should quickly transition to the Chat stage.`,
 **PRIMARY GOAL**
 - Restate user's problem in your own words to show understanding; 
 - Understand and clarify any ambiguities in the user's request;
+- Use read/search tools to understand codebase context
 
 **DO:**
 ✅ Restate user's problem in your own words
@@ -421,7 +423,7 @@ This stage should quickly transition to the Chat stage.`,
 **DO NOT:**
 ❌ Provide solutions, code, or implementation ideas
 ❌ Jump to analysis without complete understanding
-❌ Use any file modification tools
+❌ Use any file modification tools and MCP tools
 
 **EXCEPTION**: For trivial, non-code questions (e.g., "What time is it?"), provide direct answer
 
@@ -434,9 +436,6 @@ This stage should quickly transition to the Chat stage.`,
 **NEXT STAGE PROPOSAL**: When understanding is complete, propose: 
 "I now understand your requirements. Shall I move to the Analysis stage to create an implementation plan?"
 
-**ADDITIONAL CONTEXT**:
-- Use read/search tools (read_file, grep_files, list_files) to understand the codebase
-- **Tool Availability**: Only read-only tools (read_file, list_files, grep_files) are available. MCP tools are NOT available in this stage.
 `,
 
       assumptions: `## Current Stage: ASSUMPTIONS/ANALYSIS
@@ -450,7 +449,6 @@ This stage should quickly transition to the Chat stage.`,
 3. Create one step for EACH distinct request
 4. Assess complexity: Simple (1-2 steps) vs Hard (3+ steps)
 5. List ALL assumptions and edge cases
-6. Use read/search tools to understand codebase context
 
 **ABSOLUTE PROHIBITIONS:**
 ❌ NO file modification tools
@@ -499,12 +497,38 @@ This stage should quickly transition to the Chat stage.`,
 **EXECUTION RULES**:
 1. Follow steps in EXACT order from the plan
 2. For each step, generate the actual code/content
-3. Use appropriate tools:
-   - All tools are available
-   - create_file for new files: <tool_call name="create_file" args='{"file_path": "hello.py", "content": "print(\\\"Hello!\\\")"}' />
-   - replace_file for modifications  
-   - exec_terminal for commands: <tool_call name="exec_terminal" args='{"command": "npm run compile"}' />
-   - MCP tools when relevant :  <tool_call name="tool_name" args='{"param": "value"}' />
+3. All tools are available in this stage. Use appropriate tools, see TOOL USAGE GUIDE below.
+
+**TOOL USAGE GUIDE**:
+
+**create_file**: Use for NEW files only
+- Creates files with the specified content
+- Fails if file already exists (use replace_file instead)
+- Best for: Initial file creation, fresh implementations
+
+**replace_file**: Use to REPLACE entire file content
+- Overwrites all file content completely
+- Creates file if it doesn't exist
+- Best for: Complete rewrites, full file updates, ensuring consistency
+
+**edit_file**: Use for PARTIAL file modifications
+- Finds exact text and replaces only that portion
+- Preserves rest of file structure and content
+- Requires: old_text with enough context (3-5 lines before/after) to ensure unique match
+- Best for: Small, localized changes within large files
+- Example: Changing a config value, updating a function parameter, fixing a bug in one section
+
+**exec_terminal**: Execute shell commands
+- Example: <tool_call name="exec_terminal" args='{"command": "npm run compile"}' />
+
+**MCP tools**: Use when relevant for your implementation
+- Example: <tool_call name="tool_name" args='{"param": "value"}' />
+
+**When to use each file tool:**
+- Few lines to change in large file? → **edit_file**
+- Complete file rewrite needed? → **replace_file**  
+- Creating new file? → **create_file**
+- Multiple small changes? → Multiple **edit_file** calls (more precise)
 
 **CRITICAL REQUIREMENTS**:
 ✅ Your response MUST include at least one tool call if work remains

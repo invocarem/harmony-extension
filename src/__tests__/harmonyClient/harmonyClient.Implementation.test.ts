@@ -1090,13 +1090,11 @@ describe("HarmonyClient - Implementation Stage", () => {
       // Verify both create_file calls were made (check actual tool execution via mocks)
       // Note: Tools should be called even if result.toolCalls is undefined
       const file1Call = mockNativeToolsManager.callTool.mock.calls.find(
-        (call) =>
-          call[0] === "create_file" && call[1]?.file_path === "good.txt"
+        (call) => call[0] === "create_file" && call[1]?.file_path === "good.txt"
       );
       const file2Call = mockNativeToolsManager.callTool.mock.calls.find(
         (call) =>
-          call[0] === "create_file" &&
-          call[1]?.file_path === "/bad/path.txt"
+          call[0] === "create_file" && call[1]?.file_path === "/bad/path.txt"
       );
 
       // Both tools should have been called
@@ -1453,8 +1451,9 @@ describe("HarmonyClient - Implementation Stage", () => {
       const additionalCalls = callsAfter - callsBefore;
       expect(additionalCalls).toBe(1); // Only one call, no continuation
 
-      // When max steps is reached, isComplete should be set to true
-      // This happens in harmonyClient.ts when currentStep > maxSteps or when trying to continue
+      // When max steps is reached, isComplete should reflect actual step completion status
+      // In this test, the step IS completed (doesn't require file creation, so completes after LLM response)
+      // Therefore isComplete should be true
       expect(result.verboseInfo?.isComplete).toBe(true);
     });
   });
@@ -1669,6 +1668,4 @@ describe("HarmonyClient - Implementation Stage", () => {
       );
     });
   });
-
-  
 });
