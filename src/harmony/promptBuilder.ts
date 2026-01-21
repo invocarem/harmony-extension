@@ -40,8 +40,28 @@ export class PromptBuilder {
     // Build stage instructions (with code snippets ready flag for implementation stage)
     let stageInstructions = this.stageStateMachine.getInstructions(currentStage);
     
+    // If in assumptions stage, add referred files from chat stage so AI doesn't re-detect them
+    if (currentStage === 'assumptions' && conversationContext) {
+      const referredFiles = conversationContext.referredFiles;
+      if (referredFiles && referredFiles.length > 0) {
+        const fileList = referredFiles
+          .map(f => `- ${f.file}${f.description ? ` (${f.description})` : ''}`)
+          .join('\n');
+        stageInstructions += `\n\n**IDENTIFIED FILES**:\n${fileList}\n\nUse read_file on these files directly.`;
+      }
+    }
+    
     // If in implementation stage, add progressPlan context if available
     if (currentStage === 'implementation' && conversationContext) {
+      // Add referred files if available
+      const referredFiles = conversationContext.referredFiles;
+      if (referredFiles && referredFiles.length > 0) {
+        const fileList = referredFiles
+          .map(f => `- ${f.file}${f.description ? ` (${f.description})` : ''}`)
+          .join('\n');
+        stageInstructions += `\n\n**IDENTIFIED FILES**:\n${fileList}\n\nUse read_file on these files directly.`;
+      }
+      
       // Add progressPlan guidance if plan exists
       if (conversationContext.progressPlan) {
         const plan = conversationContext.progressPlan;

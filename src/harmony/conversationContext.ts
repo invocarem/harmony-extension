@@ -29,6 +29,8 @@ export interface ConversationContext {
   // Code contexts ready for file creation from assumptions stage
   // Map from filename to array of versions
   codeContexts?: Map<string, CodeContext[]>;
+  // Files detected from chat stage (used in assumptions/implementation to avoid re-detection)
+  referredFiles?: Array<{ file: string; description?: string }>;
   // First-principles thinking mode (disabled by default)
   firstPrinciplesMode?: boolean;
   firstPrinciplesState?: {
@@ -424,6 +426,22 @@ export class ConversationContextManager {
     
     this.context.firstPrinciplesState.synthesisGenerated = true;
     this.context.firstPrinciplesState.synthesis = synthesis;
+  }
+
+  /**
+   * Set referred files from chat stage
+   * These are files detected/mentioned in chat stage and can be reused in assumptions/implementation
+   */
+  setReferredFiles(referredFiles: Array<{ file: string; description?: string }>): void {
+    if (!this.context) return;
+    this.context.referredFiles = referredFiles;
+  }
+
+  /**
+   * Get referred files from chat stage
+   */
+  getReferredFiles(): Array<{ file: string; description?: string }> {
+    return this.context?.referredFiles || [];
   }
 
   /**

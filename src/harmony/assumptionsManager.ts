@@ -427,7 +427,7 @@ export class AssumptionsManager {
                   const createResult = await nativeToolsManager.callTool(
                     "create_file",
                     {
-                      file_path: "aggregated_prompt.json",
+                      file_path: ".harmony/aggregated_prompt.json",
                       content: content,
                     }
                   );
@@ -444,7 +444,7 @@ export class AssumptionsManager {
                     const replaceResult = await nativeToolsManager.callTool(
                       "replace_file",
                       {
-                        file_path: "aggregated_prompt.json",
+                        file_path: ".harmony/aggregated_prompt.json",
                         content: content,
                       }
                     );

@@ -185,6 +185,12 @@ export class TransitionHandler {
 
       // Get referred files from ChatManager
       const referredFiles = this.chatManager.getReferredFiles();
+      
+      // Store referred files in context so they're available in assumptions/implementation stages
+      if (referredFiles.length > 0) {
+        this.contextManager.setReferredFiles(referredFiles);
+        console.log(`[Harmony] Stored ${referredFiles.length} referred files in context`);
+      }
 
       // Generate aggregated_prompt.json
       await this.assumptionsManager.generateAggregatedPromptFile(

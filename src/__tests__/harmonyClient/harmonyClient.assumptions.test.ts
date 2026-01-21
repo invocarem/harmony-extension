@@ -329,14 +329,14 @@ describe('HarmonyClient - Assumptions Stage', () => {
       expect(mockNativeToolsManager.callTool).toHaveBeenCalledWith(
         'create_file',
         expect.objectContaining({
-          file_path: 'aggregated_prompt.json',
+          file_path: '.harmony/aggregated_prompt.json',
           content: expect.stringContaining('"queries"'),
         })
       );
 
       // Verify the file content has correct structure
       const createFileCall = mockNativeToolsManager.callTool.mock.calls.find(
-        (call) => call[0] === 'create_file' && call[1]?.file_path === 'aggregated_prompt.json'
+        (call) => call[0] === 'create_file' && call[1]?.file_path === '.harmony/aggregated_prompt.json'
       );
       expect(createFileCall).toBeDefined();
 
@@ -456,13 +456,13 @@ describe('HarmonyClient - Assumptions Stage', () => {
 
       // Verify create_file was called first (file exists error)
       const createFileCall = mockNativeToolsManager.callTool.mock.calls.find(
-        (call) => call[0] === 'create_file' && call[1]?.file_path === 'aggregated_prompt.json'
+        (call) => call[0] === 'create_file' && call[1]?.file_path === '.harmony/aggregated_prompt.json'
       );
       expect(createFileCall).toBeDefined();
 
       // Verify replace_file was called second (update existing file)
       const replaceFileCall = mockNativeToolsManager.callTool.mock.calls.find(
-        (call) => call[0] === 'replace_file' && call[1]?.file_path === 'aggregated_prompt.json'
+        (call) => call[0] === 'replace_file' && call[1]?.file_path === '.harmony/aggregated_prompt.json'
       );
       expect(replaceFileCall).toBeDefined();
 
