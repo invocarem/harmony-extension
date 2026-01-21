@@ -400,7 +400,7 @@ describe('HarmonyClient - Stage Control', () => {
       expect(mockNativeToolsManager.callTool).toHaveBeenCalledWith(
         'create_file',
         expect.objectContaining({
-          file_path: 'assumption_data.json',
+          file_path: '.harmony/assumption_data.json',
         })
       );
 

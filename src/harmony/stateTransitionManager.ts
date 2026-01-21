@@ -46,6 +46,9 @@ export class StateTransitionManager {
       if (context && context.currentStage === "init") {
         console.log(`[Harmony] Initializing conversation: init -> chat`);
         this.contextManager.updateStage("chat", prompt);
+        
+        // Handle init to chat transition
+        await this.transitionHandler.handleInitToChatTransition();
       }
 
       // Detect if we should transition further from chat

@@ -625,7 +625,7 @@ export class ImplementationManager {
                 console.log(`[ImplementationManager] Implementation stage: Auto-generating diagnostic file: assumption_data.json`);
                 try {
                   const createResult = await nativeToolsManager.callTool('create_file', {
-                    file_path: 'assumption_data.json',
+                    file_path: '.harmony/assumption_data.json',
                     content: content
                   });
                   
@@ -634,7 +634,7 @@ export class ImplementationManager {
                   } else if (createResult && createResult.content?.[0]?.text?.includes('already exists')) {
                     // File exists, use replace_file
                     const replaceResult = await nativeToolsManager.callTool('replace_file', {
-                      file_path: 'assumption_data.json',
+                      file_path: '.harmony/assumption_data.json',
                       content: content
                     });
                     if (replaceResult && !replaceResult.isError) {
@@ -755,7 +755,7 @@ export class ImplementationManager {
                 console.log(`[ImplementationManager] Implementation stage: Auto-generating diagnostic file: ${fileName}`);
                 try {
                   const createResult = await nativeToolsManager.callTool('create_file', {
-                    file_path: fileName,
+                    file_path: `.harmony/${fileName}`,
                     content: content
                   });
                   
@@ -764,7 +764,7 @@ export class ImplementationManager {
                   } else if (createResult && createResult.content?.[0]?.text?.includes('already exists')) {
                     // File exists, use replace_file
                     const replaceResult = await nativeToolsManager.callTool('replace_file', {
-                      file_path: fileName,
+                      file_path: `.harmony/${fileName}`,
                       content: content
                     });
                     if (replaceResult && !replaceResult.isError) {

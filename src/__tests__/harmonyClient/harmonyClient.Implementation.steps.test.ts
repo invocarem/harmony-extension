@@ -322,7 +322,7 @@ describe("HarmonyClient - Implementation Stage: steps", () => {
           content: [
             {
               type: "text",
-              text: "Successfully created diagnostic file: implementation_step_1.json",
+              text: "Successfully created diagnostic file: .harmony/implementation_step_1.json",
             },
           ],
           isError: false,
@@ -335,7 +335,7 @@ describe("HarmonyClient - Implementation Stage: steps", () => {
           content: [
             {
               type: "text",
-              text: "Successfully created diagnostic file: implementation_step_2.json",
+              text: "Successfully created diagnostic file: .harmony/implementation_step_2.json",
             },
           ],
           isError: false,
@@ -445,16 +445,21 @@ describe("HarmonyClient - Implementation Stage: steps", () => {
       // Mock callTool to track step file generation
       mockNativeToolsManager.callTool.mockImplementation(
         (toolName: string, args: any) => {
+          const filePath = args?.file_path ?? '';
+          const isStepFile =
+            filePath.startsWith('implementation_step_') ||
+            filePath.startsWith('.harmony/implementation_step_');
+
           if (
             toolName === "create_file" &&
-            args?.file_path?.startsWith("implementation_step_")
+            isStepFile
           ) {
-            stepFileCalls.push(args.file_path);
+            stepFileCalls.push(filePath);
             return Promise.resolve({
               content: [
                 {
                   type: "text",
-                  text: `Successfully created diagnostic file: ${args.file_path}`,
+                  text: `Successfully created diagnostic file: ${filePath}`,
                 },
               ],
               isError: false,
@@ -490,10 +495,10 @@ describe("HarmonyClient - Implementation Stage: steps", () => {
       }
 
       // Verify step_1.json was generated
-      expect(stepFileCalls).toContain("implementation_step_1.json");
+      expect(stepFileCalls).toContain(".harmony/implementation_step_1.json");
 
       // step_2.json should NOT have been generated yet
-      expect(stepFileCalls).not.toContain("implementation_step_2.json");
+      expect(stepFileCalls).not.toContain(".harmony/implementation_step_2.json");
 
       // Second execution - should generate and complete step_2.json, then step 3 becomes pending
       const response2 = {
@@ -539,15 +544,15 @@ describe("HarmonyClient - Implementation Stage: steps", () => {
         expect(plan?.steps[2].status).toBe("in_progress"); // Step 3 is automatically advanced to in_progress
 
         // Verify step_2.json was now generated
-        expect(stepFileCalls).toContain("implementation_step_2.json");
+        expect(stepFileCalls).toContain(".harmony/implementation_step_2.json");
 
         // step_3.json should NOT have been generated yet
-        expect(stepFileCalls).not.toContain("implementation_step_3.json");
+        expect(stepFileCalls).not.toContain(".harmony/implementation_step_3.json");
 
         // Verify step files were generated in order
         expect(stepFileCalls).toEqual([
-          "implementation_step_1.json",
-          "implementation_step_2.json",
+          ".harmony/implementation_step_1.json",
+          ".harmony/implementation_step_2.json",
         ]);
       }
     });
@@ -630,7 +635,7 @@ describe("HarmonyClient - Implementation Stage: steps", () => {
           content: [
             {
               type: "text",
-              text: "Successfully created diagnostic file: implementation_step_1.json",
+              text: "Successfully created diagnostic file: .harmony/implementation_step_1.json",
             },
           ],
           isError: false,
@@ -643,7 +648,7 @@ describe("HarmonyClient - Implementation Stage: steps", () => {
           content: [
             {
               type: "text",
-              text: "Successfully created diagnostic file: implementation_step_2.json",
+              text: "Successfully created diagnostic file: .harmony/implementation_step_2.json",
             },
           ],
           isError: false,
@@ -706,7 +711,7 @@ describe("HarmonyClient - Implementation Stage: steps", () => {
           content: [
             {
               type: "text",
-              text: "Successfully created diagnostic file: implementation_step_3.json",
+              text: "Successfully created diagnostic file: .harmony/implementation_step_3.json",
             },
           ],
           isError: false,
@@ -812,7 +817,7 @@ describe("HarmonyClient - Implementation Stage: steps", () => {
           content: [
             {
               type: "text",
-              text: "Successfully created diagnostic file: implementation_step_1.json",
+              text: "Successfully created diagnostic file: .harmony/implementation_step_1.json",
             },
           ],
           isError: false,
@@ -825,7 +830,7 @@ describe("HarmonyClient - Implementation Stage: steps", () => {
           content: [
             {
               type: "text",
-              text: "Successfully created diagnostic file: implementation_step_2.json",
+              text: "Successfully created diagnostic file: .harmony/implementation_step_2.json",
             },
           ],
           isError: false,
@@ -1028,7 +1033,7 @@ describe("HarmonyClient - Implementation Stage: steps", () => {
       // Step 3: create_file(utils.py)
       mockNativeToolsManager.callTool
         .mockResolvedValueOnce({
-          content: [{ type: "text", text: "Successfully created diagnostic file: implementation_step_1.json" }],
+          content: [{ type: "text", text: "Successfully created diagnostic file: .harmony/implementation_step_1.json" }],
           isError: false,
         })
         .mockResolvedValueOnce({
@@ -1036,7 +1041,7 @@ describe("HarmonyClient - Implementation Stage: steps", () => {
           isError: false,
         })
         .mockResolvedValueOnce({
-          content: [{ type: "text", text: "Successfully created diagnostic file: implementation_step_2.json" }],
+          content: [{ type: "text", text: "Successfully created diagnostic file: .harmony/implementation_step_2.json" }],
           isError: false,
         })
         .mockResolvedValueOnce({
@@ -1044,7 +1049,7 @@ describe("HarmonyClient - Implementation Stage: steps", () => {
           isError: false,
         })
         .mockResolvedValueOnce({
-          content: [{ type: "text", text: "Successfully created diagnostic file: implementation_step_3.json" }],
+          content: [{ type: "text", text: "Successfully created diagnostic file: .harmony/implementation_step_3.json" }],
           isError: false,
         })
         .mockResolvedValueOnce({

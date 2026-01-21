@@ -7,6 +7,9 @@ import { AssumptionsManager } from "./assumptionsManager";
 import { ImplementationManager } from "./implementationManager";
 import { ChatMessage } from "../conversationManager";
 import { NativeToolsManager } from "../nativeToolManager";
+import * as fs from "fs";
+import * as path from "path";
+import * as vscode from "vscode";
 
 /**
  * Handles side effects of state transitions
@@ -19,6 +22,30 @@ export class TransitionHandler {
     private assumptionsManager: AssumptionsManager,
     private implementationManager: ImplementationManager
   ) {}
+
+  /**
+   * Handle transition from init to chat stage
+   */
+  async handleInitToChatTransition(): Promise<void> {
+    console.log(`[Harmony] Transitioning from init to chat stage`);
+
+    // Create .harmony folder if it doesn't exist
+    try {
+      const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (workspaceFolder) {
+        const harmonyFolder = path.join(workspaceFolder, ".harmony");
+        if (!fs.existsSync(harmonyFolder)) {
+          fs.mkdirSync(harmonyFolder, { recursive: true });
+          console.log(`[Harmony] Created .harmony folder at ${harmonyFolder}`);
+        }
+      }
+    } catch (error) {
+      console.warn(`[Harmony] Failed to create .harmony folder:`, error);
+    }
+
+    // Initialize chat manager
+    this.chatManager.initialize();
+  }
 
   /**
    * Handle transition from chat to assumptions stage

@@ -8,9 +8,14 @@ import { MCPToolCall, MCPToolResult } from '../../mcpClient';
 import { CodeContext } from '../../harmony/codeContext';
 import axios from 'axios';
 import { transitionToAssumptions } from '../testHelpers';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+import * as vscode from 'vscode';
 
 // Mock dependencies
 jest.mock('axios');
+jest.mock('vscode');
 
 const mockedAxios = axios as jest.Mocked<typeof axios>;
 
@@ -127,6 +132,98 @@ describe('HarmonyClient - Chat Stage', () => {
       await client.callServer('is this correct?');
 
       expect(client.getCurrentStage()).toBe('chat');
+    });
+
+    it('should create .harmony folder when transitioning from init to chat', async () => {
+      // Create a temporary workspace folder for testing
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'harmony-test-'));
+      
+      try {
+        // Mock vscode workspace
+        (vscode.workspace.workspaceFolders as any) = [
+          {
+            uri: { fsPath: tempDir },
+            name: 'test-workspace',
+            index: 0,
+          }
+        ];
+
+        const mockResponse = {
+          status: 200,
+          data: {
+            choices: [{ text: '<|channel|>final<|message|>Hello! How can I help you?<|end|>' }],
+          },
+        };
+
+        mockedAxios.post.mockResolvedValueOnce(mockResponse);
+
+        mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
+          content: 'Hello! How can I help you?',
+          rawToolCalls: [],
+        });
+
+        mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
+
+        // Call the server, which should trigger init -> chat transition
+        await client.callServer('hello');
+
+        // Verify .harmony folder was created
+        const harmonyFolderPath = path.join(tempDir, '.harmony');
+        expect(fs.existsSync(harmonyFolderPath)).toBe(true);
+        expect(fs.statSync(harmonyFolderPath).isDirectory()).toBe(true);
+      } finally {
+        // Cleanup
+        if (fs.existsSync(tempDir)) {
+          fs.rmSync(tempDir, { recursive: true });
+        }
+      }
+    });
+
+    it('should not fail if .harmony folder already exists', async () => {
+      // Create a temporary workspace folder with existing .harmony folder
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'harmony-test-'));
+      const harmonyFolderPath = path.join(tempDir, '.harmony');
+      
+      try {
+        // Create .harmony folder beforehand
+        fs.mkdirSync(harmonyFolderPath, { recursive: true });
+        
+        // Mock vscode workspace
+        (vscode.workspace.workspaceFolders as any) = [
+          {
+            uri: { fsPath: tempDir },
+            name: 'test-workspace',
+            index: 0,
+          }
+        ];
+
+        const mockResponse = {
+          status: 200,
+          data: {
+            choices: [{ text: '<|channel|>final<|message|>Hello! How can I help you?<|end|>' }],
+          },
+        };
+
+        mockedAxios.post.mockResolvedValueOnce(mockResponse);
+
+        mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
+          content: 'Hello! How can I help you?',
+          rawToolCalls: [],
+        });
+
+        mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
+
+        // Should not throw an error when folder already exists
+        await expect(client.callServer('hello')).resolves.not.toThrow();
+
+        // Verify .harmony folder still exists
+        expect(fs.existsSync(harmonyFolderPath)).toBe(true);
+      } finally {
+        // Cleanup
+        if (fs.existsSync(tempDir)) {
+          fs.rmSync(tempDir, { recursive: true });
+        }
+      }
     });
   });
 

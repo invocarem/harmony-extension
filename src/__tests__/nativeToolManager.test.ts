@@ -854,4 +854,128 @@ describe("NativeToolsManager", () => {
       expect(command).toContain("activate");
     });
   });
+
+  describe("create_file with directory creation", () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
+    it("should create parent directories if they don't exist", async () => {
+      const mockStat = mockFs.promises.stat as jest.Mock;
+      const mockMkdir = mockFs.promises.mkdir as jest.Mock;
+      const mockWriteFile = mockFs.promises.writeFile as jest.Mock;
+
+      // Mock: file doesn't exist (stat throws)
+      mockStat.mockRejectedValueOnce(new Error("ENOENT"));
+      // Mock: mkdir succeeds
+      mockMkdir.mockResolvedValueOnce(undefined);
+      // Mock: writeFile succeeds
+      mockWriteFile.mockResolvedValueOnce(undefined);
+
+      const manager = new NativeToolsManager();
+      const result = await manager.callTool("create_file", {
+        file_path: "src/__tests__/nested/deep/test.ts",
+        content: "test content",
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain("Successfully created file");
+      expect(mockMkdir).toHaveBeenCalledWith(
+        expect.stringContaining("src/__tests__/nested/deep"),
+        { recursive: true }
+      );
+      expect(mockWriteFile).toHaveBeenCalled();
+    });
+
+    it("should handle existing parent directories gracefully", async () => {
+      const mockStat = mockFs.promises.stat as jest.Mock;
+      const mockMkdir = mockFs.promises.mkdir as jest.Mock;
+      const mockWriteFile = mockFs.promises.writeFile as jest.Mock;
+
+      // Mock: file doesn't exist
+      mockStat.mockRejectedValueOnce(new Error("ENOENT"));
+      // Mock: mkdir rejects with EEXIST (directory already exists)
+      mockMkdir.mockRejectedValueOnce({
+        code: "EEXIST",
+        message: "Directory already exists",
+      });
+      // Mock: writeFile succeeds
+      mockWriteFile.mockResolvedValueOnce(undefined);
+
+      const manager = new NativeToolsManager();
+      const result = await manager.callTool("create_file", {
+        file_path: "src/__tests__/nested/test.ts",
+        content: "test content",
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain("Successfully created file");
+      expect(mockWriteFile).toHaveBeenCalled();
+    });
+
+    it("should fail if mkdir fails with non-EEXIST error", async () => {
+      const mockStat = mockFs.promises.stat as jest.Mock;
+      const mockMkdir = mockFs.promises.mkdir as jest.Mock;
+
+      // Mock: file doesn't exist
+      mockStat.mockRejectedValueOnce(new Error("ENOENT"));
+      // Mock: mkdir fails with permission error
+      mockMkdir.mockRejectedValueOnce(new Error("EACCES: permission denied"));
+
+      const manager = new NativeToolsManager();
+      const result = await manager.callTool("create_file", {
+        file_path: "src/__tests__/nested/test.ts",
+        content: "test content",
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("Error creating file");
+    });
+
+    it("should fail if file already exists", async () => {
+      const mockStat = mockFs.promises.stat as jest.Mock;
+
+      // Mock: file already exists
+      mockStat.mockResolvedValueOnce({
+        isFile: () => true,
+        isDirectory: () => false,
+      });
+
+      const manager = new NativeToolsManager();
+      const result = await manager.callTool("create_file", {
+        file_path: "src/__tests__/existing.ts",
+        content: "test content",
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("already exists");
+      expect(result.content[0].text).toContain("replace_file");
+    });
+
+    it("should create deeply nested directories in one call", async () => {
+      const mockStat = mockFs.promises.stat as jest.Mock;
+      const mockMkdir = mockFs.promises.mkdir as jest.Mock;
+      const mockWriteFile = mockFs.promises.writeFile as jest.Mock;
+
+      // Mock: file doesn't exist
+      mockStat.mockRejectedValueOnce(new Error("ENOENT"));
+      // Mock: mkdir succeeds (recursive: true handles all levels)
+      mockMkdir.mockResolvedValueOnce(undefined);
+      // Mock: writeFile succeeds
+      mockWriteFile.mockResolvedValueOnce(undefined);
+
+      const manager = new NativeToolsManager();
+      const result = await manager.callTool("create_file", {
+        file_path:
+          "src/__tests__/level1/level2/level3/level4/deeply/nested/test.ts",
+        content: "test content",
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(mockMkdir).toHaveBeenCalledWith(
+        expect.stringContaining("level1/level2/level3/level4/deeply/nested"),
+        { recursive: true }
+      );
+    });
+  });
 });

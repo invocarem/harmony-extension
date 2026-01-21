@@ -476,16 +476,21 @@ export class NativeToolsManager {
 
       // Create parent directories if they don't exist
       const dir = path.dirname(resolvedPath);
+      console.log(`[NativeTools] Creating parent directories: ${dir}`);
       try {
         await mkdir(dir, { recursive: true });
+        console.log(`[NativeTools] Parent directories created successfully`);
       } catch (error: any) {
         // Directory might already exist, which is fine
         if (error.code !== "EEXIST") {
           throw error;
         }
+        console.log(`[NativeTools] Parent directories already exist`);
       }
 
+      console.log(`[NativeTools] Writing file content (${content.length} bytes) to: ${resolvedPath}`);
       await writeFile(resolvedPath, content, "utf-8");
+      console.log(`[NativeTools] File written successfully`);
       return {
         content: [
           {
@@ -495,6 +500,7 @@ export class NativeToolsManager {
         ],
       };
     } catch (error: any) {
+      console.error(`[NativeTools] Error in createFile: ${error.message}`);
       return {
         content: [
           {
@@ -516,15 +522,20 @@ export class NativeToolsManager {
 
       // Create parent directories if they don't exist
       const dir = path.dirname(resolvedPath);
+      console.log(`[NativeTools] Creating parent directories for replace_file: ${dir}`);
       try {
         await mkdir(dir, { recursive: true });
+        console.log(`[NativeTools] Parent directories created successfully`);
       } catch (error: any) {
         if (error.code !== "EEXIST") {
           throw error;
         }
+        console.log(`[NativeTools] Parent directories already exist`);
       }
 
+      console.log(`[NativeTools] Writing file content (${content.length} bytes) to: ${resolvedPath}`);
       await writeFile(resolvedPath, content, "utf-8");
+      console.log(`[NativeTools] File written successfully`);
       return {
         content: [
           {
@@ -534,6 +545,7 @@ export class NativeToolsManager {
         ],
       };
     } catch (error: any) {
+      console.error(`[NativeTools] Error in replaceFile: ${error.message}`);
       return {
         content: [
           {
