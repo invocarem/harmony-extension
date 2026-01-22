@@ -1147,6 +1147,7 @@ export class HarmonyAssistant {
       // Get files from workspace (excluding large directories)
       const excludePatterns = [
         "**/node_modules/**",
+        "**/.harmony/**",
         "**/.git/**",
         "**/dist/**",
         "**/build/**",
@@ -1228,6 +1229,7 @@ export class HarmonyAssistant {
         "**/.cache/**",
         "**/coverage/**",
         "**/.vscode-test/**",
+        "**/.harmony/**",
       ].join(",");
 
       const files = await vscode.workspace.findFiles("**/*", excludePatterns);
