@@ -331,4 +331,190 @@ describe('Referred Files Flow', () => {
       expect(prompt).toContain('IDENTIFIED FILES');
     });
   });
+
+  describe('End-to-End: Chat → Assumptions → Implementation with referred files', () => {
+    it('should preserve referred files through complete workflow', async () => {
+      // ========== CHAT STAGE ==========
+      // Add queries with files in chat stage
+      chatManager.addQuery('analyze src/main.ts and src/utils.ts', [
+        'src/main.ts',
+        'src/utils.ts'
+      ]);
+      chatManager.addQuery('also check config.json', ['config.json']);
+
+      // Verify referred files are in ChatManager after chat stage
+      let chatReferred = chatManager.getReferredFiles();
+      expect(chatReferred.length).toBeGreaterThan(0);
+      expect(chatReferred.some(rf => rf.file === 'src/main.ts')).toBe(true);
+      expect(chatReferred.some(rf => rf.file === 'config.json')).toBe(true);
+
+      // ========== TRANSITION: CHAT → ASSUMPTIONS ==========
+      await transitionHandler.handleChatToAssumptionsTransition(
+        'move to assumptions stage'
+      );
+
+      // Verify referred files are stored in ConversationContext after transition
+      let contextReferred = contextManager.getReferredFiles();
+      expect(contextReferred.length).toBeGreaterThan(0);
+      expect(contextReferred.some(rf => rf.file === 'src/main.ts')).toBe(true);
+      expect(contextReferred.some(rf => rf.file === 'src/utils.ts')).toBe(true);
+      expect(contextReferred.some(rf => rf.file === 'config.json')).toBe(true);
+
+      // Verify ChatManager was cleared after transition
+      let chatReferred2 = chatManager.getReferredFiles();
+      expect(chatReferred2.length).toBe(0);
+
+      // ========== ASSUMPTIONS STAGE ==========
+      // Verify referred files appear in assumptions prompt
+      const promptBuilder = new PromptBuilder(
+        {
+          harmonyMode: 'standard',
+          openRouterApiKey: 'test-key',
+          modelName: 'test-model'
+        } as any,
+        new StageStateMachine()
+      );
+
+      const assumptionsPrompt = await promptBuilder.buildPrompt(
+        'create implementation plan for the changes',
+        'assumptions',
+        contextManager.getContext(),
+        false
+      );
+
+      expect(assumptionsPrompt).toContain('IDENTIFIED FILES');
+      expect(assumptionsPrompt).toContain('src/main.ts');
+      expect(assumptionsPrompt).toContain('src/utils.ts');
+      expect(assumptionsPrompt).toContain('config.json');
+
+      // ========== TRANSITION: ASSUMPTIONS → IMPLEMENTATION ==========
+      // Set up assumptions state with code snippets
+      assumptionsManager.initialize();
+      assumptionsManager.addCodeSnippet('src/main.ts', 'Main application entry point');
+      assumptionsManager.addCodeSnippet('src/utils.ts', 'Utility functions');
+      assumptionsManager.addAssumption('The application follows MVC architecture');
+
+      // Perform transition
+      await transitionHandler.handleAssumptionsToImplementationTransition(
+        'start implementation'
+      );
+
+      // Verify implementationManager has the referred files from assumptions
+      const implState = implementationManager.getState();
+      expect(implState).toBeDefined();
+      expect(implState?.referredFiles).toBeDefined();
+      expect(implState?.referredFiles?.length).toBeGreaterThan(0);
+      expect(implState?.referredFiles?.some(rf => rf.file === 'src/main.ts')).toBe(true);
+      expect(implState?.referredFiles?.some(rf => rf.file === 'src/utils.ts')).toBe(true);
+
+      // ========== IMPLEMENTATION STAGE ==========
+      // Verify referred files still in context for implementation stage
+      contextReferred = contextManager.getReferredFiles();
+      expect(contextReferred.length).toBeGreaterThan(0);
+      expect(contextReferred.some(rf => rf.file === 'src/main.ts')).toBe(true);
+
+      // Verify referred files appear in implementation prompt
+      const implementationPrompt = await promptBuilder.buildPrompt(
+        'implement the changes',
+        'implementation',
+        contextManager.getContext(),
+        false
+      );
+
+      expect(implementationPrompt).toContain('IDENTIFIED FILES');
+      expect(implementationPrompt).toContain('src/main.ts');
+      expect(implementationPrompt).toContain('src/utils.ts');
+    });
+
+    it('should handle empty referred files through complete workflow', async () => {
+      // Chat stage with no files
+      chatManager.addQuery('say hello', []);
+
+      // Transition to assumptions
+      await transitionHandler.handleChatToAssumptionsTransition('move to assumptions');
+
+      let contextReferred = contextManager.getReferredFiles();
+      expect(contextReferred.length).toBe(0);
+
+      // Verify assumptions prompt doesn't break with empty files
+      const promptBuilder = new PromptBuilder(
+        {
+          harmonyMode: 'standard',
+          openRouterApiKey: 'test-key',
+          modelName: 'test-model'
+        } as any,
+        new StageStateMachine()
+      );
+
+      const assumptionsPrompt = await promptBuilder.buildPrompt(
+        'no files to analyze',
+        'assumptions',
+        contextManager.getContext(),
+        false
+      );
+
+      // Should still build valid prompt
+      expect(assumptionsPrompt).toBeDefined();
+      expect(assumptionsPrompt.length).toBeGreaterThan(0);
+
+      // Transition to implementation
+      assumptionsManager.initialize();
+      await transitionHandler.handleAssumptionsToImplementationTransition(
+        'start implementation'
+      );
+
+      // Verify implementation still works with no referred files
+      const implState = implementationManager.getState();
+      expect(implState?.referredFiles).toEqual([]);
+
+      const implementationPrompt = await promptBuilder.buildPrompt(
+        'implement',
+        'implementation',
+        contextManager.getContext(),
+        false
+      );
+
+      expect(implementationPrompt).toBeDefined();
+      expect(implementationPrompt.length).toBeGreaterThan(0);
+    });
+
+    it('should accumulate and deduplicate files across stages', async () => {
+      // Chat stage
+      chatManager.addQuery('check src/api.ts', ['src/api.ts', 'src/main.ts']);
+      chatManager.addQuery('also src/main.ts', ['src/main.ts', 'src/db.ts']);
+
+      let chatReferred = chatManager.getReferredFiles();
+      // Should deduplicate src/main.ts
+      expect(chatReferred.filter(rf => rf.file === 'src/main.ts').length).toBe(1);
+
+      // Transition to assumptions
+      await transitionHandler.handleChatToAssumptionsTransition('move to assumptions');
+
+      let contextReferred = contextManager.getReferredFiles();
+      expect(contextReferred.length).toBeGreaterThan(0);
+      // Should have all unique files
+      expect(contextReferred.some(rf => rf.file === 'src/api.ts')).toBe(true);
+      expect(contextReferred.some(rf => rf.file === 'src/main.ts')).toBe(true);
+      expect(contextReferred.some(rf => rf.file === 'src/db.ts')).toBe(true);
+
+      // Transition to implementation
+      assumptionsManager.initialize();
+      // Add code snippets to assumptions so they transfer to implementation
+      assumptionsManager.addCodeSnippet('src/api.ts', 'API endpoints');
+      assumptionsManager.addCodeSnippet('src/main.ts', 'Main entry point');
+      assumptionsManager.addCodeSnippet('src/db.ts', 'Database layer');
+      
+      await transitionHandler.handleAssumptionsToImplementationTransition(
+        'start implementation'
+      );
+
+      const implState = implementationManager.getState();
+      const implFiles = implState?.referredFiles?.map(rf => rf.file) || [];
+      // Verify all files are available in implementation as codeSnippets
+      expect(implFiles.length).toBeGreaterThan(0);
+      expect(implFiles.includes('src/api.ts')).toBe(true);
+      expect(implFiles.includes('src/main.ts')).toBe(true);
+      expect(implFiles.includes('src/db.ts')).toBe(true);
+    });
+  });
 });
