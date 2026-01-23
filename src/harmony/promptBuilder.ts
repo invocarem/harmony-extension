@@ -29,7 +29,8 @@ export class PromptBuilder {
     isContinuation: boolean,
     conversationHistory?: readonly ChatMessage[],
     templateName?: string,
-    applyTemplate?: (templateName: string, context: any, history?: readonly ChatMessage[]) => Promise<string>
+    applyTemplate?: (templateName: string, context: any, history?: readonly ChatMessage[]) => Promise<string>,
+    isFirstPrinciplesMode?: boolean
   ): Promise<string> {
     // Build tools context
     const toolsContext = this.buildToolsContext(currentStage);
@@ -165,6 +166,8 @@ export class PromptBuilder {
         tools: this.getAllowedTools(currentStage),
         stage: currentStage,
         stageInstructions: stageInstructions,
+        // First principles rules only apply in chat stage
+        firstPrinciplesRules: (currentStage === 'chat' && isFirstPrinciplesMode) ? this.getFirstPrinciplesRules() : undefined,
       };
       return await applyTemplate(templateName, templateContext);
     }
@@ -324,6 +327,53 @@ export class PromptBuilder {
     }
     
     return this.stageStateMachine.getAllowedTools(allTools, currentStage);
+  }
+
+  /**
+   * Get first principles thinking rules/instructions
+   */
+  private getFirstPrinciplesRules(): string {
+    return `
+## First Principles Thinking Mode
+
+**Your Enhanced Process:**
+When restating the user's problem, use first principles thinking to ask fundamental questions that strip away assumptions and reveal core truths.
+
+**Instead of simply restating:**
+1. **Ask 6-8 short, concrete questions** that challenge assumptions and isolate fundamentals
+2. **Each question should probe a fundamental aspect** of the problem
+3. **After user answers**, synthesize the core problem statement
+
+**Question Guidelines:**
+- Do NOT ask what the user "thinks" about solutions or preferences
+- Do NOT ask for justification or rationalization  
+- Focus on fundamentals: "What must be true?", "Which assumptions are automatic?", "What's the actual constraint?"
+- Each question should require a one-word or short-phrase answer
+- Examples of good questions:
+  - "What must be true for this to work?"
+  - "Which assumptions are we making automatically?"
+  - "Remove everything non-essential, what remains?"
+  - "What is the absolute minimum required?"
+  - "What are we taking for granted?"
+  - "What's the real constraint here?"
+
+**After Question Sequence:**
+Provide a **restated problem statement** based on first principles, covering:
+- **Core Requirements**: What absolutely must be true (stripped of assumptions)
+- **Real Constraints**: Actual limitations vs. perceived ones
+- **Essential Elements**: The irreducible components needed
+- **Clarifications Needed**: Any remaining ambiguities to resolve
+
+The restatement must be direct and based on fundamentals, not surface-level interpretations.
+
+**Then Continue:**
+After restating with first principles, proceed with normal chat stage workflow:
+- Ask any remaining clarifying questions
+- Use read-only tools to understand codebase
+- Confirm understanding with user
+
+**Begin immediately with your first fundamental question.**
+`;
   }
 }
 

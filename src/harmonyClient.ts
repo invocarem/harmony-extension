@@ -44,11 +44,11 @@ import {
 } from "./utils/logger";
 import {
   VerboseInfo,
-  VerboseInfoBuilder,
+  VerboseInfoFormatter,
   FileOperationResult,
   withToString,
-  VerboseInfoFormatter,
 } from "./utils/verboseInfo";
+import { VerboseInfoManager } from "./harmony/verboseInfoManager";
 
 export interface HarmonyResponse {
   content: string;
@@ -80,6 +80,7 @@ export class HarmonyClient {
   private stageStateMachine: StageStateMachine;
   private harmonyProcessor: HarmonyProcessor;
   private progressPlanManager: ProgressPlanManager;
+  private verboseInfoManager: VerboseInfoManager;
   private stageHandlerRegistry: StageHandlerRegistry;
 
   // Modular components
@@ -176,6 +177,8 @@ export class HarmonyClient {
       rulesManager,
       nativeToolsManager
     );
+
+    this.verboseInfoManager = new VerboseInfoManager(this.progressPlanManager);
   }
 
   async callServer(
@@ -332,22 +335,10 @@ export class HarmonyClient {
     const context = this.contextManager.getContext();
     const stage = context?.currentStage || "chat";
 
-    const verboseInfo =
-      stage === "chat"
-        ? VerboseInfoBuilder.forChatStage(
-            context,
-            undefined,
-            undefined,
-            undefined,
-            undefined,
-            undefined
-          )
-        : stage === "assumptions"
-          ? VerboseInfoBuilder.forAssumptionStage(context, undefined, undefined)
-          : VerboseInfoBuilder.forImplementationStage(
-              context,
-              this.progressPlanManager
-            );
+    const verboseInfo = this.verboseInfoManager.buildVerboseInfo(
+      stage,
+      context
+    );
 
     try {
       if (!verboseInfo.isComplete) {
@@ -355,12 +346,6 @@ export class HarmonyClient {
       }
     } catch (e) {
       // ignore
-    }
-
-    try {
-      withToString(verboseInfo).toString();
-    } catch (e) {
-      // Ignore logging errors
     }
 
     return {
@@ -422,13 +407,6 @@ export class HarmonyClient {
       }
     }
 
-    // Handle implementation stage CodeContext pre-processing
-    const preProcessCodeContextResult =
-      await this.handleImplementationStageCodeContexts(currentStage, context);
-    if (preProcessCodeContextResult) {
-      return preProcessCodeContextResult;
-    }
-
     // Build prompt and call LLM
     const effectivePrompt = this.getEffectivePrompt(
       prompt,
@@ -442,7 +420,8 @@ export class HarmonyClient {
       isContinuation,
       conversationHistory,
       templateName,
-      applyTemplate
+      applyTemplate,
+      this.isFirstPrinciplesMode()
     );
 
     const previewLength = 500;
@@ -556,199 +535,6 @@ export class HarmonyClient {
       templateName,
       applyTemplate
     );
-  }
-
-  /**
-   * Handle implementation stage CodeContext pre-processing
-   */
-  private async handleImplementationStageCodeContexts(
-    currentStage: WorkflowStage,
-    context: ConversationContext | null
-  ): Promise<HarmonyResponse | null> {
-    if (
-      currentStage !== "implementation" ||
-      !context ||
-      !this.nativeToolsManager
-    ) {
-      return null;
-    }
-
-    const codeContexts = this.contextManager.getCodeContexts();
-    if (codeContexts.length === 0) {
-      return null;
-    }
-
-    console.log(
-      `[Harmony] Implementation stage: Found ${codeContexts.length} code context(s)`
-    );
-
-    // Create files from code contexts
-    const createdFiles: string[] = [];
-    const updatedFiles: string[] = [];
-    const failedFiles: Array<{ path: string; error: string }> = [];
-    const toolCalls: Array<{
-      name: string;
-      arguments: Record<string, any>;
-      result?: any;
-    }> = [];
-
-    for (const codeContext of codeContexts) {
-      if (
-        codeContext.waitForCreate &&
-        codeContext.content &&
-        codeContext.content.length > 0
-      ) {
-        try {
-          const filePath = codeContext.name;
-
-          if (
-            !codeContext.content ||
-            !Array.isArray(codeContext.content) ||
-            codeContext.content.length === 0
-          ) {
-            console.warn(
-              `[Harmony] Implementation stage: CodeContext for ${filePath} has invalid content, skipping...`
-            );
-            continue;
-          }
-
-          let content: string;
-          try {
-            content = codeContext.getContentAsString();
-          } catch (error) {
-            console.warn(
-              `[Harmony] Implementation stage: Error calling getContentAsString() for ${filePath}:`,
-              error
-            );
-            content = codeContext.content
-              .filter((line) => line != null)
-              .join("\n");
-          }
-
-          if (
-            !content ||
-            typeof content !== "string" ||
-            content.trim().length === 0
-          ) {
-            console.warn(
-              `[Harmony] Implementation stage: CodeContext for ${filePath} has empty content, skipping...`
-            );
-            continue;
-          }
-
-          console.log(
-            `[Harmony] Implementation stage: Creating file ${filePath} from CodeContext...`
-          );
-
-          const createResult = await this.nativeToolsManager.callTool(
-            "create_file",
-            {
-              file_path: filePath,
-              content: content,
-            }
-          );
-
-          if (!createResult.isError) {
-            createdFiles.push(filePath);
-            this.contextManager.markCodeContextCreated(filePath);
-            toolCalls.push({
-              name: "create_file",
-              arguments: { file_path: filePath, content: content },
-              result: createResult,
-            });
-            console.log(
-              `[Harmony] Implementation stage: Successfully created file ${filePath}`
-            );
-          } else if (
-            createResult.content?.[0]?.text?.includes("already exists")
-          ) {
-            const replaceResult = await this.nativeToolsManager.callTool(
-              "replace_file",
-              {
-                file_path: filePath,
-                content: content,
-              }
-            );
-            if (!replaceResult.isError) {
-              updatedFiles.push(filePath);
-              this.contextManager.markCodeContextCreated(filePath);
-              toolCalls.push({
-                name: "replace_file",
-                arguments: { file_path: filePath, content: content },
-                result: replaceResult,
-              });
-              console.log(
-                `[Harmony] Implementation stage: Successfully updated file ${filePath}`
-              );
-            } else {
-              const errorMsg =
-                replaceResult.content?.[0]?.text || "Unknown error";
-              failedFiles.push({ path: filePath, error: errorMsg });
-              console.warn(
-                `[Harmony] Implementation stage: Failed to update file ${filePath}`
-              );
-            }
-          } else {
-            const errorMsg = createResult.content?.[0]?.text || "Unknown error";
-            failedFiles.push({ path: filePath, error: errorMsg });
-            console.warn(
-              `[Harmony] Implementation stage: Failed to create file ${filePath}`
-            );
-          }
-        } catch (error: any) {
-          console.warn(
-            `[Harmony] Implementation stage: Error creating file ${codeContext.name}:`,
-            error
-          );
-        }
-      }
-    }
-
-    if (createdFiles.length === 0 && updatedFiles.length === 0) {
-      return null;
-    }
-
-    const allFiles = [...createdFiles, ...updatedFiles];
-    console.log(
-      `[Harmony] Implementation stage: Created ${createdFiles.length}/${allFiles.length} file(s), returning early`
-    );
-
-    const fileOperations: FileOperationResult = {
-      created: createdFiles.map((path) => ({
-        path,
-        source: "codeContext" as const,
-        createdAt: Date.now(),
-      })),
-      updated: updatedFiles.map((path) => ({
-        path,
-        source: "codeContext" as const,
-        updatedAt: Date.now(),
-      })),
-      failed: failedFiles.map((f) => ({
-        path: f.path,
-        error: f.error,
-        attemptedAt: Date.now(),
-      })),
-    };
-
-    const verboseInfo = VerboseInfoBuilder.forImplementationStage(
-      context,
-      this.progressPlanManager,
-      fileOperations
-    );
-
-    try {
-      withToString(verboseInfo).toString();
-    } catch (e) {
-      // Ignore logging errors
-    }
-
-    return {
-      content: `Successfully created ${allFiles.length} file(s): ${allFiles.join(", ")}`,
-      toolCalls: toolCalls,
-      isContinuation: false,
-      verboseInfo,
-    };
   }
 
   /**
@@ -978,12 +764,9 @@ export class HarmonyClient {
             final: parsed.final,
             toolCalls: executedToolCalls,
             isContinuation: isContinuation,
-            verboseInfo: this.buildVerboseInfo(
-              currentStage,
-              updatedContext,
-              undefined,
-              executedToolCalls
-            ),
+            verboseInfo: this.buildVerboseInfo(currentStage, updatedContext, {
+              executedToolCalls,
+            }),
           };
         }
 
@@ -1022,12 +805,10 @@ export class HarmonyClient {
         final: parsed.final,
         toolCalls: executedToolCalls,
         isContinuation: isContinuation,
-        verboseInfo: this.buildVerboseInfo(
-          currentStage,
-          updatedContext,
+        verboseInfo: this.buildVerboseInfo(currentStage, updatedContext, {
           fileExtractionResult,
-          executedToolCalls
-        ),
+          executedToolCalls,
+        }),
       };
     }
 
@@ -1126,12 +907,9 @@ export class HarmonyClient {
       commentary: parsed.commentary,
       final: parsed.final,
       isContinuation: isContinuation,
-      verboseInfo: this.buildVerboseInfo(
-        currentStage,
-        context,
+      verboseInfo: this.buildVerboseInfo(currentStage, context, {
         fileExtractionResult,
-        undefined
-      ),
+      }),
     };
   }
 
@@ -1141,54 +919,25 @@ export class HarmonyClient {
   private buildVerboseInfo(
     currentStage: WorkflowStage,
     context: ConversationContext | null,
-    fileExtractionResult?: import("./utils/verboseInfo").FileExtractionResult,
-    executedToolCalls?: Array<{
-      name: string;
-      arguments: Record<string, any>;
-      result?: MCPToolResult;
-    }>
+    options: {
+      fileExtractionResult?: import("./utils/verboseInfo").FileExtractionResult;
+      toolCallsForVerbose?: VerboseInfo["toolCalls"];
+      executedToolCalls?: Array<{
+        name: string;
+        arguments: Record<string, any>;
+        result?: MCPToolResult;
+      }>;
+      fileOperations?: FileOperationResult;
+      content?: string;
+      reasoning?: string;
+      conversationHistory?: readonly ChatMessage[];
+    } = {}
   ): VerboseInfo {
-    let verboseInfo: VerboseInfo;
-
-    if (currentStage === "chat") {
-      const toolCallsInfo = (executedToolCalls || []).map((tc) => ({
-        name: tc.name,
-        stage: currentStage,
-        success: !tc.result?.isError,
-      }));
-      verboseInfo = VerboseInfoBuilder.forChatStage(
-        context,
-        fileExtractionResult,
-        undefined,
-        undefined,
-        toolCallsInfo,
-        undefined
-      );
-    } else if (currentStage === "assumptions") {
-      const toolCallsInfo = (executedToolCalls || []).map((tc) => ({
-        name: tc.name,
-        stage: currentStage,
-        success: !tc.result?.isError,
-      }));
-      verboseInfo = VerboseInfoBuilder.forAssumptionStage(
-        context,
-        toolCallsInfo,
-        undefined
-      );
-    } else {
-      verboseInfo = VerboseInfoBuilder.forImplementationStage(
-        context,
-        this.progressPlanManager
-      );
-    }
-
-    try {
-      withToString(verboseInfo).toString();
-    } catch (e) {
-      // Ignore logging errors
-    }
-
-    return verboseInfo;
+    return this.verboseInfoManager.buildVerboseInfo(
+      currentStage,
+      context,
+      options
+    );
   }
 
   /**
@@ -1250,7 +999,11 @@ export class HarmonyClient {
                     // Don't transition - stay in current stage
                     return {
                       content: '⚠️ Cannot transition to implementation stage: No plan found. Please complete the assumptions/analysis stage first to create a plan.',
-                      verboseInfo: VerboseInfoBuilder.forAssumptionStage(currentContext || null, undefined, conversationHistory),
+                      verboseInfo: this.verboseInfoManager.buildVerboseInfo(
+                        "assumptions",
+                        currentContext || null,
+                        { conversationHistory }
+                      ),
                     };
                   }
                 } else {
@@ -1315,22 +1068,15 @@ export class HarmonyClient {
         console.warn(
           `[Harmony] Reached maximum steps (${context.maxSteps}) for task: "${context.originalPrompt}"`
         );
-        const verboseInfo = context.currentStage === 'chat'
-          ? VerboseInfoBuilder.forChatStage(context, undefined, undefined, undefined, undefined, conversationHistory)
-          : context.currentStage === 'assumptions'
-          ? VerboseInfoBuilder.forAssumptionStage(context, undefined, conversationHistory)
-          : VerboseInfoBuilder.forImplementationStage(context, this.progressPlanManager);
+        const verboseInfo = this.verboseInfoManager.buildVerboseInfo(
+          context.currentStage,
+          context,
+          { conversationHistory }
+        );
         // VerboseInfoBuilder determines `isComplete` from the progress plan.
         // Do NOT force isComplete=true here - let it reflect actual step completion status
         // This ensures "Complete" only shows when steps are actually completed
 
-        // Log using toString() (doesn't affect returned object)
-        try {
-          withToString(verboseInfo).toString();
-        } catch (e) {
-          // Ignore logging errors
-        }
-        
         return {
           content: `I've gathered information through multiple steps, but haven't completed the task. Here's what I found so far.`,
           reasoning: "Reached maximum allowed steps for this task.",
@@ -1898,76 +1644,57 @@ export class HarmonyClient {
           
           return toolCallInfo;
         });
-        
-        let verboseInfo: VerboseInfo;
-        if (currentStage === 'chat') {
-          verboseInfo = VerboseInfoBuilder.forChatStage(
-            finalContext,
-            fileExtractionResult, // file extraction from extension.ts
-            content, // response content for problem restatement
-            parsed.reasoning, // response reasoning for problem restatement
-            toolCallsForVerbose,
-            conversationHistory
-          );
-        } else if (currentStage === 'assumptions') {
-          verboseInfo = VerboseInfoBuilder.forAssumptionStage(
-            finalContext,
-            toolCallsForVerbose,
-            conversationHistory
-          );
-        } else {
-          // Implementation stage - track file operations from tool calls
-          const fileOperations: FileOperationResult = {
+        let fileOperations: FileOperationResult | undefined;
+        if (currentStage === "implementation") {
+          fileOperations = {
             created: [],
             updated: [],
-            failed: []
+            failed: [],
           };
-          
-          (executedToolCalls || []).forEach(tc => {
-            if (['create_file', 'write_file'].includes(tc.name) && !tc.result?.isError) {
+
+          (executedToolCalls || []).forEach((tc) => {
+            if (["create_file", "write_file"].includes(tc.name) && !tc.result?.isError) {
               const filePath = tc.arguments?.file_path || tc.arguments?.path;
               if (filePath) {
-                fileOperations.created?.push({
+                fileOperations?.created?.push({
                   path: filePath,
-                  source: 'toolCall',
-                  createdAt: Date.now()
+                  source: "toolCall",
+                  createdAt: Date.now(),
                 });
               }
-            } else if (['replace_file', 'update_file'].includes(tc.name) && !tc.result?.isError) {
+            } else if (["replace_file", "update_file"].includes(tc.name) && !tc.result?.isError) {
               const filePath = tc.arguments?.file_path || tc.arguments?.path;
               if (filePath) {
-                fileOperations.updated?.push({
+                fileOperations?.updated?.push({
                   path: filePath,
-                  source: 'toolCall',
-                  updatedAt: Date.now()
+                  source: "toolCall",
+                  updatedAt: Date.now(),
                 });
               }
-            } else if (tc.result?.isError && ['create_file', 'replace_file', 'write_file', 'update_file'].includes(tc.name)) {
+            } else if (
+              tc.result?.isError &&
+              ["create_file", "replace_file", "write_file", "update_file"].includes(tc.name)
+            ) {
               const filePath = tc.arguments?.file_path || tc.arguments?.path;
               if (filePath) {
-                fileOperations.failed?.push({
+                fileOperations?.failed?.push({
                   path: filePath,
-                  error: tc.result.content?.[0]?.text || 'Unknown error',
-                  attemptedAt: Date.now()
+                  error: tc.result.content?.[0]?.text || "Unknown error",
+                  attemptedAt: Date.now(),
                 });
               }
             }
           });
-          
-          verboseInfo = VerboseInfoBuilder.forImplementationStage(
-            finalContext,
-            this.progressPlanManager,
-            fileOperations,
-            toolCallsForVerbose
-          );
         }
-        
-        // Log using toString() (doesn't affect returned object)
-        try {
-          withToString(verboseInfo).toString();
-        } catch (e) {
-          // Ignore logging errors
-        }
+
+        const verboseInfo = this.buildVerboseInfo(currentStage, finalContext, {
+          fileExtractionResult,
+          content,
+          reasoning: parsed.reasoning,
+          toolCallsForVerbose,
+          fileOperations,
+          conversationHistory,
+        });
         
         if (shouldContinue && finalContext) {
           // Check if we can continue
@@ -2085,17 +1812,9 @@ export class HarmonyClient {
               commentary: parsed.commentary,
               final: parsed.final,
               isContinuation: isContinuation,
-              verboseInfo: (() => {
-                const stage = currentStage;
-                const info = stage === 'chat'
-                  ? VerboseInfoBuilder.forChatStage(context, undefined, undefined, undefined, undefined, conversationHistory)
-                  : stage === 'assumptions'
-                  ? VerboseInfoBuilder.forAssumptionStage(context, undefined, conversationHistory)
-                  : VerboseInfoBuilder.forImplementationStage(context, this.progressPlanManager);
-                // VerboseInfoBuilder determines `isComplete` from the progress plan.
-                // Do not set `isComplete` here — keep it readonly and derived from steps.
-                return info;
-              })(),
+              verboseInfo: this.buildVerboseInfo(currentStage, context, {
+                conversationHistory,
+              }),
             };
           }
 
@@ -2116,17 +1835,11 @@ export class HarmonyClient {
           );
 
           const stageForVerbose = currentStage;
-          const noToolCallsVerboseInfo: VerboseInfo = context
-            ? (stageForVerbose === 'chat'
-                ? VerboseInfoBuilder.forChatStage(context, undefined, undefined, undefined, undefined, conversationHistory)
-                : stageForVerbose === 'assumptions'
-                ? VerboseInfoBuilder.forAssumptionStage(context, undefined, conversationHistory)
-                : VerboseInfoBuilder.forImplementationStage(context, this.progressPlanManager))
-            : (stageForVerbose === 'chat'
-                ? VerboseInfoBuilder.forChatStage(null, undefined, undefined, undefined, undefined, conversationHistory)
-                : stageForVerbose === 'assumptions'
-                ? VerboseInfoBuilder.forAssumptionStage(null, undefined, conversationHistory)
-                : VerboseInfoBuilder.forImplementationStage(null, this.progressPlanManager));
+          const noToolCallsVerboseInfo = this.buildVerboseInfo(
+            stageForVerbose,
+            context || null,
+            { conversationHistory }
+          );
 
           const mergedVerboseInfo: VerboseInfo = continuationResponse.verboseInfo
             ? {
@@ -2170,21 +1883,12 @@ export class HarmonyClient {
 
       // Build verbose info
       const finalContextForVerbose = this.contextManager.getContext();
-      let verboseInfo: VerboseInfo = currentStage === 'chat'
-        ? VerboseInfoBuilder.forChatStage(finalContextForVerbose, fileExtractionResult, content, parsed.reasoning, undefined, conversationHistory)
-        : currentStage === 'assumptions'
-        ? VerboseInfoBuilder.forAssumptionStage(finalContextForVerbose, undefined, conversationHistory)
-        : VerboseInfoBuilder.forImplementationStage(finalContextForVerbose, this.progressPlanManager);
-      
-      // Don't override isComplete - VerboseInfoBuilder already calculates it correctly
-      // based on progress steps. `isComplete` is treated as readonly here.
-
-      // Log using toString() (doesn't affect returned object)
-      try {
-        withToString(verboseInfo).toString();
-      } catch (e) {
-        // Ignore logging errors
-      }
+      const verboseInfo = this.buildVerboseInfo(currentStage, finalContextForVerbose, {
+        fileExtractionResult,
+        content,
+        reasoning: parsed.reasoning,
+        conversationHistory,
+      });
 
       // Do NOT force isComplete=true when maxSteps is reached
       // Let the verboseInfo builder determine completion based on actual step status
@@ -2267,16 +1971,11 @@ export class HarmonyClient {
                     };
                   }),
                   isContinuation: isContinuation,
-                  verboseInfo: (() => {
-                    const vi = VerboseInfoBuilder.forImplementationStage(context, this.progressPlanManager, undefined, []);
-                    // Log using toString() (doesn't affect returned object)
-                    try {
-                      withToString(vi).toString();
-                    } catch (e) {
-                      // Ignore logging errors
-                    }
-                    return vi;
-                  })(),
+                  verboseInfo: this.buildVerboseInfo(
+                    "implementation",
+                    context,
+                    { conversationHistory }
+                  ),
                 };
               }
             }
@@ -2305,17 +2004,11 @@ export class HarmonyClient {
               );
 
               const stageForVerbose3 = (context?.currentStage || currentStage) as 'chat' | 'assumptions' | 'implementation';
-              const noToolCallsVerboseInfo: VerboseInfo = context
-                ? (stageForVerbose3 === 'chat'
-                    ? VerboseInfoBuilder.forChatStage(context, undefined, undefined, undefined, undefined, conversationHistory)
-                    : stageForVerbose3 === 'assumptions'
-                    ? VerboseInfoBuilder.forAssumptionStage(context, undefined, conversationHistory)
-                    : VerboseInfoBuilder.forImplementationStage(context, this.progressPlanManager))
-                : (stageForVerbose3 === 'chat'
-                    ? VerboseInfoBuilder.forChatStage(null, undefined, undefined, undefined, undefined, conversationHistory)
-                    : stageForVerbose3 === 'assumptions'
-                    ? VerboseInfoBuilder.forAssumptionStage(null, undefined, conversationHistory)
-                    : VerboseInfoBuilder.forImplementationStage(null, this.progressPlanManager));
+              const noToolCallsVerboseInfo = this.buildVerboseInfo(
+                stageForVerbose3,
+                context || null,
+                { conversationHistory }
+              );
 
               const mergedVerboseInfo: VerboseInfo = continuationResponse.verboseInfo
                 ? {
@@ -2361,17 +2054,11 @@ export class HarmonyClient {
 
             // Use context.currentStage to avoid type narrowing issues with currentStage variable
             const stageForVerbose2 = (context?.currentStage || currentStage) as 'chat' | 'assumptions' | 'implementation';
-            const noToolCallsVerboseInfo: VerboseInfo = context
-              ? (stageForVerbose2 === 'chat'
-                  ? VerboseInfoBuilder.forChatStage(context, undefined, undefined, undefined, undefined, conversationHistory)
-                  : stageForVerbose2 === 'assumptions'
-                  ? VerboseInfoBuilder.forAssumptionStage(context, undefined, conversationHistory)
-                  : VerboseInfoBuilder.forImplementationStage(context, this.progressPlanManager))
-              : (stageForVerbose2 === 'chat'
-                  ? VerboseInfoBuilder.forChatStage(null, undefined, undefined, undefined, undefined, conversationHistory)
-                  : stageForVerbose2 === 'assumptions'
-                  ? VerboseInfoBuilder.forAssumptionStage(null, undefined, conversationHistory)
-                  : VerboseInfoBuilder.forImplementationStage(null, this.progressPlanManager));
+            const noToolCallsVerboseInfo = this.buildVerboseInfo(
+              stageForVerbose2,
+              context || null,
+              { conversationHistory }
+            );
 
             const mergedVerboseInfo: VerboseInfo = continuationResponse.verboseInfo
               ? {
@@ -2459,46 +2146,10 @@ export class HarmonyClient {
     conversationHistory?: readonly ChatMessage[]
   ): VerboseInfo {
     const context = this.contextManager.getContext();
-
-    // If no context exists, return minimal chat stage verboseInfo
-    if (!context) {
-      return VerboseInfoBuilder.forChatStage(
-        null,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        conversationHistory
-      );
-    }
-
-    const currentStage = context.currentStage;
-    let verboseInfo: VerboseInfo;
-
-    if (currentStage === "chat") {
-      verboseInfo = VerboseInfoBuilder.forChatStage(
-        context,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        conversationHistory
-      );
-    } else if (currentStage === "assumptions") {
-      verboseInfo = VerboseInfoBuilder.forAssumptionStage(
-        context,
-        undefined,
-        conversationHistory
-      );
-    } else {
-      verboseInfo = VerboseInfoBuilder.forImplementationStage(
-        context,
-        this.progressPlanManager
-      );
-    }
-
-    // Wrap with getters (required for ImplementationVerboseInfo.isComplete to work dynamically)
-    return withToString(verboseInfo) as VerboseInfo;
+    return this.verboseInfoManager.getCurrentVerboseInfo(
+      context,
+      conversationHistory
+    );
   }
 
   /**
@@ -2600,34 +2251,9 @@ export class HarmonyClient {
       (fromStage === "chat" && toStage === "assumptions") ||
       (fromStage === "assumptions" && toStage === "implementation")
     ) {
-      let verboseInfo: VerboseInfo | undefined;
-
-      if (fromStage === "chat") {
-        // Send chatVerboseInfo before transitioning to assumptions
-        // Note: conversationHistory not available in this context, pass undefined
-        verboseInfo = VerboseInfoBuilder.forChatStage(
-          context,
-          fileExtractionResult,
-          undefined,
-          undefined,
-          undefined,
-          undefined
-        );
-        console.log(
-          `[Harmony] 📋 Sending chat verbose info to webview (before transition: chat -> assumptions)`
-        );
-      } else if (fromStage === "assumptions") {
-        // Send assumptionsVerboseInfo before transitioning to implementation
-        // Note: conversationHistory not available in this context, pass undefined
-        verboseInfo = VerboseInfoBuilder.forAssumptionStage(
-          context,
-          undefined,
-          undefined
-        );
-        console.log(
-          `[Harmony] 📋 Sending assumptions verbose info to webview (before transition: assumptions -> implementation)`
-        );
-      }
+      const verboseInfo = this.buildVerboseInfo(fromStage, context, {
+        fileExtractionResult,
+      });
 
       if (verboseInfo && this.verboseInfoCallback) {
         try {
@@ -2683,26 +2309,11 @@ export class HarmonyClient {
     try {
       // Build verboseInfo for the current stage (after transition)
       // Note: conversationHistory not available in this context, pass undefined
-      const verboseInfo: VerboseInfo =
-        context.currentStage === "chat"
-          ? VerboseInfoBuilder.forChatStage(
-              context,
-              fileExtractionResult,
-              undefined,
-              undefined,
-              undefined,
-              undefined
-            )
-          : context.currentStage === "assumptions"
-            ? VerboseInfoBuilder.forAssumptionStage(
-                context,
-                undefined,
-                undefined
-              )
-            : VerboseInfoBuilder.forImplementationStage(
-                context,
-                this.progressPlanManager
-              );
+      const verboseInfo = this.buildVerboseInfo(
+        context.currentStage,
+        context,
+        { fileExtractionResult }
+      );
 
       console.log(
         `[Harmony] 📋 Sending ${context.currentStage} verbose info to webview (after transition)`

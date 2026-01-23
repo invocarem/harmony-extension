@@ -2,33 +2,32 @@
 
 ## Overview
 
-First Principles Thinking is a specialized analysis mode within the **Assumptions/Analysis** stage that guides users through a structured process to break down problems, beliefs, or habits into fundamental truths, enabling reconstruction from the ground up.
+First Principles Thinking is a specialized analysis mode within the **Chat/Clarification** stage that guides users through a structured process to break down problems into fundamental truths during problem restatement, enabling deeper understanding from the ground up.
 
 ## Purpose
 
 First Principles Thinking provides:
 
-- **Deep Analysis**: Strips away assumptions and identifies core truths
-- **Structured Questioning**: Asks 10-12 targeted questions to isolate fundamentals
-- **Synthesis**: Produces structured analysis (Core Truths, False Assumptions, Reconstruction, Actionable Insights)
-- **Enhanced Planning**: Uses synthesis to inform the numbered plan generation
+- **Deep Analysis**: Strips away assumptions and identifies core truths during problem clarification
+- **Structured Questioning**: Asks 6-8 targeted questions to isolate fundamentals
+- **Enhanced Restatement**: Produces problem restatement based on core requirements and real constraints
+- **Better Planning**: Provides solid foundation for the assumptions stage planning
 
-## Integration with Assumptions Stage
+## Integration with Chat Stage
 
-First Principles Thinking is **not a separate stage** but a **mode within the Assumptions/Analysis stage**:
+First Principles Thinking is **not a separate stage** but a **mode within the Chat/Clarification stage**:
 
 ```
-Chat → Assumptions (First-Principles Mode) → Assumptions (Normal Mode) → Implementation
+Chat (First-Principles Mode) → Assumptions → Implementation
 ```
 
 ### Flow
 
-1. **User enters Assumptions stage** with first-principles trigger
-2. **Question Phase**: System asks 10-12 short, concrete questions
-3. **Synthesis Phase**: After questions answered, generate structured synthesis
-4. **Normal Assumptions Phase**: Use synthesis as input for normal assumptions analysis
-5. **Plan Generation**: Create numbered plan (Step 1:, Step 2:, Step 3:)
-6. **Proceed to Implementation**: Normal flow continues
+1. **User enters Chat stage** with first-principles trigger or setting enabled
+2. **Question Phase**: System asks 6-8 short, concrete questions to strip assumptions
+3. **Restatement Phase**: After questions answered, provide restated problem based on fundamentals
+4. **Normal Chat Phase**: Continue with clarifying questions and tool usage
+5. **Proceed to Assumptions**: Normal flow continues with solid understanding
 
 ## Activation
 
@@ -70,58 +69,55 @@ Can be enabled via configuration (future enhancement)
 - Force stripping of assumptions
 - Isolate fundamentals
 - Examples:
-  - "What must be true?"
-  - "Which assumptions are automatic here?"
+  - "What must be true for this to work?"
+  - "Which assumptions are we making automatically?"
   - "Remove everything non-essential, what remains?"
+  - "What is the absolute minimum required?"
+  - "What's the real constraint here?"
 
 **DON'T:**
 
-- Ask what the user "thinks" about the problem
+- Ask what the user "thinks" about solutions
 - Ask for solution preferences
 - Ask for justification or rationalization
 - Ask for analysis of choices during the process
 
 ### Question Tracking
 
-- **Total Questions**: 10-12 questions per session
+- **Total Questions**: 6-8 questions per session
 - **State Tracking**: Questions and answers stored in `ConversationContext.firstPrinciplesState`
-- **Progress**: System tracks which question number (1-12) is current
-- **Completion**: After all questions answered, automatically trigger synthesis
+- **Progress**: System tracks which question number (1-8) is current
+- **Completion**: After all questions answered, automatically provide restated problem
 
-## Synthesis Output
+## Restatement Output
 
-After the question sequence, the system provides structured synthesis covering:
+After the question sequence, the system provides a restated problem statement covering:
 
-### 1. Core Truths
+### 1. Core Requirements
 
-- Fundamental facts or principles that cannot be denied
-- What is absolutely true about the problem/system
+- What absolutely must be true (stripped of assumptions)
+- Essential elements that cannot be removed
 
-### 2. False Assumptions
+### 3. Essential Elements
 
-- Beliefs taken for granted that distort reality
-- Assumptions that need to be challenged or removed
+- The irreducible components needed to address the problem
+- What truly matters vs. what's nice to have
 
-### 3. Reconstruction
+### 4. Clarifications Needed
 
-- How to reassemble the problem/system from the ground up
-- Foundation for planning from first principles
+- Any remaining ambiguities that need resolution
+- Questions for further understanding
 
-### 4. Actionable Insights
+## Integration with Normal Chat Flow
 
-- Practical changes or experiments based on foundational analysis
-- Concrete next steps derived from core truths
+After restatement is generated:
 
-## Integration with Normal Assumptions Flow
-
-After synthesis is generated:
-
-1. **Synthesis becomes context** for normal assumptions analysis
-2. **Normal assumptions workflow continues**:
-   - List assumptions about codebase and context
-   - Identify edge cases
-   - Create numbered plan (Step 1:, Step 2:, Step 3:)
-3. **Plan generation** uses Reconstruction from synthesis as foundation
+1. **Restatement becomes foundation** for continued chat stage clarification
+2. **Normal chat workflow continues**:
+   - Ask any remaining clarifying questions
+   - Use read-only tools to understand codebase
+   - Confirm understanding with user
+3. **Transition to Assumptions** stage with solid understanding
 4. **Proceed to Implementation** stage normally
 
 ## State Management
@@ -133,15 +129,15 @@ interface ConversationContext {
   // ... existing fields
   firstPrinciplesMode?: boolean; // Is first-principles mode active?
   firstPrinciplesState?: {
-    questionsAsked: number; // How many questions asked (0-12)
+    questionsAsked: number; // How many questions asked (0-8)
     questionsRemaining: number; // How many questions left
     answers: Record<number, string>; // Question number → answer mapping
-    synthesisGenerated?: boolean; // Has synthesis been generated?
-    synthesis?: {
-      coreTruths: string[];
-      falseAssumptions: string[];
-      reconstruction: string;
-      actionableInsights: string[];
+    restatementGenerated?: boolean; // Has restatement been generated?
+    restatement?: {
+      coreRequirements: string[];
+      realConstraints: string[];
+      essentialElements: string[];
+      clarificationsNeeded: string[];
     };
   };
 }

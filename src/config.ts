@@ -17,7 +17,7 @@ export interface LlamaConfig {
   harmonyMode: boolean;
   verbose: boolean;
   verboseToolExtraction?: boolean; // Control XmlProcessor and ToolCallExtractor logging
-  firstPrinciplesMode?: boolean; // Enable first-principles thinking mode by default in assumptions stage
+  firstPrinciplesMode?: boolean; // Enable first-principles thinking mode by default in chat stage
 }
 
 /**

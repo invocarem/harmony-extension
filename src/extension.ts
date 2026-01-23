@@ -525,6 +525,7 @@ export class HarmonyAssistant {
       // Select template based on current stage
       // First try to get stage from existing context, otherwise detect from prompt
       let currentStage = this.harmonyClient.getCurrentStage();
+      const initialStage = currentStage;
 
       // Track queries in ChatManager when in chat stage or init stage (init will transition to chat)
       // This ensures the first query is always tracked even if stage hasn't been updated yet
@@ -630,50 +631,53 @@ export class HarmonyAssistant {
         }
       }
 
-      // Detect and activate first-principles mode if triggered or enabled in config
-      // This should happen when entering assumptions stage or if already in assumptions stage
-      if (currentStage === "assumptions") {
-        // Check if first-principles is triggered in the current message OR enabled in config
-        const shouldActivate =
-          this.harmonyClient.shouldActivateFirstPrinciples(finalMessage) ||
-          this.config.firstPrinciplesMode === true;
+      const shouldActivateFirstPrinciples =
+        this.harmonyClient.shouldActivateFirstPrinciples(finalMessage) ||
+        this.config.firstPrinciplesMode === true;
+      const wasFirstPrinciplesActive = this.harmonyClient.isFirstPrinciplesMode();
+      const supportsFirstPrinciples =
+        currentStage === "chat" ||
+        currentStage === "init";
+      const leftChatStage =
+        initialStage === "chat" && currentStage !== "chat";
 
-        if (shouldActivate && !this.harmonyClient.isFirstPrinciplesMode()) {
-          // Activate first-principles mode
-          this.harmonyClient.setFirstPrinciplesMode(true);
-          const reason = this.config.firstPrinciplesMode
-            ? "config setting"
-            : "user trigger";
-          console.log(`[Harmony] First-principles mode activated (${reason})`);
-        }
-      } else {
-        // Disable first-principles mode when leaving assumptions stage
-        // (unless config says to keep it enabled - but we reset per conversation)
-        if (this.harmonyClient.isFirstPrinciplesMode()) {
-          this.harmonyClient.setFirstPrinciplesMode(false);
-          console.log(
-            `[Harmony] First-principles mode deactivated (left assumptions stage)`
-          );
-        }
+      if (
+        supportsFirstPrinciples &&
+        shouldActivateFirstPrinciples &&
+        !wasFirstPrinciplesActive
+      ) {
+        this.harmonyClient.setFirstPrinciplesMode(true);
+        const reason = this.config.firstPrinciplesMode
+          ? "config setting"
+          : "user trigger";
+        console.log(`[Harmony] First-principles mode activated (${reason})`);
       }
+
+      if (leftChatStage || (!supportsFirstPrinciples && wasFirstPrinciplesActive)) {
+        this.harmonyClient.setFirstPrinciplesMode(false);
+        console.log(
+          `[Harmony] First-principles mode deactivated (stage change to ${currentStage})`
+        );
+      }
+
+      const firstPrinciplesActive = this.harmonyClient.isFirstPrinciplesMode();
 
       let templateName: string;
       switch (currentStage) {
-        case "assumptions":
-          // Check if first-principles mode is active
-          if (this.harmonyClient.isFirstPrinciplesMode()) {
-            templateName = "first-principles";
+        case "chat":
+          templateName = "chat";
+          if (firstPrinciplesActive) {
             console.log(
-              `[Harmony] First-principles mode active in assumptions stage`
+              `[Harmony] First-principles mode active in chat stage`
             );
-          } else {
-            templateName = "assumptions";
           }
+          break;
+        case "assumptions":
+          templateName = "assumptions";
           break;
         case "implementation":
           templateName = "implementation";
           break;
-        case "chat":
         default:
           templateName = "chat";
           break;

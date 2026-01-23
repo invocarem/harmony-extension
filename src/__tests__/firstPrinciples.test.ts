@@ -394,15 +394,14 @@ describe('First Principles Thinking', () => {
     });
 
     describe('First Principles Mode Activation', () => {
-      it('should activate first-principles mode when triggered in assumptions stage', async () => {
-        mockHarmonyClient.getCurrentStage.mockReturnValue('assumptions');
+      it('should activate first-principles mode when triggered in chat stage', async () => {
+        mockHarmonyClient.getCurrentStage.mockReturnValue('chat');
         mockHarmonyClient.shouldActivateFirstPrinciples.mockReturnValue(true);
         mockHarmonyClient.isFirstPrinciplesMode.mockReturnValue(false);
-        mockStageStateMachine.determineNextStage.mockReturnValue('assumptions');
+        mockStageStateMachine.determineNextStage.mockReturnValue('chat');
 
         await assistant['handleChatMessage']('@first-principles analyze this');
 
-        // shouldActivateFirstPrinciples is called with finalMessage (which may be processed)
         expect(mockHarmonyClient.shouldActivateFirstPrinciples).toHaveBeenCalled();
         expect(mockHarmonyClient.setFirstPrinciplesMode).toHaveBeenCalledWith(true);
       });
@@ -421,7 +420,7 @@ describe('First Principles Thinking', () => {
       });
 
       it('should not activate if not triggered', async () => {
-        mockHarmonyClient.getCurrentStage.mockReturnValue('assumptions');
+        mockHarmonyClient.getCurrentStage.mockReturnValue('chat');
         mockHarmonyClient.shouldActivateFirstPrinciples.mockReturnValue(false);
 
         await assistant['handleChatMessage']('normal message');
@@ -429,13 +428,16 @@ describe('First Principles Thinking', () => {
         expect(mockHarmonyClient.setFirstPrinciplesMode).not.toHaveBeenCalled();
       });
 
-      it('should deactivate first-principles mode when leaving assumptions stage', async () => {
-        // Start in assumptions with first-principles active
-        mockHarmonyClient.getCurrentStage.mockReturnValueOnce('assumptions').mockReturnValue('chat');
-        mockHarmonyClient.isFirstPrinciplesMode.mockReturnValueOnce(true).mockReturnValue(true);
-        mockStageStateMachine.determineNextStage.mockReturnValue('chat');
+      it('should deactivate first-principles mode when leaving chat stage', async () => {
+        mockHarmonyClient.getCurrentStage
+          .mockReturnValueOnce('chat')
+          .mockReturnValue('assumptions');
+        mockHarmonyClient.isFirstPrinciplesMode
+          .mockReturnValueOnce(true)
+          .mockReturnValue(true);
+        mockStageStateMachine.determineNextStage.mockReturnValue('assumptions');
 
-        await assistant['handleChatMessage']('move to chat');
+        await assistant['handleChatMessage']('move to assumptions');
 
         expect(mockHarmonyClient.setFirstPrinciplesMode).toHaveBeenCalledWith(false);
       });
@@ -454,7 +456,7 @@ describe('First Principles Thinking', () => {
     });
 
     describe('Template Selection with First Principles', () => {
-      it('should use first-principles template when mode is active in assumptions stage', async () => {
+      it('should use assumptions template even if mode was active when entering assumptions stage', async () => {
         mockHarmonyClient.getCurrentStage.mockReturnValue('assumptions');
         mockHarmonyClient.isFirstPrinciplesMode.mockReturnValue(true);
         mockStageStateMachine.determineNextStage.mockReturnValue('assumptions');
@@ -462,7 +464,7 @@ describe('First Principles Thinking', () => {
         await assistant['handleChatMessage']('continue analysis');
 
         const callArgs = mockHarmonyClient.callServer.mock.calls[0];
-        expect(callArgs[1]).toBe('first-principles');
+        expect(callArgs[1]).toBe('assumptions');
       });
 
       it('should use assumptions template when mode is not active in assumptions stage', async () => {
@@ -499,23 +501,7 @@ describe('First Principles Thinking', () => {
       });
     });
 
-    describe('First Principles Mode Persistence', () => {
-      it('should maintain first-principles mode across multiple messages in assumptions stage', async () => {
-        mockHarmonyClient.getCurrentStage.mockReturnValue('assumptions');
-        mockHarmonyClient.shouldActivateFirstPrinciples.mockReturnValueOnce(true).mockReturnValue(false);
-        mockHarmonyClient.isFirstPrinciplesMode.mockReturnValueOnce(false).mockReturnValue(true);
-        mockStageStateMachine.determineNextStage.mockReturnValue('assumptions');
-
-        // First message: activate
-        await assistant['handleChatMessage']('@first-principles analyze');
-        expect(mockHarmonyClient.setFirstPrinciplesMode).toHaveBeenCalledWith(true);
-
-        // Second message: should still use first-principles template
-        await assistant['handleChatMessage']('continue');
-        const callArgs = mockHarmonyClient.callServer.mock.calls[1];
-        expect(callArgs[1]).toBe('first-principles');
-      });
-    });
+    // No persistence tests in assumptions stage because first-principles is chat-only
   });
 });
 
