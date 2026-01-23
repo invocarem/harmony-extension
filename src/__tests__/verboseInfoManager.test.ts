@@ -695,5 +695,298 @@ describe("VerboseInfoManager", () => {
 
       expect(implResult.stage).toBe("implementation");
     });
+
+    describe("isComplete property", () => {
+      it("should NOT set isComplete for chat stage", () => {
+        const context: ConversationContext = {
+          currentStage: "chat",
+          originalPrompt: "Test prompt",
+          codeContexts: new Map(),
+          stageHistory: [],
+          steps: [],
+          maxSteps: 10,
+          currentStep: 1,
+        };
+
+        const result = manager.buildVerboseInfo("chat", context);
+
+        expect(result.stage).toBe("chat");
+        expect((result as ChatVerboseInfo).isComplete).toBeUndefined();
+      });
+
+      it("should NOT set isComplete for assumptions stage without progress plan", () => {
+        const context: ConversationContext = {
+          currentStage: "assumptions",
+          originalPrompt: "Test prompt",
+          codeContexts: new Map(),
+          stageHistory: [],
+          steps: [],
+          maxSteps: 10,
+          currentStep: 1,
+        };
+
+        const result = manager.buildVerboseInfo("assumptions", context);
+
+        expect(result.stage).toBe("assumptions");
+        expect((result as AssumptionVerboseInfo).isComplete).toBeUndefined();
+      });
+
+      it("should NOT set isComplete for assumptions stage even with progress plan", () => {
+        // Progress plans exist in assumptions stage, but isComplete is not meaningful
+        // until implementation stage where steps are actually executed
+        const context: ConversationContext = {
+          currentStage: "assumptions",
+          originalPrompt: "Test prompt",
+          codeContexts: new Map(),
+          stageHistory: [],
+          steps: [],
+          maxSteps: 10,
+          currentStep: 1,
+          progressPlan: {
+            taskId: "task-123",
+            totalSteps: 3,
+            complexity: "simple",
+            createdAt: Date.now(),
+            originalPrompt: "Test prompt",
+            steps: [
+              { stepNumber: 1, goal: "Step 1", status: "pending", tools: [] },
+              { stepNumber: 2, goal: "Step 2", status: "pending", tools: [] },
+              { stepNumber: 3, goal: "Step 3", status: "pending", tools: [] },
+            ],
+          },
+        };
+
+        const result = manager.buildVerboseInfo("assumptions", context);
+
+        expect(result.stage).toBe("assumptions");
+        // isComplete is not meaningful for assumptions stage, even with a plan
+        expect((result as AssumptionVerboseInfo).isComplete).toBeUndefined();
+      });
+
+      it("should NOT set isComplete for implementation stage without progress plan", () => {
+        const context: ConversationContext = {
+          currentStage: "implementation",
+          originalPrompt: "Test prompt",
+          codeContexts: new Map(),
+          stageHistory: [],
+          steps: [],
+          maxSteps: 10,
+          currentStep: 1,
+        };
+
+        const result = manager.buildVerboseInfo("implementation", context);
+
+        expect(result.stage).toBe("implementation");
+        expect((result as ImplementationVerboseInfo).isComplete).toBeUndefined();
+      });
+
+      it("should return true for isComplete when all steps are completed in implementation stage", () => {
+        // Create a plan with all steps completed
+        progressPlanManager.createPlan("task-123", "Test task", "simple", [
+          { goal: "Step 1" },
+          { goal: "Step 2" },
+          { goal: "Step 3" },
+        ]);
+        const plan = progressPlanManager.getPlan("task-123");
+
+        if (plan) {
+          plan.steps[0].status = "completed";
+          plan.steps[1].status = "completed";
+          plan.steps[2].status = "completed";
+          plan.completedAt = Date.now();
+        }
+
+        const context: ConversationContext = {
+          currentStage: "implementation",
+          originalPrompt: "Test prompt",
+          codeContexts: new Map(),
+          stageHistory: [],
+          steps: [],
+          maxSteps: 3,
+          currentStep: 3,
+          progressPlan: {
+            taskId: "task-123",
+            totalSteps: 3,
+            complexity: "simple",
+            createdAt: Date.now(),
+            originalPrompt: "Test prompt",
+            steps: [
+              {
+                stepNumber: 1,
+                goal: "Step 1",
+                status: "completed",
+                tools: [],
+              },
+              {
+                stepNumber: 2,
+                goal: "Step 2",
+                status: "completed",
+                tools: [],
+              },
+              {
+                stepNumber: 3,
+                goal: "Step 3",
+                status: "completed",
+                tools: [],
+              },
+            ],
+          },
+        };
+
+        const result = manager.buildVerboseInfo("implementation", context);
+
+        expect(result.stage).toBe("implementation");
+        expect((result as ImplementationVerboseInfo).isComplete).toBe(true);
+      });
+
+      it("should return true for isComplete when last step is completed in implementation stage", () => {
+        // Create a plan where last step is completed (implicit completion)
+        progressPlanManager.createPlan("task-456", "Test task", "simple", [
+          { goal: "Step 1" },
+          { goal: "Step 2" },
+          { goal: "Step 3" },
+        ]);
+        const plan = progressPlanManager.getPlan("task-456");
+
+        if (plan) {
+          plan.steps[0].status = "completed";
+          plan.steps[1].status = "completed";
+          plan.steps[2].status = "completed";
+          plan.completedAt = Date.now();
+        }
+
+        const context: ConversationContext = {
+          currentStage: "implementation",
+          originalPrompt: "Test prompt",
+          codeContexts: new Map(),
+          stageHistory: [],
+          steps: [],
+          maxSteps: 3,
+          currentStep: 3,
+          progressPlan: {
+            taskId: "task-456",
+            totalSteps: 3,
+            complexity: "simple",
+            createdAt: Date.now(),
+            originalPrompt: "Test prompt",
+            steps: [
+              {
+                stepNumber: 1,
+                goal: "Step 1",
+                status: "completed",
+                tools: [],
+              },
+              {
+                stepNumber: 2,
+                goal: "Step 2",
+                status: "completed",
+                tools: [],
+              },
+              {
+                stepNumber: 3,
+                goal: "Step 3",
+                status: "completed",
+                tools: [],
+              },
+            ],
+          },
+        };
+
+        const result = manager.buildVerboseInfo("implementation", context);
+
+        expect(result.stage).toBe("implementation");
+        expect((result as ImplementationVerboseInfo).isComplete).toBe(true);
+      });
+
+      it("should return false for isComplete when steps are pending/in_progress in implementation stage", () => {
+        progressPlanManager.createPlan("task-789", "Test task", "simple", [
+          { goal: "Step 1" },
+          { goal: "Step 2" },
+          { goal: "Step 3" },
+        ]);
+
+        const context: ConversationContext = {
+          currentStage: "implementation",
+          originalPrompt: "Test prompt",
+          codeContexts: new Map(),
+          stageHistory: [],
+          steps: [],
+          maxSteps: 3,
+          currentStep: 1,
+          progressPlan: {
+            taskId: "task-789",
+            totalSteps: 3,
+            complexity: "simple",
+            createdAt: Date.now(),
+            originalPrompt: "Test prompt",
+            steps: [
+              {
+                stepNumber: 1,
+                goal: "Step 1",
+                status: "in_progress",
+                tools: [],
+              },
+              { stepNumber: 2, goal: "Step 2", status: "pending", tools: [] },
+              { stepNumber: 3, goal: "Step 3", status: "pending", tools: [] },
+            ],
+          },
+        };
+
+        const result = manager.buildVerboseInfo("implementation", context);
+
+        expect(result.stage).toBe("implementation");
+        expect((result as ImplementationVerboseInfo).isComplete).toBe(false);
+      });
+
+      it("should return undefined for isComplete when no steps exist in implementation stage", () => {
+        const context: ConversationContext = {
+          currentStage: "implementation",
+          originalPrompt: "Test prompt",
+          codeContexts: new Map(),
+          stageHistory: [],
+          steps: [],
+          maxSteps: 0,
+          currentStep: 0,
+          progressPlan: {
+            taskId: "task-empty",
+            totalSteps: 0,
+            complexity: "simple",
+            createdAt: Date.now(),
+            originalPrompt: "Test prompt",
+            steps: [],
+          },
+        };
+
+        const result = manager.buildVerboseInfo("implementation", context);
+
+        expect(result.stage).toBe("implementation");
+        expect((result as ImplementationVerboseInfo).isComplete).toBeUndefined();
+      });
+
+      it("should have isComplete as readonly in type definitions", () => {
+        // Note: readonly is a TypeScript compile-time constraint, not enforced at runtime
+        // This test verifies the property exists and type definitions prevent assignment
+        // TypeScript's type checker will prevent: result.isComplete = true;
+        const context: ConversationContext = {
+          currentStage: "chat",
+          originalPrompt: "Test prompt",
+          codeContexts: new Map(),
+          stageHistory: [],
+          steps: [],
+          maxSteps: 10,
+          currentStep: 1,
+        };
+
+        const result = manager.buildVerboseInfo("chat", context) as any;
+
+        // Verify the property exists (or doesn't for chat stage)
+        expect(result).toBeDefined();
+        // For chat stage, isComplete should be undefined
+        expect(result.isComplete).toBeUndefined();
+        
+        // TypeScript prevents this at compile time:
+        // result.isComplete = true; // TS2540: Cannot assign to 'isComplete' because it is a read-only property
+      });
+    });
   });
 });

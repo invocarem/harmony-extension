@@ -1109,5 +1109,145 @@ describe('ChatManager', () => {
       expect(manager.getProblemSummary()).toBeUndefined();
     });
   });
+
+  describe('updateReferredFilesFromToolResults', () => {
+    it('should update referredFiles when find_file tool returns results', () => {
+      manager.initialize();
+      manager.addQuery('find myfile.swift');
+
+      // Simulate executedToolCalls with find_file result
+      const executedToolCalls = [
+        {
+          name: 'find_file',
+          arguments: { pattern: 'myfile.swift' },
+          result: 'Tests/LatinService/Psalm12Tests.swift' // The found file path
+        }
+      ];
+
+      // Update referred files from tool results
+      manager.updateReferredFilesFromToolResults(executedToolCalls as any);
+
+      const referredFiles = manager.getReferredFiles();
+      expect(referredFiles.length).toBeGreaterThan(0);
+      expect(referredFiles.some(rf => rf.file === 'Tests/LatinService/Psalm12Tests.swift')).toBe(true);
+    });
+
+    it('should update referredFiles when read_file tool is executed', () => {
+      manager.initialize();
+      manager.addQuery('review config.ts');
+
+      // Simulate executedToolCalls with read_file
+      const executedToolCalls = [
+        {
+          name: 'read_file',
+          arguments: { file_path: 'src/config.ts' },
+          result: 'export const config = { ... }' // File content
+        }
+      ];
+
+      // Update referred files from tool results
+      manager.updateReferredFilesFromToolResults(executedToolCalls as any);
+
+      const referredFiles = manager.getReferredFiles();
+      expect(referredFiles.length).toBeGreaterThan(0);
+      expect(referredFiles.some(rf => rf.file === 'src/config.ts')).toBe(true);
+    });
+
+    it('should deduplicate files in referredFiles', () => {
+      manager.initialize();
+      manager.addQuery('review myfile.ts');
+
+      // File already added via addQueryWithFiles
+      manager.addReferredFile('src/myfile.ts');
+
+      // Try to add same file via tool results
+      const executedToolCalls = [
+        {
+          name: 'read_file',
+          arguments: { file_path: 'src/myfile.ts' },
+          result: 'export const test = 1;'
+        }
+      ];
+
+      manager.updateReferredFilesFromToolResults(executedToolCalls as any);
+
+      const referredFiles = manager.getReferredFiles();
+      // Should not have duplicates
+      const fileCount = referredFiles.filter(rf => rf.file === 'src/myfile.ts').length;
+      expect(fileCount).toBe(1);
+    });
+
+    it('should handle multiple tool results at once', () => {
+      manager.initialize();
+
+      // Simulate multiple tool executions (find + read)
+      const executedToolCalls = [
+        {
+          name: 'find_file',
+          arguments: { pattern: 'test.py' },
+          result: 'tests/unit/test.py'
+        },
+        {
+          name: 'read_file',
+          arguments: { file_path: 'src/main.py' },
+          result: 'def main(): pass'
+        }
+      ];
+
+      manager.updateReferredFilesFromToolResults(executedToolCalls as any);
+
+      const referredFiles = manager.getReferredFiles();
+      expect(referredFiles.length).toBe(2);
+      expect(referredFiles.some(rf => rf.file === 'tests/unit/test.py')).toBe(true);
+      expect(referredFiles.some(rf => rf.file === 'src/main.py')).toBe(true);
+    });
+
+    it('should skip tool results without file information', () => {
+      manager.initialize();
+
+      // Tool calls that don't have file results
+      const executedToolCalls = [
+        {
+          name: 'list_files',
+          arguments: { directory: 'src' },
+          result: ['file1.ts', 'file2.ts']  // List, not specific files
+        },
+        {
+          name: 'grep_files',
+          arguments: { pattern: 'export' },
+          result: 'matches found'  // No file path
+        }
+      ];
+
+      manager.updateReferredFilesFromToolResults(executedToolCalls as any);
+
+      const referredFiles = manager.getReferredFiles();
+      // Should remain empty for non-file-specific tools
+      expect(referredFiles.length).toBe(0);
+    });
+  });
+
+  describe('addReferredFile', () => {
+    it('should add a file to referredFiles', () => {
+      manager.initialize();
+
+      manager.addReferredFile('src/test.ts');
+
+      const referredFiles = manager.getReferredFiles();
+      expect(referredFiles.length).toBe(1);
+      expect(referredFiles[0].file).toBe('src/test.ts');
+    });
+
+    it('should not add duplicate files', () => {
+      manager.initialize();
+
+      manager.addReferredFile('src/test.ts');
+      manager.addReferredFile('src/test.ts');
+
+      const referredFiles = manager.getReferredFiles();
+      expect(referredFiles.length).toBe(1);
+    });
+  });
 });
+
 

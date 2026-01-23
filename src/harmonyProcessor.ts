@@ -695,7 +695,7 @@ export class HarmonyProcessor {
    * Extract file update from content that claims to have updated/created a file
    * but doesn't make an explicit tool call
    * Also extracts when code block with file name is present (even without explicit claims)
-   * Uses IntentionDetector to prevent false positives (e.g., when user asks to explain code)
+   * Note: Stage-level validation (in responseValidator) will block file modification tools at CHAT stage
    */
   private extractFileUpdateFromContent(content: string, userPrompt?: string): { raw: string; name: string; arguments: { file_path: string; content: string } } | null {
     // Exclude tool results sections from file extraction to prevent false positives
@@ -719,26 +719,86 @@ export class HarmonyProcessor {
       }
     }
     
-    // Check user intent if prompt is available
-    // This prevents extracting files when user asks to explain/review code
-    if (userPrompt) {
-      const intent = this.intentionDetector.detectIntent(userPrompt);
-      if (!this.intentionDetector.shouldAllowFileExtraction(intent)) {
-        console.log(`[HarmonyProcessor] User intent is ${intent}, skipping file extraction to prevent false positive`);
-        return null;
-      }
-      console.log(`[HarmonyProcessor] User intent is ${intent}, allowing file extraction`);
-    }
+    // NOTE: Intention detection removed - stage validator will block file modifications at CHAT stage
+    // This allows AI to suggest file operations at chat stage that will be blocked appropriately
+    // No need to check user intent here; the stage machine handles access control
     
     // First, try to extract code block content
     // Handle both formats: with newline after language (```swift\n) and without (```swift ) due to whitespace normalization
     const codeBlockPattern = /```(?:\w+)?\s*[\n ]([\s\S]*?)```/;
     const codeBlockMatch = content.match(codeBlockPattern);
-    if (!codeBlockMatch || !codeBlockMatch[1]) {
-      return null; // No code block found
+    const hasCodeBlock = codeBlockMatch && codeBlockMatch[1];
+    const codeContent = hasCodeBlock ? codeBlockMatch[1].trim() : null;
+    
+    // If there's no code block and file is referenced, default to read_file
+    // This allows reviewing existing files at CHAT stage
+    if (!hasCodeBlock) {
+      // Extract file name for reading
+      const filePathPatterns = [
+        /`([^`]+\.(?:py|js|ts|jsx|tsx|java|swift|go|rs|cpp|c|cc|cxx|h|hpp|hxx|html|css|json|md|txt|xml|yaml|yml|sh|bat|ps1|rb|php|kt|kts|r|R|scala|clj|cljs|ex|exs|erl|hrl|lua|pl|pm|sql|vue|svelte|elm|dart|zig|nim|fs|fsx|f90|f95|f03|f08))`/i,
+        /\*\*([^*]+\.(?:py|js|ts|jsx|tsx|java|swift|go|rs|cpp|c|cc|cxx|h|hpp|hxx|html|css|json|md|txt|xml|yaml|yml|sh|bat|ps1|rb|php|kt|kts|r|R|scala|clj|cljs|ex|exs|erl|hrl|lua|pl|pm|sql|vue|svelte|elm|dart|zig|nim|fs|fsx|f90|f95|f03|f08))\*\*/i,
+        /\*\*(?:file|filename|path)\*\*[:\s]+`([^`]+\.(?:py|js|ts|jsx|tsx|java|swift|go|rs|cpp|c|cc|cxx|h|hpp|hxx|html|css|json|md|txt|xml|yaml|yml|sh|bat|ps1|rb|php|kt|kts|r|R|scala|clj|cljs|ex|exs|erl|hrl|lua|pl|pm|sql|vue|svelte|elm|dart|zig|nim|fs|fsx|f90|f95|f03|f08))`/i,
+        /(?:file|filename|path)[:\s]+`?([^\s`]+\.(?:py|js|ts|jsx|tsx|java|swift|go|rs|cpp|c|cc|cxx|h|hpp|hxx|html|css|json|md|txt|xml|yaml|yml|sh|bat|ps1|rb|php|kt|kts|r|R|scala|clj|cljs|ex|exs|erl|hrl|lua|pl|pm|sql|vue|svelte|elm|dart|zig|nim|fs|fsx|f90|f95|f03|f08))`?/i,
+        /\b([a-zA-Z0-9_\-/]+\.(?:py|js|ts|jsx|tsx|java|swift|go|rs|cpp|c|cc|cxx|h|hpp|hxx|html|css|json|md|txt|xml|yaml|yml|sh|bat|ps1|rb|php|kt|kts|r|R|scala|clj|cljs|ex|exs|erl|hrl|lua|pl|pm|sql|vue|svelte|elm|dart|zig|nim|fs|fsx|f90|f95|f03|f08))\b/i,
+      ];
+      
+      let filePath: string | null = null;
+      for (const pattern of filePathPatterns) {
+        const globalPattern = new RegExp(pattern.source, pattern.flags + (pattern.global ? '' : 'g'));
+        const matches = Array.from(content.matchAll(globalPattern));
+        for (const match of matches) {
+          if (match[1] && match[1].length > 0) {
+            const candidate = match[1];
+            if (!/(?:^import|^from|require\(|\.includes\()/i.test(candidate) && 
+                !/(?:package\.json|tsconfig\.json|webpack\.config)/i.test(candidate)) {
+              filePath = candidate;
+              break;
+            }
+          }
+        }
+        if (filePath) break;
+      }
+      
+      if (filePath) {
+        // Normalize file path (remove leading slashes)
+        filePath = filePath.startsWith('/') ? filePath.substring(1) : filePath;
+        
+        // Determine if path looks complete (has directory separators) or incomplete (just filename)
+        const isFullPath = filePath.includes('/') || filePath.includes('\\');
+        const toolName = isFullPath ? 'read_file' : 'find_file';
+        
+        // Create tool call - use find_file for incomplete paths, read_file for full paths
+        const toolCall = {
+          name: toolName,
+          arguments: {
+            file_path: filePath,
+            // find_file uses 'pattern' instead of 'file_path', but we'll use file_path as the pattern
+            ...(toolName === 'find_file' && { pattern: filePath })
+          }
+        };
+        
+        // Remove file_path from find_file arguments if needed
+        if (toolName === 'find_file') {
+          delete (toolCall.arguments as any).file_path;
+        }
+        
+        const raw = JSON.stringify(toolCall);
+        console.log(`[HarmonyProcessor] Extracted ${toolName} for file: ${filePath} (isFullPath=${isFullPath})`);
+        
+        return {
+          raw,
+          name: toolName,
+          arguments: {
+            file_path: filePath,
+            content: '' // Neither read_file nor find_file need content in arguments
+          } as any
+        };
+      }
+      
+      return null; // No file referenced and no code block
     }
     
-    const codeContent = codeBlockMatch[1].trim();
+    // Has code block - determine if it's create_file or replace_file
     if (!codeContent || codeContent.length < 10) {
       return null; // Code block too short or empty
     }
@@ -808,10 +868,11 @@ export class HarmonyProcessor {
     }
     
     // Determine if it's create_file or replace_file
-    // Default to create_file if unclear (new files are more common)
-    const isCreate = /(?:created|generated|new|write|save)/i.test(content) || 
-                     !/(?:updated|replaced|modified|edit)/i.test(content);
-    const toolName = isCreate ? 'create_file' : 'replace_file';
+    // If content explicitly mentions modification, use replace_file
+    // Otherwise default to create_file (new files are more common)
+    const hasModificationKeywords = /(?:updated|replaced|modified|modify|change|update)/i.test(content);
+    const toolName = hasModificationKeywords ? 'replace_file' : 'create_file';
+
     
     // Create tool call JSON
     const toolCall = {

@@ -731,7 +731,7 @@ export class HarmonyAssistant {
 
       // Process response and update problems in ChatManager if in chat stage
       if (currentStage === "chat" && cleanedContent) {
-        chatManager.processResponse(cleanedContent, cleanMessage);
+        chatManager.processResponse(cleanedContent, cleanMessage, response.toolCalls);
       }
 
       await this.webviewManager.sendMessage(cleanedResponse);

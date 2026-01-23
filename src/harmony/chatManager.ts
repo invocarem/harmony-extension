@@ -240,15 +240,77 @@ export class ChatManager {
   }
 
   /**
+   * Add a file to referredFiles if not already present
+   * Used to track files mentioned/located during conversation
+   */
+  addReferredFile(filePath: string, description?: string): void {
+    if (!this.state) {
+      this.initialize();
+    }
+
+    if (!this.state || !filePath) return;
+
+    // Check if file already exists in referredFiles
+    if (!this.state.referredFiles.some(rf => rf.file === filePath)) {
+      this.state.referredFiles.push({ file: filePath, description });
+      this.state.lastUpdated = Date.now();
+      console.log(`[ChatManager] Added referred file: ${filePath}`);
+    }
+  }
+
+  /**
+   * Update referredFiles from executed tool call results
+   * Extracts file paths from find_file and read_file tool results
+   * This ensures files discovered at runtime are tracked for later stages
+   */
+  updateReferredFilesFromToolResults(
+    executedToolCalls: Array<{ name: string; arguments?: Record<string, any>; result?: any }>
+  ): void {
+    if (!this.state) {
+      this.initialize();
+    }
+
+    if (!this.state) return;
+
+    for (const toolCall of executedToolCalls) {
+      // Handle find_file results - result contains the found file path
+      if (toolCall.name === 'find_file' && toolCall.result) {
+        const foundPath = toolCall.result;
+        if (typeof foundPath === 'string' && foundPath.length > 0) {
+          this.addReferredFile(foundPath, 'Found via find_file');
+        }
+      }
+
+      // Handle read_file results - arguments.file_path is the file being read
+      if (toolCall.name === 'read_file' && toolCall.arguments?.file_path) {
+        const filePath = toolCall.arguments.file_path;
+        if (typeof filePath === 'string' && filePath.length > 0) {
+          this.addReferredFile(filePath, 'Read in chat stage');
+        }
+      }
+    }
+  }
+
+  /**
    * Process response and update problems accordingly
+   * Also updates referredFiles from executed tool results
    * Adds problems from restatements, removes problems that are solved
    */
-  processResponse(responseContent: string, userQuery: string): void {
+  processResponse(
+    responseContent: string,
+    userQuery: string,
+    executedToolCalls?: Array<{ name: string; arguments?: Record<string, any>; result?: any }>
+  ): void {
     if (!this.state) {
       this.initialize();
     }
     if (!this.state || !responseContent || !responseContent.trim()) {
       return;
+    }
+
+    // Update referredFiles from executed tool results (find_file, read_file, etc.)
+    if (executedToolCalls && executedToolCalls.length > 0) {
+      this.updateReferredFilesFromToolResults(executedToolCalls);
     }
 
     // Skip greetings - they don't create problems

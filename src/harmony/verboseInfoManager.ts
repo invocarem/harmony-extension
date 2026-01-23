@@ -95,4 +95,62 @@ export class VerboseInfoManager {
     const stage = context?.currentStage || "chat";
     return this.buildVerboseInfo(stage, context, { conversationHistory });
   }
+
+  /**
+   * Merge verboseInfo from a continuation response
+   * If continuation has verboseInfo with additional toolCalls, merge them
+   * Otherwise, use the provided fallback verboseInfo
+   */
+  mergeContinuationVerboseInfo(
+    continuationVerboseInfo: VerboseInfo | undefined,
+    fallbackVerboseInfo: VerboseInfo,
+    options?: {
+      mergeToolCalls?: boolean;
+    }
+  ): VerboseInfo {
+    if (!continuationVerboseInfo) {
+      return fallbackVerboseInfo;
+    }
+
+    const mergeToolCalls = options?.mergeToolCalls ?? false;
+
+    if (mergeToolCalls) {
+      // Merge tool calls from both verboseInfo objects
+      return {
+        ...continuationVerboseInfo,
+        toolCalls: [
+          ...(fallbackVerboseInfo.toolCalls || []),
+          ...(continuationVerboseInfo.toolCalls || []),
+        ],
+      } as VerboseInfo;
+    }
+
+    // Just return continuation verboseInfo (may need stage fallback)
+    return continuationVerboseInfo;
+  }
+
+  /**
+   * Build verboseInfo with stage fallback for continuation scenarios
+   * Builds fallback verboseInfo and merges with continuation response
+   */
+  buildForContinuation(
+    continuationVerboseInfo: VerboseInfo | undefined,
+    stage: WorkflowStage,
+    context: ConversationContext | null,
+    options: VerboseInfoOptions & { mergeToolCalls?: boolean } = {}
+  ): VerboseInfo {
+    const { mergeToolCalls, ...verboseOptions } = options;
+    
+    const fallbackVerboseInfo = this.buildVerboseInfo(
+      stage,
+      context,
+      verboseOptions
+    );
+
+    return this.mergeContinuationVerboseInfo(
+      continuationVerboseInfo,
+      fallbackVerboseInfo,
+      { mergeToolCalls }
+    );
+  }
 }

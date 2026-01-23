@@ -340,14 +340,6 @@ export class HarmonyClient {
       context
     );
 
-    try {
-      if (!verboseInfo.isComplete) {
-        (verboseInfo as any).isComplete = true;
-      }
-    } catch (e) {
-      // ignore
-    }
-
     return {
       content: `I've gathered information through multiple steps, but haven't completed the task. Here's what I found so far.`,
       reasoning: "Reached maximum allowed steps for this task.",
@@ -1428,100 +1420,6 @@ export class HarmonyClient {
         toolCalls = filterResult.filtered;
       }
 
-      // Legacy assumptions stage code (to be removed after handler is fully tested)
-      try {
-        const hasToolCalls = parsed.rawToolCalls && parsed.rawToolCalls.length > 0;
-        if (currentStage === 'assumptions' && context && content && !hasToolCalls && toolCalls.length === 0) {
-          console.log(`[Harmony] Assumptions stage: Extracting code snippets from content (${content.length} chars)...`);
-          const codeBlockPattern = /```(?:\w+)?\s*[\n ]([\s\S]*?)```/g;
-          const matches = content.matchAll(codeBlockPattern);
-          let codeBlockCount = 0;
-          
-          for (const match of matches) {
-            try {
-              const codeBlock = match[0];
-              const codeContext = CodeContext.fromCodeBlock(codeBlock);
-              
-              if (codeContext) {
-                // Get the current user prompt from context for description extraction
-                const currentPrompt = context.originalPrompt || prompt;
-                this.contextManager.addCodeContext(codeContext, currentPrompt, content);
-                
-                // Track code snippet in AssumptionsManager
-                this.assumptionsManager.addCodeSnippet(
-                  codeContext.name,
-                  codeContext.description || `Code snippet from assumptions stage`
-                );
-                
-                codeBlockCount++;
-                console.log(`[Harmony] Assumptions stage: Extracted code context for file: ${codeContext.name} (${codeContext.content.length} lines, version: ${codeContext.version})`);
-              }
-            } catch (error) {
-              // Silently skip if code context extraction fails for a single block
-              console.warn(`[Harmony] Failed to extract code context from block:`, error);
-            }
-          }
-          
-          if (codeBlockCount > 0) {
-            console.log(`[Harmony] Assumptions stage: Added ${codeBlockCount} code context(s) ready for implementation`);
-            const allContexts = this.contextManager.getCodeContexts();
-            console.log(`[Harmony] Assumptions stage: Total CodeContext objects: ${allContexts.length}`);
-          } else {
-            console.log(`[Harmony] Assumptions stage: No code blocks found in content - CodeContext extraction returned 0 blocks`);
-          }
-          
-          // Create or update plan in assumptions stage
-          // Delegated to AssumptionsManager for centralized handling
-          if (currentStage === 'assumptions' && context && content) {
-            try {
-              const originalPrompt = context.originalPrompt || prompt;
-              if (originalPrompt) {
-                // Ensure AssumptionsManager is initialized
-                if (!this.assumptionsManager.getState()) {
-                  this.assumptionsManager.initialize();
-                }
-                
-                // Check if a plan already exists in the context (created by stage handler for convert commands)
-                const existingContext = this.contextManager.getContext();
-                const existingTaskId = existingContext?.progressPlan?.taskId;
-                if (existingTaskId) {
-                  // Plan already exists, set taskId in AssumptionsManager so createOrUpdatePlan can update it
-                  this.assumptionsManager.setTaskId(existingTaskId);
-                  console.log(`[Harmony] Assumptions stage: Plan exists, will update with new steps (taskId: ${existingTaskId})`);
-                }
-                
-                // Always call createOrUpdatePlan - it will update existing plans or create new ones
-                // This ensures the plan is updated with the latest steps from the assumptions response
-                // Pass existingTaskId explicitly to support cases where plan exists in context but not in AssumptionsManager state
-                const plan = this.assumptionsManager.createOrUpdatePlan(
-                  content,
-                  originalPrompt,
-                  parsed.reasoning,
-                  toolCalls,
-                  existingTaskId
-                );
-                
-                if (plan) {
-                  this.contextManager.setProgressPlan(plan);
-                  console.log(`[Harmony] Assumptions stage: ${existingContext?.progressPlan ? 'Updated' : 'Created'} ProgressPlan with ${plan.totalSteps} step(s) (complexity: ${plan.complexity}), taskId: ${plan.taskId}`);
-                }
-              }
-            } catch (error) {
-              // Don't let plan creation break the main flow
-              console.warn(`[Harmony] Error during plan creation:`, error);
-            }
-          }
-          
-          // Track assumptions responses during assumptions stage
-          if (currentStage === 'assumptions' && content) {
-            this.assumptionsManager.addAssumption(content);
-          }
-        }
-      } catch (error) {
-        // Don't let code context extraction break the main flow
-        console.warn(`[Harmony] Error during code context extraction:`, error);
-      }
-
       // Initialize executedToolCalls
       let executedToolCalls: Array<{
         name: string;
@@ -1702,14 +1600,6 @@ export class HarmonyClient {
             console.warn(
               `[Harmony] Cannot continue: next step (${finalContext.currentStep + 1}) would exceed max steps (${finalContext.maxSteps})`
             );
-            // Ensure verboseInfo reflects completion when we cannot continue due to max steps
-            try {
-              if (!verboseInfo.isComplete) {
-                (verboseInfo as any).isComplete = true;
-              }
-            } catch (e) {
-              // ignore
-            }
             return {
               content: finalContent,
               reasoning: parsed.reasoning,
@@ -1749,15 +1639,11 @@ export class HarmonyClient {
             ...(continuationResponse.toolCalls || []),
           ];
           // Merge verbose info from continuation
-          const mergedVerboseInfo: VerboseInfo = continuationResponse.verboseInfo
-            ? {
-                ...continuationResponse.verboseInfo,
-                toolCalls: [
-                  ...(verboseInfo.toolCalls || []),
-                  ...(continuationResponse.verboseInfo.toolCalls || []),
-                ],
-              } as VerboseInfo
-            : verboseInfo;
+          const mergedVerboseInfo = this.verboseInfoManager.mergeContinuationVerboseInfo(
+            continuationResponse.verboseInfo,
+            verboseInfo,
+            { mergeToolCalls: true }
+          );
 
           // Merge responses
           return {
@@ -1834,19 +1720,12 @@ export class HarmonyClient {
             conversationHistory
           );
 
-          const stageForVerbose = currentStage;
-          const noToolCallsVerboseInfo = this.buildVerboseInfo(
-            stageForVerbose,
+          const mergedVerboseInfo = this.verboseInfoManager.buildForContinuation(
+            continuationResponse.verboseInfo,
+            currentStage,
             context || null,
             { conversationHistory }
           );
-
-          const mergedVerboseInfo: VerboseInfo = continuationResponse.verboseInfo
-            ? {
-                ...continuationResponse.verboseInfo,
-                stage: continuationResponse.verboseInfo.stage || stageForVerbose,
-              } as VerboseInfo
-            : noToolCallsVerboseInfo;
 
           return {
             content: content + "\n\n---\n\n" + continuationResponse.content,
@@ -1860,16 +1739,6 @@ export class HarmonyClient {
         }
       }
 
-      // Auto-transition from Assumptions to Implementation is DISABLED
-      // Users must explicitly type "move to implementation" to transition
-      // This ensures users have control over when to proceed to implementation stage
-      // The state machine will handle explicit transition commands via stageDetector
-      // 
-      // Note: The auto-transition logic is commented out to require explicit user commands:
-      // if (currentStage === "assumptions" && context && !toolCallsWereBlocked) {
-      //   ... auto-transition code ...
-      // }
-
       // Log final response summary
       if (context) {
         // Only show step info when there's a ProgressPlan (real multi-step task)
@@ -1881,7 +1750,7 @@ export class HarmonyClient {
         );
       }
 
-      // Build verbose info
+      // Build verbose info for no-tool-calls case
       const finalContextForVerbose = this.contextManager.getContext();
       const verboseInfo = this.buildVerboseInfo(currentStage, finalContextForVerbose, {
         fileExtractionResult,
@@ -1889,15 +1758,6 @@ export class HarmonyClient {
         reasoning: parsed.reasoning,
         conversationHistory,
       });
-
-      // Do NOT force isComplete=true when maxSteps is reached
-      // Let the verboseInfo builder determine completion based on actual step status
-
-      // Clear lastStageTransition after using it
-      if (finalContextForVerbose?.lastStageTransition) {
-        // Note: We can't directly mutate, but the context manager will handle this in next update
-        // For now, we'll leave it as it will be cleared on next stage update
-      }
 
       // Ensure Implementation stage has content
       let finalContent = content;
@@ -2003,19 +1863,12 @@ export class HarmonyClient {
                 conversationHistory
               );
 
-              const stageForVerbose3 = (context?.currentStage || currentStage) as 'chat' | 'assumptions' | 'implementation';
-              const noToolCallsVerboseInfo = this.buildVerboseInfo(
-                stageForVerbose3,
+              const mergedVerboseInfo = this.verboseInfoManager.buildForContinuation(
+                continuationResponse.verboseInfo,
+                (context?.currentStage || currentStage) as WorkflowStage,
                 context || null,
                 { conversationHistory }
               );
-
-              const mergedVerboseInfo: VerboseInfo = continuationResponse.verboseInfo
-                ? {
-                    ...continuationResponse.verboseInfo,
-                    stage: continuationResponse.verboseInfo.stage || stageForVerbose3,
-                  } as VerboseInfo
-                : noToolCallsVerboseInfo;
 
               return {
                 content: continuationResponse.content ?? '',
@@ -2052,20 +1905,12 @@ export class HarmonyClient {
               conversationHistory
             );
 
-            // Use context.currentStage to avoid type narrowing issues with currentStage variable
-            const stageForVerbose2 = (context?.currentStage || currentStage) as 'chat' | 'assumptions' | 'implementation';
-            const noToolCallsVerboseInfo = this.buildVerboseInfo(
-              stageForVerbose2,
+            const mergedVerboseInfo = this.verboseInfoManager.buildForContinuation(
+              continuationResponse.verboseInfo,
+              (context?.currentStage || currentStage) as WorkflowStage,
               context || null,
               { conversationHistory }
             );
-
-            const mergedVerboseInfo: VerboseInfo = continuationResponse.verboseInfo
-              ? {
-                  ...continuationResponse.verboseInfo,
-                  stage: continuationResponse.verboseInfo.stage || currentStage,
-                } as VerboseInfo
-              : noToolCallsVerboseInfo;
 
             return {
               content: continuationResponse.content ?? '',

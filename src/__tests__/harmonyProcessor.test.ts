@@ -339,21 +339,23 @@ const y = 2;
         expect(Array.isArray(result)).toBe(true);
       });
 
-      it("should NOT treat natural language mentioning tool calls as valid tool calls", () => {
-        // This tests the fix: natural language text that mentions <tool_call should not
-        // be identified as a valid tool call, even though it contains the substring
+      it("should extract read_file when file is mentioned in natural language", () => {
+        // When natural language mentions a file name, extract read_file to read it
         const naturalLanguage = "The system will execute the tool and return the result. After all tools are called and results received, provide your final response. You are to update the `englishText` array in the Psalm101Tests.swift file to add a comment every 5 verses, following the 29 verses of Latin text. I'll analyze the existing structure and add appropriate comments.";
         
         const result = processor.parseResponse(naturalLanguage);
         
-        // Should be treated as content, not a tool call
+        // Should extract find_file for the mentioned filename (no directory path)
         expect(result.content).toContain("The system will execute");
         expect(result.content).toContain("Psalm101Tests.swift");
-        expect(result.rawToolCalls).toEqual([]);
+        expect(result.rawToolCalls).toBeDefined();
+        expect(result.rawToolCalls!.length).toBeGreaterThan(0);
         
-        // Also test that extraction returns empty
-        const extracted = processor.extractToolCalls([naturalLanguage]);
-        expect(extracted).toEqual([]);
+        // Check that it extracted find_file (not read_file) since it's just a filename
+        const extracted = processor.extractToolCalls(result.rawToolCalls!);
+        expect(extracted.length).toBeGreaterThan(0);
+        expect(extracted[0].name).toBe("find_file");
+        expect(extracted[0].arguments?.pattern).toBe("Psalm101Tests.swift");
       });
 
       it("should still detect actual XML tool calls correctly", () => {
@@ -662,16 +664,20 @@ This is a code example.`;
       expect(toolCallResult.rawToolCalls?.length).toBeGreaterThan(0);
     });
 
-    it("should NOT treat natural language mentioning tool_call as a tool call", () => {
-      // This tests the fix: text that mentions <tool_call in natural language
-      // should not be treated as a tool call
+    it("should extract find_file when filename is mentioned without directory path", () => {
+      // When only a filename is mentioned (no directory path), use find_file to locate it
       const naturalLanguageResponse = "The system will execute the tool and return the result. After all tools are called and results received, provide your final response. You are to update the `englishText` array in the Psalm101Tests.swift file.";
       const result = processor.parseResponse(naturalLanguageResponse);
       
-      // Should be treated as content, not a tool call
+      // Should extract find_file for the mentioned file
       expect(result.content).toContain("The system will execute");
-      expect(result.content).toContain("Psalm101Tests.swift");
-      expect(result.rawToolCalls).toEqual([]);
+      expect(result.rawToolCalls).toBeDefined();
+      expect(result.rawToolCalls!.length).toBeGreaterThan(0);
+      
+      const toolCalls = processor.extractToolCalls(result.rawToolCalls!);
+      // Filename only (no directory) should use find_file
+      expect(toolCalls[0].name).toBe("find_file");
+      expect(toolCalls[0].arguments?.pattern).toBe("Psalm101Tests.swift");
     });
   });
 
@@ -1064,16 +1070,24 @@ print("test")
       }
     });
 
-    it("should not extract if no code block present", () => {
+    it("should extract read_file when file is mentioned but no code block present", () => {
       const response = `**File:** \`test.py\`
 
 This is just a description without code.`;
 
       const result = processor.parseResponse(response);
 
-      // Should not extract if there's no code block
-      expect(result.rawToolCalls).toEqual([]);
-      expect(result.content).toContain("**File:**");
+      // Should extract find_file for filename without directory path
+      expect(result.rawToolCalls).toBeDefined();
+      expect(result.rawToolCalls!.length).toBeGreaterThan(0);
+      
+      const toolCalls = processor.extractToolCalls(result.rawToolCalls || []);
+      expect(toolCalls.length).toBeGreaterThan(0);
+      // Just a filename should use find_file
+      expect(toolCalls[0].name).toBe("find_file");
+      if (toolCalls[0].arguments) {
+        expect(toolCalls[0].arguments.pattern).toBe("test.py");
+      }
     });
   });
 
@@ -1287,6 +1301,132 @@ Successfully replaced file: hello.py`;
 
       // Should NOT extract file operations from Tool Results
       expect(result.rawToolCalls).toEqual([]);
+    });
+
+    describe("Handling existing files with MODIFY intent", () => {
+      it("should extract read_file for full file paths (with directory structure)", () => {
+        // When file path includes directory structure, use read_file directly
+        const response = `**File:** \`Tests/LatinService/Psalm12Tests.swift\`
+
+Let me review this file to understand its structure.`;
+
+        const result = processor.parseResponse(response);
+
+        // Should extract read_file for full paths
+        expect(result.rawToolCalls).toBeDefined();
+        expect(result.rawToolCalls!.length).toBeGreaterThan(0);
+        
+        const toolCalls = processor.extractToolCalls(result.rawToolCalls!);
+        expect(toolCalls.length).toBeGreaterThan(0);
+        
+        // Full path should use read_file
+        const toolCall = toolCalls[0];
+        expect(toolCall.name).toBe("read_file");
+        expect(toolCall.arguments?.file_path).toBe("Tests/LatinService/Psalm12Tests.swift");
+      });
+
+      it("should extract find_file for incomplete file names (without directory)", () => {
+        // When only filename is provided (no directory path), use find_file to locate it
+        const response = `**File:** \`Psalm12Tests.swift\`
+
+Let me find and review this file.`;
+
+        const result = processor.parseResponse(response);
+
+        // Should extract find_file for incomplete paths
+        expect(result.rawToolCalls).toBeDefined();
+        expect(result.rawToolCalls!.length).toBeGreaterThan(0);
+        
+        const toolCalls = processor.extractToolCalls(result.rawToolCalls!);
+        expect(toolCalls.length).toBeGreaterThan(0);
+        
+        // Filename only should use find_file
+        const toolCall = toolCalls[0];
+        expect(toolCall.name).toBe("find_file");
+        expect(toolCall.arguments?.pattern).toBe("Psalm12Tests.swift");
+      });
+
+      it("should use replace_file when content explicitly mentions modification with code block", () => {
+        // When content mentions "modify", "update", "change" etc WITH code block, use replace_file
+        const response = `<|channel|>final<|message|>I'll modify the structuralThemes array in Tests/LatinService/Psalm12Tests.swift:
+
+**File:** \`Tests/LatinService/Psalm12Tests.swift\`
+
+\`\`\`swift
+let structuralThemes = [
+  (name: "Imperative", comment: "God commands with authority", [lemmas: ["jubate", "audite"]], startVerse: 1, endVerse: 8),
+  (name: "Response", comment: "Peoples respond to God's command", [lemmas: ["magnificate", "laetamini"]], startVerse: 9, endVerse: 12),
+  (name: "Blessing", comment: "God blesses the righteous", [lemmas: ["beatus", "felicitas"]], startVerse: 13, endVerse: 15)
+]
+\`\`\`
+
+I've added the Blessing theme as requested.<|end|>`;
+
+        const result = processor.parseResponse(response);
+
+        // Should extract file operations
+        expect(result.rawToolCalls).toBeDefined();
+        expect(result.rawToolCalls!.length).toBeGreaterThan(0);
+        
+        const toolCalls = processor.extractToolCalls(result.rawToolCalls!);
+        expect(toolCalls.length).toBeGreaterThan(0);
+        
+        // Since content mentions "modify" and has code block, should use replace_file
+        const toolCall = toolCalls[0];
+        expect(toolCall.name).toBe("replace_file");
+        expect(toolCall.arguments?.file_path).toBe("Tests/LatinService/Psalm12Tests.swift");
+        expect(toolCall.arguments?.content).toContain("structuralThemes");
+      });
+
+      it("should NOT extract create_file when user references an existing file path", () => {
+        // Even though the model responds with a code block for an existing file,
+        // it should NOT generate create_file because the file already exists
+        const response = `<|channel|>final<|message|>Looking at Tests/LatinService/Psalm101Tests.swift, here's how to structure the tests:
+
+**File:** \`Tests/LatinService/Psalm101Tests.swift\`
+
+\`\`\`swift
+// Updated test structure
+struct Psalm101Tests {
+  let verses = [/* test data */]
+}
+\`\`\`<|end|>`;
+
+        const result = processor.parseResponse(response, "review Tests/LatinService/Psalm101Tests.swift");
+
+        // If extracted, should be replace_file, not create_file
+        if (result.rawToolCalls && result.rawToolCalls.length > 0) {
+          const toolCalls = processor.extractToolCalls(result.rawToolCalls);
+          expect(toolCalls[0].name).not.toBe("create_file");
+          if (toolCalls[0].name === "replace_file") {
+            expect(toolCalls[0].arguments?.file_path).toContain("Psalm101Tests.swift");
+          }
+        }
+      });
+
+      it("should use create_file only when explicitly creating new files", () => {
+        // When user asks to CREATE a new file (not referencing existing)
+        const response = `<|channel|>final<|message|>I'll create a new test file for you:
+
+**File:** \`Tests/NewTest.swift\`
+
+\`\`\`swift
+struct NewTest {
+  let testData = [1, 2, 3]
+}
+\`\`\`
+
+This new test file is ready.<|end|>`;
+
+        const result = processor.parseResponse(response, "create a new test file");
+
+        // Should extract create_file when explicitly creating
+        if (result.rawToolCalls && result.rawToolCalls.length > 0) {
+          const toolCalls = processor.extractToolCalls(result.rawToolCalls);
+          expect(toolCalls[0].name).toBe("create_file");
+          expect(toolCalls[0].arguments?.file_path).toBe("Tests/NewTest.swift");
+        }
+      });
     });
   });
 });

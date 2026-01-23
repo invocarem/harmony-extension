@@ -60,7 +60,7 @@ export interface ChatVerboseInfo {
   };
   step?: number;
   maxSteps?: number;
-  isComplete?: boolean;
+  readonly isComplete?: boolean;
 
   problemSummary?: {
     originalQuery: string;
@@ -107,7 +107,7 @@ export interface AssumptionVerboseInfo {
   };
   step?: number;
   maxSteps?: number;
-  isComplete?: boolean;
+  readonly isComplete?: boolean;
 
   problemSummary?: {
     originalQuery: string;
