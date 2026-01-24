@@ -102,10 +102,9 @@ export function addMessage(
     }
     
     // Format markdown and add content
-    // If final equals text, only show it once (in final section, not in main content)
+    // If final is available, use it as the primary display content
     const hasFinal = final && !isUser && final.trim();
-    const finalSameAsText = hasFinal && final.trim() === text.trim();
-    const displayText = finalSameAsText ? '' : text;
+    const displayText = hasFinal ? '' : text; // Don't show text if we have final
     const formattedText = formatMarkdown(displayText);
     const contentDiv = document.createElement('div');
     // Don't show "No response received" if verboseInfo is present (e.g., for @cmd:verbose-info)
