@@ -763,23 +763,24 @@ export class XmlProcessor {
         const reasoning: string[] = [];
         let contentWithoutThinks = text;
         
-        // Pattern to match <think>...</think> tags (case-sensitive, non-greedy)
+        // Pattern to match <think>...</think>, <thought>...</thought>, or <thinking>...</thinking> tags (case-sensitive, non-greedy)
         // Uses [\s\S] to match any character including newlines
-        const thinkPattern = /<think>([\s\S]*?)<\/think>/g;
+        // Supports <think>, <thought>, and <thinking> tags
+        const thinkPattern = /<(think|thought|thinking)>([\s\S]*?)<\/\1>/g;
         
         let match: RegExpExecArray | null;
         let hasThinkTags = false;
         
-        // Extract all think tag content
+        // Extract all think/thought/thinking tag content
         while ((match = thinkPattern.exec(text)) !== null) {
             hasThinkTags = true;
-            const thinkContent = match[1];
+            const thinkContent = match[2]; // Group 2 is the content (group 1 is the tag name)
             reasoning.push(thinkContent);
         }
         
-        // Remove all think tags from content
+        // Remove all think/thought/thinking tags from content
         if (hasThinkTags) {
-            contentWithoutThinks = text.replace(/<think>[\s\S]*?<\/think>/g, '');
+            contentWithoutThinks = text.replace(/<(think|thought|thinking)>[\s\S]*?<\/\1>/g, '');
         }
         
         return {

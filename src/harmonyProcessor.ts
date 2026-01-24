@@ -41,15 +41,21 @@ export class HarmonyProcessor {
       const trimmed = response.trim();
       console.log(`[HarmonyProcessor] After trim: ${trimmed.length} chars, last 50 chars: "${trimmed.substring(Math.max(0, trimmed.length - 50))}"`);
       
+      // Extract <think> tags as reasoning (similar to harmony protocol's analysis channel)
+      const { reasoning, contentWithoutThinks, hasThinkTags } = XmlProcessor.extractThinkTags(trimmed);
+      if (hasThinkTags) {
+        console.log(`[HarmonyProcessor] Extracted ${reasoning.length} think tag(s) as reasoning`);
+      }
+      
       // Extract tool calls from the response (there might be both content and tool calls)
       const rawToolCalls: string[] = [];
       
       // Try to extract XML tool calls
-      const xmlToolCalls = XmlProcessor.extractToolCalls(trimmed);
+      const xmlToolCalls = XmlProcessor.extractToolCalls(contentWithoutThinks);
       if (xmlToolCalls.length > 0) {
         console.log(`[HarmonyProcessor] Found ${xmlToolCalls.length} XML tool call(s) in plain jinja response`);
         // Remove tool calls from content
-        let contentWithoutToolCalls = trimmed;
+        let contentWithoutToolCalls = contentWithoutThinks;
         xmlToolCalls.forEach(tc => {
           contentWithoutToolCalls = contentWithoutToolCalls.replace(tc.raw, '').trim();
         });
@@ -58,21 +64,23 @@ export class HarmonyProcessor {
         console.log(`[HarmonyProcessor] Plain jinja response: content=${contentWithoutToolCalls.length} chars, tool calls=${rawToolCalls.length}`);
         return {
           content: contentWithoutToolCalls,
+          reasoning: reasoning.length > 0 ? reasoning.join('\n\n') : undefined,
           rawToolCalls: rawToolCalls,
           remaining: response
         };
       }
       
       // Try MCP/JSON format tool calls
-      const looksLikeMcpOrJson = ToolCallExtractor.looksLikeToolCall(trimmed);
-      if (trimmed && looksLikeMcpOrJson) {
+      const looksLikeMcpOrJson = ToolCallExtractor.looksLikeToolCall(contentWithoutThinks);
+      if (contentWithoutThinks && looksLikeMcpOrJson) {
         // If entire response is a tool call (no surrounding text), treat as tool call only
-        const isOnlyToolCall = /^(?:to=|mcp_|{"name"|\[{"name")/.test(trimmed.trim());
+        const isOnlyToolCall = /^(?:to=|mcp_|{"name"|\[{"name")/.test(contentWithoutThinks.trim());
         if (isOnlyToolCall) {
           console.log(`[HarmonyProcessor] Plain jinja response appears to be a tool call only`);
           return {
             content: '',
-            rawToolCalls: [trimmed],
+            reasoning: reasoning.length > 0 ? reasoning.join('\n\n') : undefined,
+            rawToolCalls: [contentWithoutThinks],
             remaining: response
           };
         }
@@ -83,23 +91,25 @@ export class HarmonyProcessor {
       // Check if content describes a file update with code blocks
       // This handles cases where the model describes a file instead of making a tool call
       // Note: extractFileUpdateFromContent will check user intent if available
-      const extractedToolCall = this.extractFileUpdateFromContent(trimmed, userPrompt);
+      const extractedToolCall = this.extractFileUpdateFromContent(contentWithoutThinks, userPrompt);
       if (extractedToolCall) {
         console.log(`[HarmonyProcessor] Extracted file update from plain jinja content: ${extractedToolCall.name} for ${extractedToolCall.arguments.file_path}`);
         // Preserve FULL content including code blocks (for user display)
         // The tool call extraction happens separately and doesn't affect the user-visible response
         return {
-          content: trimmed, // Preserve full response including code blocks for webview display
+          content: contentWithoutThinks, // Preserve full response including code blocks for webview display
+          reasoning: reasoning.length > 0 ? reasoning.join('\n\n') : undefined,
           rawToolCalls: [extractedToolCall.raw],
           remaining: response
         };
       }
       
       // Otherwise, return as content and also set as final for simple responses
-      console.log(`[HarmonyProcessor] Plain jinja response treated as content (${trimmed.length} chars)`);
+      console.log(`[HarmonyProcessor] Plain jinja response treated as content (${contentWithoutThinks.length} chars)`);
       return {
-        content: trimmed,
-        final: trimmed, // For simple responses, also set as final
+        content: contentWithoutThinks,
+        reasoning: reasoning.length > 0 ? reasoning.join('\n\n') : undefined,
+        final: contentWithoutThinks, // For simple responses, also set as final
         rawToolCalls: [],
         remaining: response
       };
