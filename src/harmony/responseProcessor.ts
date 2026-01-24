@@ -141,8 +141,13 @@ export class ResponseProcessor {
         );
       }
       
-      if (!response.data?.choices?.[0]?.finish_reason) {
-        finishReason = response.data?.finish_reason || response.data?.choices?.[0]?.finishReason;
+      // Capture finish_reason from response
+      if (response.data?.choices?.[0]?.finish_reason) {
+        finishReason = response.data.choices[0].finish_reason;
+      } else if (response.data?.finish_reason) {
+        finishReason = response.data.finish_reason;
+      } else if (response.data?.choices?.[0]?.finishReason) {
+        finishReason = response.data.choices[0].finishReason;
       }
     }
 

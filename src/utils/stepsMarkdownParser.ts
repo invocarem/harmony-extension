@@ -100,8 +100,9 @@ export class StepsMarkdownParser {
     let currentContent = "";
 
     for (const line of lines) {
-      // Try to match step patterns: "Step 1:", "1.", "1-", etc.
-      const stepMatch = line.match(/^(?:Step\s+)?(\d+)\s*[:.—–\-]\s*(.*)/i);
+      // Try to match step patterns: "Step 1:", "1.", "1-", "Step 3 (optional):", etc.
+      // Allow optional text in parentheses between the number and delimiter
+      const stepMatch = line.match(/^(?:Step\s+)?(\d+)\s*(?:\([^)]*\))?\s*[:.—–\-]\s*(.*)/i);
       
       if (stepMatch) {
         const stepNum = parseInt(stepMatch[1], 10);

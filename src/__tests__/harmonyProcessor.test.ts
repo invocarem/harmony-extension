@@ -345,17 +345,17 @@ const y = 2;
         
         const result = processor.parseResponse(naturalLanguage);
         
-        // Should extract find_file for the mentioned filename (no directory path)
+        // Should extract find_files for the mentioned filename (no directory path)
         expect(result.content).toContain("The system will execute");
         expect(result.content).toContain("Psalm101Tests.swift");
         expect(result.rawToolCalls).toBeDefined();
         expect(result.rawToolCalls!.length).toBeGreaterThan(0);
         
-        // Check that it extracted find_file (not read_file) since it's just a filename
+        // Check that it extracted find_files (not read_file) since it's just a filename
         const extracted = processor.extractToolCalls(result.rawToolCalls!);
         expect(extracted.length).toBeGreaterThan(0);
-        expect(extracted[0].name).toBe("find_file");
-        expect(extracted[0].arguments?.pattern).toBe("Psalm101Tests.swift");
+        expect(extracted[0].name).toBe("find_files");
+        expect(extracted[0].arguments?.name_pattern).toBe("Psalm101Tests.swift");
       });
 
       it("should still detect actual XML tool calls correctly", () => {
@@ -664,20 +664,20 @@ This is a code example.`;
       expect(toolCallResult.rawToolCalls?.length).toBeGreaterThan(0);
     });
 
-    it("should extract find_file when filename is mentioned without directory path", () => {
-      // When only a filename is mentioned (no directory path), use find_file to locate it
+    it("should extract find_files when filename is mentioned without directory path", () => {
+      // When only a filename is mentioned (no directory path), use find_files to locate it
       const naturalLanguageResponse = "The system will execute the tool and return the result. After all tools are called and results received, provide your final response. You are to update the `englishText` array in the Psalm101Tests.swift file.";
       const result = processor.parseResponse(naturalLanguageResponse);
       
-      // Should extract find_file for the mentioned file
+      // Should extract find_files for the mentioned file
       expect(result.content).toContain("The system will execute");
       expect(result.rawToolCalls).toBeDefined();
       expect(result.rawToolCalls!.length).toBeGreaterThan(0);
       
       const toolCalls = processor.extractToolCalls(result.rawToolCalls!);
-      // Filename only (no directory) should use find_file
-      expect(toolCalls[0].name).toBe("find_file");
-      expect(toolCalls[0].arguments?.pattern).toBe("Psalm101Tests.swift");
+      // Filename only (no directory) should use find_files
+      expect(toolCalls[0].name).toBe("find_files");
+      expect(toolCalls[0].arguments?.name_pattern).toBe("Psalm101Tests.swift");
     });
   });
 
@@ -1077,16 +1077,16 @@ This is just a description without code.`;
 
       const result = processor.parseResponse(response);
 
-      // Should extract find_file for filename without directory path
+      // Should extract find_files for filename without directory path
       expect(result.rawToolCalls).toBeDefined();
       expect(result.rawToolCalls!.length).toBeGreaterThan(0);
       
       const toolCalls = processor.extractToolCalls(result.rawToolCalls || []);
       expect(toolCalls.length).toBeGreaterThan(0);
-      // Just a filename should use find_file
-      expect(toolCalls[0].name).toBe("find_file");
+      // Just a filename should use find_files
+      expect(toolCalls[0].name).toBe("find_files");
       if (toolCalls[0].arguments) {
-        expect(toolCalls[0].arguments.pattern).toBe("test.py");
+        expect(toolCalls[0].arguments.name_pattern).toBe("test.py");
       }
     });
   });
@@ -1325,25 +1325,25 @@ Let me review this file to understand its structure.`;
         expect(toolCall.arguments?.file_path).toBe("Tests/LatinService/Psalm12Tests.swift");
       });
 
-      it("should extract find_file for incomplete file names (without directory)", () => {
-        // When only filename is provided (no directory path), use find_file to locate it
+      it("should extract find_files for incomplete file names (without directory)", () => {
+        // When only filename is provided (no directory path), use find_files to locate it
         const response = `**File:** \`Psalm12Tests.swift\`
 
 Let me find and review this file.`;
 
         const result = processor.parseResponse(response);
 
-        // Should extract find_file for incomplete paths
+        // Should extract find_files for incomplete paths
         expect(result.rawToolCalls).toBeDefined();
         expect(result.rawToolCalls!.length).toBeGreaterThan(0);
         
         const toolCalls = processor.extractToolCalls(result.rawToolCalls!);
         expect(toolCalls.length).toBeGreaterThan(0);
         
-        // Filename only should use find_file
+        // Filename only should use find_files
         const toolCall = toolCalls[0];
-        expect(toolCall.name).toBe("find_file");
-        expect(toolCall.arguments?.pattern).toBe("Psalm12Tests.swift");
+        expect(toolCall.name).toBe("find_files");
+        expect(toolCall.arguments?.name_pattern).toBe("Psalm12Tests.swift");
       });
 
       it("should use replace_file when content explicitly mentions modification with code block", () => {
@@ -1426,6 +1426,84 @@ This new test file is ready.<|end|>`;
           expect(toolCalls[0].name).toBe("create_file");
           expect(toolCalls[0].arguments?.file_path).toBe("Tests/NewTest.swift");
         }
+      });
+    });
+
+    describe("extractFileUpdateFromContent - find_files vs read_file logic", () => {
+      it("should use find_files tool for incomplete paths (no directory separators)", () => {
+        // When content mentions a file without directory path AND no code block
+        const response = `<|channel|>final<|message|>Let me read the calc.py file to check it.<|end|>`;
+
+        const result = processor.parseResponse(response, "check calc.py");
+
+        // With no code block, extractFileUpdateFromContent will try to extract
+        // a tool call based on file reference
+        expect(result.rawToolCalls).toBeDefined();
+        
+        if (result.rawToolCalls && result.rawToolCalls.length > 0) {
+          const toolCalls = processor.extractToolCalls(result.rawToolCalls);
+          expect(toolCalls.length).toBeGreaterThan(0);
+          
+          const toolCall = toolCalls[0];
+          // Tool name should be find_files (plural), not find_file (singular)
+          expect(toolCall.name).toBe("find_files");
+          // Should have name_pattern parameter (not pattern)
+          expect(toolCall.arguments?.name_pattern).toBe("calc.py");
+        }
+      });
+
+      it("should use read_file tool for complete paths (with directory separators)", () => {
+        // When content mentions a file with full path AND no code block
+        const response = `<|channel|>final<|message|>Let me read the src/utils/calc.py file to check it.<|end|>`;
+
+        const result = processor.parseResponse(response, "check src/utils/calc.py");
+
+        expect(result.rawToolCalls).toBeDefined();
+        
+        if (result.rawToolCalls && result.rawToolCalls.length > 0) {
+          const toolCalls = processor.extractToolCalls(result.rawToolCalls);
+          expect(toolCalls.length).toBeGreaterThan(0);
+          
+          const toolCall = toolCalls[0];
+          // Tool name should be read_file for paths with directory separators
+          expect(toolCall.name).toBe("read_file");
+          // Should have file_path parameter
+          expect(toolCall.arguments?.file_path).toBe("src/utils/calc.py");
+        }
+      });
+
+      it("should use find_files for filename-only references without code blocks", () => {
+        // Ensure find_files is used for references like "test.js" without path or code block
+        const response = `<|channel|>final<|message|>I need to check test.js first.<|end|>`;
+
+        const result = processor.parseResponse(response, "check test.js");
+
+        if (result.rawToolCalls && result.rawToolCalls.length > 0) {
+          const toolCalls = processor.extractToolCalls(result.rawToolCalls);
+          expect(toolCalls[0].name).toBe("find_files");
+          expect(toolCalls[0].arguments?.name_pattern).toBe("test.js");
+        }
+      });
+
+      it("should correctly parse find_files JSON tool calls from LLM", () => {
+        // Test that LLM-generated find_files calls are parsed correctly
+        const response = `<|channel|>final<|message|>{"name":"find_files","arguments":{"name_pattern":"calc.py"}}<|end|>`;
+
+        const result = processor.parseResponse(response);
+
+        expect(result.rawToolCalls).toBeDefined();
+        expect(result.rawToolCalls!.length).toBeGreaterThan(0);
+        
+        const toolCalls = processor.extractToolCalls(result.rawToolCalls!);
+        expect(toolCalls.length).toBeGreaterThan(0);
+        
+        const toolCall = toolCalls[0];
+        // Verify it's find_files (plural) not find_file (singular)
+        expect(toolCall.name).toBe("find_files");
+        // Verify parameter is name_pattern (not pattern)
+        expect(toolCall.arguments?.name_pattern).toBe("calc.py");
+        // Verify pattern is not used
+        expect(toolCall.arguments?.pattern).toBeUndefined();
       });
     });
   });

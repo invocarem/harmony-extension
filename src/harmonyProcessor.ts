@@ -775,20 +775,20 @@ export class HarmonyProcessor {
         
         // Determine if path looks complete (has directory separators) or incomplete (just filename)
         const isFullPath = filePath.includes('/') || filePath.includes('\\');
-        const toolName = isFullPath ? 'read_file' : 'find_file';
+        const toolName = isFullPath ? 'read_file' : 'find_files';
         
-        // Create tool call - use find_file for incomplete paths, read_file for full paths
+        // Create tool call - use find_files for incomplete paths, read_file for full paths
         const toolCall = {
           name: toolName,
           arguments: {
             file_path: filePath,
-            // find_file uses 'pattern' instead of 'file_path', but we'll use file_path as the pattern
-            ...(toolName === 'find_file' && { pattern: filePath })
+            // find_files uses 'name_pattern' instead of 'file_path'
+            ...(toolName === 'find_files' && { name_pattern: filePath })
           }
         };
         
-        // Remove file_path from find_file arguments if needed
-        if (toolName === 'find_file') {
+        // Remove file_path from find_files arguments if needed
+        if (toolName === 'find_files') {
           delete (toolCall.arguments as any).file_path;
         }
         
@@ -800,7 +800,7 @@ export class HarmonyProcessor {
           name: toolName,
           arguments: {
             file_path: filePath,
-            content: '' // Neither read_file nor find_file need content in arguments
+            content: '' // Neither read_file nor find_files need content in arguments
           } as any
         };
       }
