@@ -667,12 +667,28 @@ class ImplementationStageHandler implements StageHandler {
       executedToolCalls?.some((tc) => fileCreationTools.includes(tc.name)) ||
       false;
 
-    // If step doesn't require file creation AND no file creation tool calls were executed,
-    // mark the step as complete (the LLM has responded, which is sufficient for non-file-creation steps)
-    if (!needsFileCreation && !hasFileCreationToolCalls) {
+    // Check if all non-file-creation tool calls succeeded (if any were executed)
+    const nonFileCreationToolCalls =
+      executedToolCalls?.filter((tc) => !fileCreationTools.includes(tc.name)) ||
+      [];
+    const allNonFileCreationToolCallsSucceeded =
+      nonFileCreationToolCalls.length > 0 &&
+      nonFileCreationToolCalls.every((tc) => !tc.result?.isError);
+
+    // Mark step as complete if:
+    // 1. Step doesn't require file creation AND no file creation tool calls were executed (LLM response is sufficient)
+    // 2. Step has non-file-creation tool calls that all succeeded (e.g., read_file, list_files, etc.)
+    const shouldCompleteStep =
+      (!needsFileCreation && !hasFileCreationToolCalls) ||
+      allNonFileCreationToolCallsSucceeded;
+
+    if (shouldCompleteStep) {
       this.implementationManager.completeStep(currentStep.stepNumber);
+      const reason = allNonFileCreationToolCallsSucceeded
+        ? "all tool calls succeeded"
+        : "step doesn't require file creation";
       console.log(
-        `[StageHandler:Implementation] ProgressPlan: Marked step ${currentStep.stepNumber} (${currentStep.goal}) as completed after LLM response (step doesn't require file creation)`
+        `[StageHandler:Implementation] ProgressPlan: Marked step ${currentStep.stepNumber} (${currentStep.goal}) as completed after LLM response (${reason})`
       );
 
       // After completing a step, the next step is automatically advanced to in_progress

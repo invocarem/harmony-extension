@@ -177,7 +177,10 @@ export class ConversationContextManager {
     } else {
       this.context.progressPlan = plan;
       // Synchronize maxSteps with plan's totalSteps when plan is updated
-      this.context.maxSteps = plan.totalSteps;
+      // BUT: don't override if maxSteps is already set to a lower value (could be a manual limit for testing or user preference)
+      if (this.context.maxSteps === undefined || this.context.maxSteps > plan.totalSteps) {
+        this.context.maxSteps = plan.totalSteps;
+      }
     }
   }
 

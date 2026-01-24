@@ -1202,6 +1202,7 @@ export class ImplementationVerboseInfoDisplay implements ImplementationVerboseIn
     if (allCompleted) {
       return true;
     }
+    
     // Check if the last step is completed (implicit completion)
     const lastStep = steps[steps.length - 1];
     return lastStep?.status === "completed";

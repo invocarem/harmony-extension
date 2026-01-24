@@ -147,35 +147,36 @@ export class StepsMarkdownParser {
 
   /**
    * Check if step description is generic/unhelpful
+   * Be more lenient - only filter truly empty or self-referential steps
    */
   private static isGenericStep(description: string): boolean {
-    const genericPatterns = [
-      /^execute\s+step\s+\d+$/i,
-      /^complete\s+part\s+\d+$/i,
-      /^step\s+\d+\s*:$/i,
-      /^part\s+\d+\s+of\s+the\s+task$/i,
-      /^implement\s+step\s+\d+$/i,
-      /^\s*\w+\s+step\s+\d+\s*$/i,
-      /^do\s+step\s+\d+$/i,
-      /^perform\s+step\s+\d+$/i,
-    ];
-
     const trimmedDesc = description.trim();
 
-    // Check if it's too short to be meaningful
-    if (trimmedDesc.length < 10) {
+    // Filter out extremely short steps (likely just numbers or punctuation)
+    if (trimmedDesc.length < 5) {
       return true;
     }
 
-    // Check exact matches
+    // Filter only truly generic/self-referential patterns
+    const genericPatterns = [
+      /^execute\s+step\s+\d+$/i,
+      /^complete\s+step\s+\d+$/i,
+      /^step\s+\d+\s*:?$/i,
+      /^part\s+\d+$/i,
+      /^do\s+step\s+\d+$/i,
+      /^perform\s+step\s+\d+$/i,
+      /^run\s+step\s+\d+$/i,
+    ];
+
+    // Check exact matches only - don't be too aggressive
     for (const pattern of genericPatterns) {
       if (pattern.test(trimmedDesc)) {
         return true;
       }
     }
 
-    // Check for patterns like "Execute step 1 from above"
-    if (/execute\s+step\s+\d+/i.test(trimmedDesc) && trimmedDesc.length < 30) {
+    // Filter "Execute step 1 from above" type phrases (short and self-referential)
+    if (/(execute|complete|perform|do)\s+step\s+\d+/i.test(trimmedDesc) && trimmedDesc.length < 25) {
       return true;
     }
 

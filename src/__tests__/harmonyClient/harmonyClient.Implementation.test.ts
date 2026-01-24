@@ -1451,10 +1451,9 @@ describe("HarmonyClient - Implementation Stage", () => {
       const additionalCalls = callsAfter - callsBefore;
       expect(additionalCalls).toBe(1); // Only one call, no continuation
 
-      // When max steps is reached, isComplete should reflect actual step completion status
-      // In this test, the step IS completed (doesn't require file creation, so completes after LLM response)
-      // Therefore isComplete should be true
-      expect(result.verboseInfo?.isComplete).toBe(true);
+      // When max steps is reached, isComplete should be FALSE because not all steps are completed
+      // Only step 1 of 2 is complete, so the task is NOT complete even though we hit the maxSteps limit
+      expect(result.verboseInfo?.isComplete).toBe(false);
     });
   });
 

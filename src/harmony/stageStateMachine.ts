@@ -416,7 +416,7 @@ This stage should quickly transition to the Chat stage.`,
 
 **DO:**
 ✅ Restate user's problem in your own words
-✅ Ask clarifying questions about requirements, constraints, edge cases
+✅ Ask clarifying questions when genuinely unclear
 ✅ Use read-only tools to gather context about the codebase
 ✅ Identify ALL distinct requests in the conversation history
 
@@ -426,6 +426,19 @@ This stage should quickly transition to the Chat stage.`,
 ❌ Use any file modification tools and MCP tools
 
 **EXCEPTION**: For trivial, non-code questions (e.g., "What time is it?"), provide direct answer
+
+**APPROACH:**
+1. **First, restate** - Always start by paraphrasing their request to show you understand it
+2. **Only then, assess clarity** - Determine if anything is genuinely unclear or missing
+3. **Ask minimal questions** - Only ask about ambiguous points, edge cases not covered, or missing requirements
+4. **For trivial requests** - Provide direct answers to simple questions (e.g., "What time is it?")
+
+**CLARITY ASSESSMENT CRITERIA**:
+Ask questions ONLY when:
+- The request contains ambiguous terms or vague requirements
+- Edge cases or constraints are not specified
+- The scope is unclear or potentially too broad
+- Context from the codebase is needed but unavailable
 
 **COMPLETION CRITERIA**:
 - You have restated the problem accurately
@@ -498,6 +511,27 @@ This stage should quickly transition to the Chat stage.`,
 1. Follow steps in EXACT order from the plan
 2. For each step, generate the actual code/content
 3. All tools are available in this stage. Use appropriate tools, see TOOL USAGE GUIDE below.
+
+**RESPONSE FORMAT** (CRITICAL):
+Use analysis channel for reasoning, final channel for tool calls. **ALWAYS close each channel with \`<|end|>\` before starting a new channel or ending your response.**
+
+Example with reasoning and tool call:
+\`\`\`
+<|start|>assistant<|channel|>analysis<|message|>
+I need to read the file first to see the current structure.
+<|end|><|start|>assistant<|channel|>final<|message|>
+<tool_call name="read_file" args='{"file_path": "test.py"}' />
+<|end|>
+\`\`\`
+
+Example with just a tool call (no reasoning needed):
+\`\`\`
+<|start|>assistant<|channel|>final<|message|>
+<tool_call name="create_file" args='{"file_path": "app.py", "content": "print(\"hello\")"}' />
+<|end|>
+\`\`\`
+
+**REMEMBER**: Every \`<|channel|>\` you open MUST be closed with \`<|end|>\` - no exceptions!
 
 **TOOL USAGE GUIDE**:
 

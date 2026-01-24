@@ -75,6 +75,8 @@ export class AutoTransitionManager {
       ? this.extractNormalizedSteps(originalPrompt)
       : [];
 
+    console.log(`[AutoTransitionManager] extractStepsFromText: complexity=${complexity}, contentSteps=${contentSteps.length}, promptSteps=${promptSteps.length}`);
+
     let selectedSteps = contentSteps;
     const requiredCount = complexity === "hard" ? 3 : 1;
 
@@ -84,6 +86,7 @@ export class AutoTransitionManager {
         promptSteps.length > selectedSteps.length)
     ) {
       selectedSteps = promptSteps;
+      console.log(`[AutoTransitionManager] Using promptSteps instead of contentSteps`);
     }
 
     if (selectedSteps.length >= requiredCount) {
@@ -91,6 +94,9 @@ export class AutoTransitionManager {
         goal: `Step ${step.number}: ${step.content}`,
         description: step.content,
       }));
+      console.log(`[AutoTransitionManager] Extracted ${steps.length} steps from selectedSteps`);
+    } else {
+      console.log(`[AutoTransitionManager] selectedSteps.length (${selectedSteps.length}) < requiredCount (${requiredCount}), will apply fallback`);
     }
 
     if (complexity === "hard" && steps.length < 3) {
@@ -321,52 +327,58 @@ export class AutoTransitionManager {
     }
 
     const lowerContent = content.toLowerCase();
-    const metaSectionPattern = /^(?:\d+\s*[.:]\s*)?(numbered\s+plan|complexity\s+assessment|plan\s+progress|restatement|analysis|assumptions)/i;
-
-    if (metaSectionPattern.test(lowerContent)) {
+    
+    // Only filter if it's a standalone meta-section header (very short, no meaningful content)
+    // Don't filter if it's a step that includes these words in a longer description
+    const standaloneMetaPattern = /^(?:numbered\s+plan|complexity\s+assessment|plan\s+progress|restatement)\s*:?\s*$/i;
+    if (standaloneMetaPattern.test(lowerContent) && content.length < 30) {
       return false;
     }
 
-    const extraActionWords = [
-      "calculate",
-      "design",
-      "draft",
-      "outline",
-      "summarize",
-      "document",
-      "provide",
-      "configure",
-      "install",
-      "setup",
-      "set up",
-      "add",
-      "update",
-      "fix",
-      "refactor",
-      "test",
-      "plan",
-      "review",
-      "analyze",
-      "integrate",
+    // Expanded action/planning verbs - include analytical and planning activities
+    const actionVerbs = [
+      // Execution verbs (from StepsMarkdownParser.isExecutionStep)
+      "create", "write", "implement", "generate", "build", "make", "develop",
+      "add", "update", "modify", "edit", "change", "fix", "refactor",
+      "delete", "remove", "replace", "move", "rename",
+      "install", "setup", "set up", "configure", "initialize",
+      "test", "verify", "validate", "check",
+      "deploy", "run", "execute", "launch", "start",
+      // Analytical and planning verbs
+      "identify", "determine", "analyze", "assess", "evaluate", "examine",
+      "review", "investigate", "explore", "study", "research",
+      "outline", "plan", "design", "draft", "sketch", "structure",
+      "define", "specify", "describe", "document", "list", "enumerate",
+      "calculate", "compute", "measure", "estimate",
+      "summarize", "explain", "clarify", "detail",
+      "confirm", "ensure", "verify", "validate",
+      "prepare", "organize", "arrange", "gather", "collect",
+      "integrate", "combine", "merge", "consolidate",
+      "provide", "supply", "construct", "formulate",
     ];
 
-    const hasAction =
-      StepsMarkdownParser.isExecutionStep(content) ||
-      extraActionWords.some((word) => {
-        const pattern = new RegExp(`\\b${word}\\b`, "i");
-        return pattern.test(content);
-      });
+    const hasActionVerb = actionVerbs.some((verb) => {
+      // Match whole word at start or after common prefixes
+      const pattern = new RegExp(`^(?:step\\s*\\d+\\s*[:.\\-–—]?\\s*)?${verb}\\b`, "i");
+      return pattern.test(lowerContent);
+    });
 
-    if (!hasAction) {
-      return false;
+    // If it has an action verb, it's meaningful
+    if (hasActionVerb) {
+      // Still filter out edge case error descriptions
+      const edgeCaseLeadPattern = /^(?:step\s*\d+\s*[:.\-–—]?\s*)?(file not found|multiple matches|large file|corrupted|binary reading|size limits|error handling|reject)/i;
+      if (edgeCaseLeadPattern.test(lowerContent)) {
+        return false;
+      }
+      return true;
     }
 
-    const edgeCaseLeadPattern = /^(?:step\s*\d+\s*[:.\-–—]?\s*)?(file not found|multiple matches|large file|corrupted|binary reading|size limits|valid|error|reject)/i;
-
-    if (edgeCaseLeadPattern.test(lowerContent)) {
-      return false;
+    // Fallback: if content is substantial (>20 chars) and looks like a step, include it
+    // This catches steps that might not start with standard verbs but are clearly intentional
+    if (content.length > 20 && !standaloneMetaPattern.test(lowerContent)) {
+      return true;
     }
 
-    return hasAction;
+    return false;
   }
 }
