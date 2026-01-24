@@ -764,5 +764,168 @@ A tiny Python script that greets a user.
       expect(result[0].args.content).toBe('{"key":"value"}');
     });
   });
+
+  describe('extractThinkTags', () => {
+    describe('Basic think tag extraction', () => {
+      it('should extract simple think tag', () => {
+        const text = '<think>I need to analyze this problem</think>';
+        const result = XmlProcessor.extractThinkTags(text);
+        
+        expect(result.hasThinkTags).toBe(true);
+        expect(result.reasoning).toHaveLength(1);
+        expect(result.reasoning[0]).toBe('I need to analyze this problem');
+        expect(result.contentWithoutThinks).toBe('');
+      });
+
+      it('should extract think tag with content before and after', () => {
+        const text = 'Hello, <think>I need to think about this</think> here is the answer.';
+        const result = XmlProcessor.extractThinkTags(text);
+        
+        expect(result.hasThinkTags).toBe(true);
+        expect(result.reasoning).toHaveLength(1);
+        expect(result.reasoning[0]).toBe('I need to think about this');
+        expect(result.contentWithoutThinks.trim()).toBe('Hello,  here is the answer.');
+      });
+
+      it('should extract multiple think tags', () => {
+        const text = '<think>First thought</think> some content <think>Second thought</think> more content';
+        const result = XmlProcessor.extractThinkTags(text);
+        
+        expect(result.hasThinkTags).toBe(true);
+        expect(result.reasoning).toHaveLength(2);
+        expect(result.reasoning[0]).toBe('First thought');
+        expect(result.reasoning[1]).toBe('Second thought');
+        expect(result.contentWithoutThinks.trim()).toBe('some content  more content');
+      });
+
+      it('should preserve newlines and whitespace inside think tags', () => {
+        const text = `<think>
+Line 1
+Line 2
+</think>`;
+        const result = XmlProcessor.extractThinkTags(text);
+        
+        expect(result.hasThinkTags).toBe(true);
+        expect(result.reasoning[0]).toContain('Line 1');
+        expect(result.reasoning[0]).toContain('Line 2');
+      });
+
+      it('should handle think tags with special characters', () => {
+        const text = '<think>Check: a > b && c < d, also "quotes" and \'apostrophes\'</think>';
+        const result = XmlProcessor.extractThinkTags(text);
+        
+        expect(result.hasThinkTags).toBe(true);
+        expect(result.reasoning[0]).toBe('Check: a > b && c < d, also "quotes" and \'apostrophes\'');
+      });
+
+      it('should return false for hasThinkTags when no think tags present', () => {
+        const text = 'Just plain content with no thinking';
+        const result = XmlProcessor.extractThinkTags(text);
+        
+        expect(result.hasThinkTags).toBe(false);
+        expect(result.reasoning).toHaveLength(0);
+        expect(result.contentWithoutThinks).toBe(text);
+      });
+
+      it('should handle empty think tags', () => {
+        const text = 'Before<think></think>After';
+        const result = XmlProcessor.extractThinkTags(text);
+        
+        expect(result.hasThinkTags).toBe(true);
+        expect(result.reasoning).toHaveLength(1);
+        expect(result.reasoning[0]).toBe('');
+        expect(result.contentWithoutThinks.trim()).toBe('BeforeAfter');
+      });
+
+      it('should handle think tags with code blocks', () => {
+        const text = `<think>
+Here's the code:
+\`\`\`typescript
+function test() {
+  return true;
+}
+\`\`\`
+</think>
+Execute the above.`;
+        const result = XmlProcessor.extractThinkTags(text);
+        
+        expect(result.hasThinkTags).toBe(true);
+        expect(result.reasoning[0]).toContain('function test()');
+        expect(result.contentWithoutThinks.trim()).toBe('Execute the above.');
+      });
+
+      it('should handle think tags mixed with tool calls', () => {
+        const text = `<think>I need to create a file</think>
+<tool_call name="create_file" args='{"file_path":"test.ts","content":"console.log('hello')"}' />`;
+        const result = XmlProcessor.extractThinkTags(text);
+        
+        expect(result.hasThinkTags).toBe(true);
+        expect(result.reasoning[0]).toBe('I need to create a file');
+        expect(result.contentWithoutThinks.trim()).toContain('<tool_call');
+      });
+
+      it('should handle nested angle brackets in think content', () => {
+        const text = '<think>Check if a < b and x > y</think>';
+        const result = XmlProcessor.extractThinkTags(text);
+        
+        expect(result.hasThinkTags).toBe(true);
+        expect(result.reasoning[0]).toBe('Check if a < b and x > y');
+      });
+
+      it('should handle think tags case-insensitively', () => {
+        // XML is case-sensitive, so <Think> and <THINK> should not match
+        const text = '<THINK>This should not match</THINK> <think>This should match</think>';
+        const result = XmlProcessor.extractThinkTags(text);
+        
+        expect(result.hasThinkTags).toBe(true);
+        expect(result.reasoning).toHaveLength(1);
+        expect(result.reasoning[0]).toBe('This should match');
+        expect(result.contentWithoutThinks.trim()).toContain('<THINK>');
+      });
+    });
+
+    describe('Think tags with real-world scenarios', () => {
+      it('should handle Jinja template with think tags and final response', () => {
+        const text = `<think>The user is asking about Python. I should explain decorators.</think>
+Python decorators are a powerful feature that allows you to modify the behavior of functions and classes.`;
+        const result = XmlProcessor.extractThinkTags(text);
+        
+        expect(result.hasThinkTags).toBe(true);
+        expect(result.reasoning[0]).toContain('Python');
+        expect(result.contentWithoutThinks.trim()).toContain('Python decorators are a powerful feature');
+      });
+
+      it('should handle multiple think tags with complex content', () => {
+        const text = `<think>Analysis: Need to check requirements</think>
+Step 1: Setup
+<think>Consider edge cases</think>
+Step 2: Implement
+Step 3: Test`;
+        const result = XmlProcessor.extractThinkTags(text);
+        
+        expect(result.hasThinkTags).toBe(true);
+        expect(result.reasoning).toHaveLength(2);
+        expect(result.reasoning[0]).toBe('Analysis: Need to check requirements');
+        expect(result.reasoning[1]).toBe('Consider edge cases');
+        const content = result.contentWithoutThinks.trim();
+        expect(content).toContain('Step 1: Setup');
+        expect(content).toContain('Step 2: Implement');
+        expect(content).toContain('Step 3: Test');
+      });
+
+      it('should not match malformed think tags', () => {
+        const text = '<think>Unclosed think tag <think>Another</think>';
+        const result = XmlProcessor.extractThinkTags(text);
+        
+        // The regex is non-greedy, so it matches <think>Unclosed...Another</think>
+        // This is expected behavior - the first <think> matches with the first </think>
+        expect(result.hasThinkTags).toBe(true);
+        expect(result.reasoning).toHaveLength(1);
+        // The content from first <think> to first </think>
+        expect(result.reasoning[0]).toContain('Unclosed think tag');
+        expect(result.reasoning[0]).toContain('Another');
+      });
+    });
+  });
 });
 

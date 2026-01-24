@@ -748,4 +748,44 @@ export class XmlProcessor {
                /(?:^|[^<])\|[^>]*tool_call/.test(text) ||
                /(?:^|[^<])\|[^>]*MCP_CALL/.test(text);
     }
+
+    /**
+     * Extract reasoning from <think>...</think> tags
+     * Returns both the extracted reasoning content and the text with tags removed
+     * @param text The text to extract think tags from
+     * @returns Object with reasoning array, content without thinks, and hasThinkTags flag
+     */
+    static extractThinkTags(text: string): {
+        reasoning: string[];
+        contentWithoutThinks: string;
+        hasThinkTags: boolean;
+    } {
+        const reasoning: string[] = [];
+        let contentWithoutThinks = text;
+        
+        // Pattern to match <think>...</think> tags (case-sensitive, non-greedy)
+        // Uses [\s\S] to match any character including newlines
+        const thinkPattern = /<think>([\s\S]*?)<\/think>/g;
+        
+        let match: RegExpExecArray | null;
+        let hasThinkTags = false;
+        
+        // Extract all think tag content
+        while ((match = thinkPattern.exec(text)) !== null) {
+            hasThinkTags = true;
+            const thinkContent = match[1];
+            reasoning.push(thinkContent);
+        }
+        
+        // Remove all think tags from content
+        if (hasThinkTags) {
+            contentWithoutThinks = text.replace(/<think>[\s\S]*?<\/think>/g, '');
+        }
+        
+        return {
+            reasoning,
+            contentWithoutThinks,
+            hasThinkTags
+        };
+    }
 }
