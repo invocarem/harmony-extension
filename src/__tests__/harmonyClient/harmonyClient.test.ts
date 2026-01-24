@@ -113,13 +113,14 @@ describe('HarmonyClient', () => {
             prompt: expect.stringContaining('Test prompt'),
             temperature: 0.7,
             max_tokens: 2048,
-            stream: false,
+            stream: true,
           },
           {
             headers: {
               'Content-Type': 'application/json',
               Authorization: 'Bearer test-api-key',
             },
+            responseType: 'stream',
           }
         );
 

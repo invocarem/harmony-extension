@@ -120,7 +120,7 @@ Response:`;
           prompt: finalPrompt,
           temperature: 0.3,
           max_tokens: this.config.maxTokens,
-          stream: false,
+          stream: true,
         },
         {
           headers: {
@@ -129,19 +129,77 @@ Response:`;
               Authorization: `Bearer ${this.config.apiKey}`,
             }),
           },
+          responseType: 'stream',
         }
       );
 
-      // Extract response
-      let rawResponse: string | undefined;
-      if (response.data?.choices?.[0]?.text) {
-        rawResponse = response.data.choices[0].text;
-      } else if (response.data?.choices?.[0]?.message?.content) {
-        rawResponse = response.data.choices[0].message.content;
-      } else if (response.data?.text) {
-        rawResponse = response.data.text;
-      } else if (response.data?.content) {
-        rawResponse = response.data.content;
+      // Handle streaming response - collect all chunks
+      let rawResponse: string = '';
+      
+      if (response.data && typeof response.data === 'object' && response.data.pipe) {
+        // Stream response
+        rawResponse = await new Promise<string>((resolve, reject) => {
+          let buffer = '';
+          const lines: string[] = [];
+          
+          response.data.on('data', (chunk: Buffer) => {
+            buffer += chunk.toString();
+            const parts = buffer.split('\n');
+            
+            // Process all complete lines
+            for (let i = 0; i < parts.length - 1; i++) {
+              const line = parts[i];
+              lines.push(line);
+              
+              if (line.startsWith('data: ')) {
+                try {
+                  const data = JSON.parse(line.slice(6));
+                  if (data.choices?.[0]?.text) {
+                    process.stdout.write(data.choices[0].text); // Show streaming progress
+                  }
+                } catch (e) {
+                  // Ignore parse errors for non-JSON lines
+                }
+              }
+            }
+            
+            // Keep the last incomplete line in buffer
+            buffer = parts[parts.length - 1];
+          });
+          
+          response.data.on('end', () => {
+            // Reconstruct full response from all data lines
+            let fullText = '';
+            
+            lines.forEach(line => {
+              if (line.startsWith('data: ')) {
+                try {
+                  const data = JSON.parse(line.slice(6));
+                  if (data.choices?.[0]?.text) {
+                    fullText += data.choices[0].text;
+                  }
+                } catch (e) {
+                  // Ignore
+                }
+              }
+            });
+            
+            resolve(fullText);
+          });
+          
+          response.data.on('error', reject);
+        });
+      } else {
+        // Non-streaming response (fallback)
+        if (response.data?.choices?.[0]?.text) {
+          rawResponse = response.data.choices[0].text;
+        } else if (response.data?.choices?.[0]?.message?.content) {
+          rawResponse = response.data.choices[0].message.content;
+        } else if (response.data?.text) {
+          rawResponse = response.data.text;
+        } else if (response.data?.content) {
+          rawResponse = response.data.content;
+        }
       }
 
       if (rawResponse) {

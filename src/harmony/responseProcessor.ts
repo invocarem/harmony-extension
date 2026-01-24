@@ -34,7 +34,7 @@ export class ResponseProcessor {
         prompt: finalPrompt,
         temperature: this.config.temperature,
         max_tokens: this.config.maxTokens,
-        stream: false,
+        stream: true,
       },
       {
         headers: {
@@ -43,16 +43,110 @@ export class ResponseProcessor {
             Authorization: `Bearer ${this.config.apiKey}`,
           }),
         },
+        responseType: 'stream',
       }
     );
 
     console.log(`[Harmony] API response status: ${response.status}`);
 
+    // Handle streaming response - collect all chunks
+    let rawResponse: string = '';
+    let finishReason: string | undefined = undefined;
+    
+    if (response.data && typeof response.data === 'object' && response.data.pipe) {
+      // Stream response
+      console.log(`[Harmony] Handling streamed response...`);
+      
+      rawResponse = await new Promise<string>((resolve, reject) => {
+        let buffer = '';
+        const lines: string[] = [];
+        
+        response.data.on('data', (chunk: Buffer) => {
+          buffer += chunk.toString();
+          const parts = buffer.split('\n');
+          
+          // Process all complete lines
+          for (let i = 0; i < parts.length - 1; i++) {
+            const line = parts[i];
+            lines.push(line);
+            
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                if (data.choices?.[0]?.text) {
+                  process.stdout.write(data.choices[0].text); // Show streaming progress
+                }
+                if (data.choices?.[0]?.finish_reason) {
+                  finishReason = data.choices[0].finish_reason;
+                }
+              } catch (e) {
+                // Ignore parse errors for non-JSON lines
+              }
+            }
+          }
+          
+          // Keep the last incomplete line in buffer
+          buffer = parts[parts.length - 1];
+        });
+        
+        response.data.on('end', () => {
+          // Reconstruct full response from all data lines
+          let fullText = '';
+          let lastFinishReason: string | undefined;
+          
+          lines.forEach(line => {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                if (data.choices?.[0]?.text) {
+                  fullText += data.choices[0].text;
+                }
+                if (data.choices?.[0]?.finish_reason) {
+                  lastFinishReason = data.choices[0].finish_reason;
+                }
+              } catch (e) {
+                // Ignore
+              }
+            }
+          });
+          
+          if (lastFinishReason) {
+            finishReason = lastFinishReason;
+          }
+          
+          console.log(`\n[Harmony] Stream completed`);
+          resolve(fullText);
+        });
+        
+        response.data.on('error', reject);
+      });
+    } else {
+      // Non-streaming response (fallback)
+      console.log(`[Harmony] Handling non-streamed response...`);
+      if (response.data?.choices?.[0]?.text) {
+        rawResponse = response.data.choices[0].text;
+      } else if (response.data?.choices?.[0]?.message?.content) {
+        rawResponse = response.data.choices[0].message.content;
+      } else if (response.data?.text) {
+        rawResponse = response.data.text;
+      } else if (response.data?.content) {
+        rawResponse = response.data.content;
+      } else {
+        console.error(
+          `[Harmony] Unexpected response format:`,
+          JSON.stringify(response.data).substring(0, 500)
+        );
+        throw new Error(
+          `Unexpected API response format. Response: ${JSON.stringify(response.data).substring(0, 200)}`
+        );
+      }
+      
+      if (!response.data?.choices?.[0]?.finish_reason) {
+        finishReason = response.data?.finish_reason || response.data?.choices?.[0]?.finishReason;
+      }
+    }
+
     // Check for truncation
-    const finishReason =
-      response.data?.choices?.[0]?.finish_reason ||
-      response.data?.finish_reason ||
-      response.data?.choices?.[0]?.finishReason;
     const isTruncated = finishReason === "length" || finishReason === "max_tokens";
 
     if (isTruncated) {
@@ -62,25 +156,6 @@ export class ResponseProcessor {
     }
 
     // Extract response text
-    let rawResponse: string | undefined;
-    if (response.data?.choices?.[0]?.text) {
-      rawResponse = response.data.choices[0].text;
-    } else if (response.data?.choices?.[0]?.message?.content) {
-      rawResponse = response.data.choices[0].message.content;
-    } else if (response.data?.text) {
-      rawResponse = response.data.text;
-    } else if (response.data?.content) {
-      rawResponse = response.data.content;
-    } else {
-      console.error(
-        `[Harmony] Unexpected response format:`,
-        JSON.stringify(response.data).substring(0, 500)
-      );
-      throw new Error(
-        `Unexpected API response format. Response: ${JSON.stringify(response.data).substring(0, 200)}`
-      );
-    }
-
     if (!rawResponse) {
       throw new Error("Received empty response from API");
     }
