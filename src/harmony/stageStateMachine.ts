@@ -101,15 +101,7 @@ const moveToAssumptionsFromChat: TransitionAction = async (context): Promise<Wor
   return "assumptions" as WorkflowStage;
 };
 
-/**
- * Action: Move to assumptions from implementation
- * User wants to revise the plan
- */
-const moveToAssumptionsFromImplementation: TransitionAction = async (context): Promise<WorkflowStage | null> => {
-  console.log(`[Action] move_to_assumptions: implementation -> assumptions (revising plan)`);
-  // No specific side effects needed for this transition
-  return "assumptions" as WorkflowStage;
-};
+
 
 /**
  * Action: Move to implementation from assumptions
@@ -174,7 +166,6 @@ const TRANSITION_TABLE: TransitionRule[] = [
 
   // Explicit commands (high priority)
   { from: "assumptions", to: "implementation", trigger: "move_to_implementation", action: moveToImplementation, priority: 100 },
-  { from: "implementation", to: "assumptions", trigger: "move_to_assumptions", action: moveToAssumptionsFromImplementation, priority: 100 },
   { from: "implementation", to: "chat", trigger: "move_to_chat", action: moveToChat, priority: 100 },
   { from: "chat", to: "assumptions", trigger: "move_to_assumptions", action: moveToAssumptionsFromChat, priority: 100 },
 
