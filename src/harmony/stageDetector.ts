@@ -2,14 +2,24 @@ import { ChatMessage } from "../conversationManager";
 import { StageStateMachine, WorkflowStage } from "./stageStateMachine";
 import { ConversationContext } from "./conversationContext";
 import { ConfirmationManager } from "./confirmationManager";
+import { TransitionHandler } from "./transitionHandler";
+import { NativeToolsManager } from "../nativeToolManager";
 
 /**
  * Detects the appropriate workflow stage based on the prompt
  */
 export class StageDetector {
   constructor(
-    private stageStateMachine: StageStateMachine
+    private stageStateMachine: StageStateMachine,
+    private transitionHandler?: TransitionHandler
   ) {}
+
+  /**
+   * Set the transition handler (can be set after construction)
+   */
+  setTransitionHandler(handler: TransitionHandler): void {
+    this.transitionHandler = handler;
+  }
 
   /**
    * Detect if first-principles thinking mode should be activated
@@ -29,12 +39,13 @@ export class StageDetector {
   /**
    * Detect the appropriate workflow stage based on the prompt using state machine
    */
-  detectStage(
+  async detectStage(
     prompt: string,
     conversationHistory: readonly ChatMessage[] | undefined,
     conversationContext: ConversationContext | null,
-    confirmationManager?: ConfirmationManager
-  ): WorkflowStage {
+    confirmationManager?: ConfirmationManager,
+    nativeToolsManager?: NativeToolsManager
+  ): Promise<WorkflowStage> {
     // Get current stage from context or default to init
     const currentStage = conversationContext?.currentStage || 'init';
     
@@ -56,8 +67,16 @@ export class StageDetector {
       return 'chat';
     }
     
-    // Use state machine to determine next stage
-    const nextStage = this.stageStateMachine.determineNextStage(currentStage, prompt, conversationHistory, confirmationManager);
+    // Use state machine to determine next stage (now async with side effects)
+    const nextStage = await this.stageStateMachine.determineNextStage(
+      currentStage, 
+      prompt, 
+      conversationHistory, 
+      confirmationManager,
+      this.transitionHandler,
+      nativeToolsManager
+    );
+    
     if (nextStage !== null) {
       console.log(`[StageDetector] State machine determined stage transition: ${currentStage} -> ${nextStage}`);
       return nextStage; // IMMEDIATELY return the new stage from state machine

@@ -138,6 +138,7 @@ export class ChatManager {
 
   /**
    * Add a user query to chat state
+   * Filters out stage transition commands (move to assumptions, etc.)
    */
   addQuery(query: string, relatedFiles: string[] = []): void {
     if (!this.state) {
@@ -146,8 +147,17 @@ export class ChatManager {
 
     if (!this.state) return;
 
+    const trimmedQuery = query.trim();
+    
+    // Skip tracking stage transition commands - they're not actual user requests
+    const isStageTransitionCommand = /\b(move\s+to|go\s+to|goto|start|begin)\s+(assumptions|analysis|analyze|implementation|implement|chat|discussion|clarification)\b/i.test(trimmedQuery);
+    if (isStageTransitionCommand) {
+      console.log(`[ChatManager] Skipped tracking stage transition command: "${trimmedQuery.substring(0, 50)}..."`);
+      return;
+    }
+
     const chatQuery: ChatQuery = {
-      query: query.trim(),
+      query: trimmedQuery,
       timestamp: Date.now(),
       relatedFiles: [...relatedFiles],
     };

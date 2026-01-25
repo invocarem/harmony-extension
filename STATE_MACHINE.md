@@ -47,8 +47,14 @@
 │ Purpose: Analyze problem, generate code snippets        │
 │ Tools:   read_file, list_files, grep_files (read-only) │
 │                                                         │
+│ Flow:                                                   │
+│ 1. Transition from chat (no plan created yet)          │
+│ 2. User sends message → LLM analyzes + creates plan    │
+│ 3. Can now move to implementation with plan            │
+│                                                         │
 │ ✅ Generate code content/snippets                      │
 │ ✅ Explain assumptions                                 │
+│ ✅ Create ProgressPlan (on user message, not entry)    │
 │ ✅ Provide examples in code blocks                     │
 │ ❌ NO file modification tools                          │
 │                                                         │
@@ -56,7 +62,7 @@
 └──────┬──────────────────────────────────────────────────┘
        │
        │ User explicitly requests implementation
-       │ OR code content is ready
+       │ (after plan is created)
        │
        ▼
 ┌─────────────────────────────────────────────────────────┐
@@ -96,22 +102,25 @@
 ### Forward Transitions (Workflow Progression)
 
 #### Chat → Analysis (Assumptions)
-- **Trigger**: Code-related keywords, file operation intent (without explicit extensions)
-- **Detection**: `codeKeywords`, `fileOperationKeywords` (without explicit extensions)
+- **Trigger**: User explicitly requests transition to assumptions stage
+- **Detection**: Commands like "move to assumptions", "analyze this", "go to assumptions"
+- **Behavior**: Transitions to assumptions stage WITHOUT creating a plan
 - **Example prompts**:
-  - "How do I fix this bug?"
-  - "Create a function to parse JSON"
-  - "Show me code for authentication"
-  - "create JSON" (no extension)
-  - "modify the TypeScript code"
+  - "move to assumptions"
+  - "go to analysis"
+  - "analyze this problem"
+- **Note**: Plan creation is deferred until user sends a message IN assumptions stage
 
 #### Analysis → Implementation
-- **Trigger**: Explicit file operation commands OR explicit stage transition
-- **Detection**: `fileOperationWithExtension`, explicit commands like "move to implementation"
+- **Trigger**: Explicit stage transition command OR user sends message requesting implementation
+- **Detection**: Commands like "move to implementation", "implement it now", or natural continuation after plan is created
+- **Behavior**: Transitions to implementation stage with the plan created during assumptions stage
 - **Example prompts**:
-  - "create config.json" (with extension)
   - "move to implementation"
   - "implement it now"
+  - "start implementing"
+  - "@cmd:next" (after plan is created)
+- **Prerequisite**: A ProgressPlan must exist (created when user sent message in assumptions stage)
 
 ### Backward Transitions (Error Recovery & Clarification)
 
@@ -202,41 +211,63 @@ Stage events are triggers that execute actions within the current stage without 
 
 For complex tasks (3+ steps), the system creates a **ProgressPlan** to break down the work into manageable steps and guide sequential implementation.
 
-### Plan Creation (Assumptions Stage)
+### Plan Creation Flow
 
-**When**: Plans are automatically created in the **Assumptions/Analysis** stage when:
-- Task complexity is detected as "hard" (3+ steps)
-- The LLM response contains multiple step indicators (numbered lists, "Step 1", "first/then/finally", etc.)
+**Stage-by-Stage Plan Creation**:
 
-**How**:
-1. `AutoTransitionManager.detectTaskComplexity()` analyzes the response
-2. If complexity is "hard", extracts steps from the response:
-   - Looks for numbered lists: "1. Create file.py", "2. Add function", etc.
-   - Extracts step goals and descriptions
-   - Falls back to generic steps if extraction fails
-3. Creates a `ProgressPlan` with:
-   - `taskId`: Unique identifier
-   - `originalPrompt`: The user's original request
-   - `complexity`: "hard"
-   - `steps`: Array of `PlanStep` objects, each with:
-     - `stepNumber`: Sequential number (1, 2, 3...)
-     - `goal`: What needs to be accomplished
-     - `description`: Optional detailed description
-     - `status`: "pending" | "in_progress" | "completed"
-   - `createdAt`: Timestamp
-   - `completedAt`: Set when all steps are done
+1. **Chat Stage**: User requests to move to assumptions
+   - User: "move to assumptions" or similar command
+   - System: Transitions to assumptions stage
+   - **No plan is created yet** - this is just a stage transition
 
-**Example Plan Creation**:
+2. **Assumptions Stage Entry**: System waits for user input
+   - User is now in assumptions stage
+   - No plan exists yet - waiting for user to provide details or type a message
+
+3. **User Sends Message in Assumptions Stage**: 
+   - User types a message (could be details, questions, or "@cmd:next")
+   - LLM analyzes the request and conversation history
+   - System detects task complexity: "simple" (1-2 steps) or "hard" (3+ steps)
+   - **Plan is created here** based on the analysis
+
+4. **Plan Details**:
+   - If complexity is "hard", extracts steps from the response:
+     - Looks for numbered lists: "1. Create file.py", "2. Add function", etc.
+     - Extracts step goals and descriptions
+     - Falls back to generic steps if extraction fails
+   - Creates a `ProgressPlan` with:
+     - `taskId`: Unique identifier
+     - `originalPrompt`: The user's original request
+     - `complexity`: "simple" or "hard"
+     - `steps`: Array of `PlanStep` objects
+     - `createdAt`: Timestamp
+
+5. **Ready for Implementation**:
+   - Once plan is created, user can move to implementation
+   - User: "move to implementation" or "@cmd:next"
+   - System: Transitions to implementation stage with the plan
+
+### When Plans Are Created
+
+**Plans are created in the Assumptions/Analysis stage when**:
+- User sends a message (not when first entering the stage)
+- Task complexity is detected as "hard" (3+ steps) OR "simple" (1-2 steps)
+- The LLM response or user message contains step indicators
+
+**Example Flow**:
 ```
-User: "Write Python code, provide requirements.txt, and write summary.md"
+User (in chat): "move to assumptions"
+→ Transitions to assumptions stage (no plan created)
 
-Assumptions Stage Response:
-"Here's the plan:
-1. Create calc.py with calculator functions
-2. Create requirements.txt with dependencies
-3. Create README.md with documentation"
+User (in assumptions): "I need to create a Python calculator with tests and docs"
+→ LLM analyzes and creates plan with 3 steps:
+    1. Create calc.py
+    2. Create test_calc.py
+    3. Create README.md
+→ Plan is now available for implementation
 
-→ ProgressPlan created with 3 steps
+User: "move to implementation"
+→ Transitions to implementation with the 3-step plan
 ```
 
 ### Plan-Driven Implementation
@@ -306,23 +337,30 @@ Assumptions Stage Response:
 
 **Manual Step Execution**:
 ```
-1. User: "Create a Python project with calc.py, requirements.txt, and README.md"
-   → Assumptions Stage: Plan created with 3 steps
+1. User (in chat): "Create a Python project with calc.py, requirements.txt, and README.md"
+   → Chat Stage: Restates the problem
 
-2. User: "move to implementation"
+2. User: "move to assumptions"
+   → Assumptions Stage: Transitions without creating plan yet
+
+3. User (in assumptions): "analyze and create the plan" or just "@cmd:next"
+   → Assumptions Stage: LLM analyzes, creates plan with 3 steps
+   → Plan: Step 1: Create calc.py, Step 2: Create requirements.txt, Step 3: Create README.md
+
+4. User: "move to implementation"
    → Implementation Stage: Step 1 is pending, waiting for execution
 
-3. User: "@cmd:next_step" or "next step"
+5. User: "@cmd:next_step" or "next step"
    → Implementation Stage: Step 1 executed ("Create calc.py")
    → LLM creates calc.py
    → Step 1 marked "completed", Step 2 becomes current
 
-4. User: "@cmd:next_step"
+6. User: "@cmd:next_step"
    → Implementation Stage: Step 2 executed ("Create requirements.txt")
    → LLM creates requirements.txt
    → Step 2 marked "completed", Step 3 becomes current
 
-5. User: "@cmd:next_step"
+7. User: "@cmd:next_step"
    → Implementation Stage: Step 3 executed ("Create README.md")
    → LLM creates README.md
    → Step 3 marked "completed"
@@ -331,13 +369,19 @@ Assumptions Stage Response:
 
 **Auto Mode Execution**:
 ```
-1. User: "Create a Python project with calc.py, requirements.txt, and README.md"
-   → Assumptions Stage: Plan created with 3 steps
+1. User (in chat): "Create a Python project with calc.py, requirements.txt, and README.md"
+   → Chat Stage: Restates the problem
 
-2. User: "move to implementation"
+2. User: "move to assumptions"
+   → Assumptions Stage: Transitions without creating plan yet
+
+3. User (in assumptions): "analyze this" or "@cmd:next"
+   → Assumptions Stage: LLM analyzes, creates plan with 3 steps
+
+4. User: "move to implementation"
    → Implementation Stage: Step 1 is pending, waiting for execution
 
-3. User: "@cmd:auto"
+5. User: "@cmd:auto"
    → Implementation Stage: Auto mode activated
    → Step 1 executed → Step 1 completed
    → Step 2 executed → Step 2 completed
@@ -357,12 +401,16 @@ Assumptions Stage Response:
 7. **Chat stage**: Must always restate the user's problem in the response
 8. **Iterative Workflows**: User-controlled transitions enable iterative cycles (chat → assumptions → implementation → (user signals) → chat → ...)
 9. **No Auto-transition from Implementation**: User must explicitly signal to move from Implementation to Chat
-10. **ProgressPlan**: Created automatically for hard tasks (3+ steps) in Assumptions stage
+10. **ProgressPlan Creation Timing**: 
+    - **NOT** created when transitioning from chat to assumptions
+    - **IS** created when user sends a message IN assumptions stage
+    - This allows the LLM to analyze before committing to a plan
 11. **Step-Driven Implementation**: Implementation stage follows plan steps sequentially
 12. **Step Execution Events**: Steps are executed via `next_step` or `auto` events (state machine triggers)
 13. **Automatic Step Updates**: Steps marked "completed" when files are successfully created
 14. **Stage Events**: `next_step`, `auto`, and `verbose_info` are state machine events that don't cause stage transitions
 15. **VerboseInfo Event**: Can be triggered from any stage to view current state information
+16. **Assumptions Stage Flow**: Enter stage → wait for user message → analyze and create plan → ready for implementation
 
 ## State Transition Logic
 
@@ -406,18 +454,27 @@ The state machine supports iterative analysis/development cycles:
 
 ```
 1. Init → Chat (webview loads)
-2. Chat: "Create a reading document of current project"
-3. Assumptions: Analyze project, plan diagnostics.md
-4. Implementation: Generate diagnostics.md
-5. User: "move to chat" (explicit signal)
-6. Chat: Review diagnostics.md, decide next action
-7. Chat: "Do another analysis" (using diagnostics.md as context)
-8. Assumptions: Plan diagnostics2.md based on diagnostics.md
-9. Implementation: Generate diagnostics2.md
-10. User: "move to chat" (explicit signal)
-11. Chat: Review results
-12. Chat: "Compare diagnostics.md and diagnostics2.md"
-13. ... (continue iterating as needed)
+2. Chat: User: "Create a reading document of current project"
+   Chat: Restates problem
+3. User: "move to assumptions"
+4. Assumptions: Transitions to assumptions stage (no plan yet)
+5. User (in assumptions): "analyze and plan" or "@cmd:next"
+6. Assumptions: LLM analyzes project, creates plan for diagnostics.md
+7. User: "move to implementation"
+8. Implementation: Generate diagnostics.md following the plan
+9. User: "move to chat" (explicit signal)
+10. Chat: Review diagnostics.md, decide next action
+11. Chat: "Do another analysis" (using diagnostics.md as context)
+12. User: "move to assumptions"
+13. Assumptions: Transitions to assumptions (no plan yet)
+14. User (in assumptions): "create plan for diagnostics2.md"
+15. Assumptions: Creates plan for diagnostics2.md based on diagnostics.md
+16. User: "move to implementation"
+17. Implementation: Generate diagnostics2.md
+18. User: "move to chat" (explicit signal)
+19. Chat: Review results
+20. Chat: "Compare diagnostics.md and diagnostics2.md"
+21. ... (continue iterating as needed)
 ```
 
 This pattern enables:

@@ -56,6 +56,7 @@ export class TransitionHandler {
     nativeToolsManager?: NativeToolsManager
   ): Promise<void> {
     console.log(`[Harmony] Transitioning from chat to assumptions stage`);
+    console.log(`[Harmony] ⏳ Plan creation deferred - will be created when user sends a message in assumptions stage`);
 
     // Initialize assumptions manager
     this.assumptionsManager.initialize();

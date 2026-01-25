@@ -202,12 +202,25 @@ export class HarmonyClient {
       const effectiveAutoMode = isAutoMode || isAutoModeStart;
 
       // Phase 1: Initialize conversation and handle state transitions
-      await this.handleConversationInitialization(
+      const initResult = await this.handleConversationInitialization(
         prompt,
         isContinuation,
         conversationHistory,
         fileExtractionResult
       );
+
+      // Check if we should skip LLM call (e.g., when transitioning to assumptions)
+      if (initResult.shouldSkipLLM) {
+        const currentStage = this.stateTransitionManager.getCurrentStage();
+        const context = this.contextManager.getContext();
+        console.log(`[Harmony] Skipping LLM call after stage transition to ${currentStage}`);
+        return {
+          content: initResult.message || `Transitioned to ${currentStage} stage.`,
+          verboseInfo: this.buildVerboseInfo(currentStage, context, {
+            fileExtractionResult,
+          }),
+        };
+      }
 
       // Phase 2: Prepare for LLM call
       const currentStage = this.stateTransitionManager.getCurrentStage();
@@ -303,7 +316,7 @@ export class HarmonyClient {
     isContinuation: boolean,
     conversationHistory?: readonly ChatMessage[],
     fileExtractionResult?: import("./utils/verboseInfo").FileExtractionResult
-  ): Promise<void> {
+  ): Promise<{ shouldSkipLLM: boolean; message?: string }> {
     if (!isContinuation) {
       // Initialize new conversation
       if (!this.contextManager.hasContext()) {
@@ -311,9 +324,10 @@ export class HarmonyClient {
           prompt,
           conversationHistory
         );
+        return { shouldSkipLLM: false };
       } else {
         // Check for stage transitions in existing context
-        await this.stateTransitionManager.checkAndPerformStageTransition(
+        return await this.stateTransitionManager.checkAndPerformStageTransition(
           prompt,
           conversationHistory,
           this.nativeToolsManager
@@ -325,6 +339,7 @@ export class HarmonyClient {
         prompt,
         conversationHistory
       );
+      return { shouldSkipLLM: false };
     }
   }
 
@@ -635,7 +650,7 @@ export class HarmonyClient {
         if (plan) {
           this.contextManager.setProgressPlan(plan);
           console.log(
-            `[Harmony] Assumptions stage: ${existingContext?.progressPlan ? "Updated" : "Created"} ProgressPlan`
+            `[Harmony] ✅ Assumptions stage: ${existingContext?.progressPlan ? "Updated" : "Created"} ProgressPlan (${plan.totalSteps} steps, ${plan.complexity} complexity) - triggered by user message in assumptions stage`
           );
         }
       }

@@ -1,6 +1,8 @@
 import { ChatMessage } from "../conversationManager";
 import { MCPToolResult } from "../mcpClient";
 import { ConfirmationManager } from "./confirmationManager";
+import { TransitionHandler } from "./transitionHandler";
+import { NativeToolsManager } from "../nativeToolManager";
 
 export type WorkflowStage = "init" | "chat" | "assumptions" | "implementation";
 
@@ -12,130 +14,189 @@ export type TransitionTrigger =
   | "move_to_implementation"
   | "move_to_assumptions"
   | "move_to_chat"
-  | "code_keywords"
-  | "file_operations_without_ext"
-  | "file_operations_with_ext"
-  | "explicit_implementation_command"
-  | "error_recovery"
-  | "regenerate_code"
-  | "clarification_request"
   | "next_step" // Execute one step, stay in implementation
   | "auto" // Execute one step, stay in implementation (auto mode)
   | "verbose_info" // Generate verboseInfo, stay in current stage (works from any stage)
   | "none";
 
 /**
+ * Context passed to transition action functions
+ */
+export interface TransitionContext {
+  prompt: string;
+  currentStage: WorkflowStage;
+  conversationHistory?: readonly ChatMessage[];
+  confirmationManager?: ConfirmationManager;
+  transitionHandler?: TransitionHandler;
+  nativeToolsManager?: NativeToolsManager;
+}
+
+/**
+ * Transition action function
+ * Returns: target stage to transition to, current stage to stay, or null to abort transition
+ * Can be async to perform side effects
+ */
+export type TransitionAction = (context: TransitionContext) => Promise<WorkflowStage | null> | WorkflowStage | null;
+
+/**
  * Transition table entry
  */
 interface TransitionRule {
   from: WorkflowStage;
-  trigger: TransitionTrigger;
   to: WorkflowStage;
+  trigger: TransitionTrigger;
+  action: TransitionAction;
   priority: number; // Higher priority = checked first
 }
 
 /**
- * State machine transition table
- * This table defines all valid state transitions
+ * ============================================
+ * TRANSITION ACTION FUNCTIONS
+ * ============================================
+ * Each action function receives context and decides whether to proceed with transition
+ * Can perform side effects using transitionHandler
+ */
+
+/**
+ * Action: Initialize conversation (init -> chat)
+ */
+const initializeAction: TransitionAction = async (context): Promise<WorkflowStage | null> => {
+  console.log(`[Action] initialize: init -> chat`);
+  
+  // Perform side effect: initialize chat
+  if (context.transitionHandler) {
+    await context.transitionHandler.handleInitToChatTransition();
+  }
+  
+  return "chat" as WorkflowStage;
+};
+
+/**
+ * Action: Move to assumptions from chat
+ * Condition: Check if prompt is meaningful (not just "hi" or empty)
+ * Side effect: Save aggregated prompts
+ */
+const moveToAssumptionsFromChat: TransitionAction = async (context): Promise<WorkflowStage | null> => {
+  const { prompt, currentStage, conversationHistory, transitionHandler, nativeToolsManager } = context;
+  const trimmedPrompt = prompt.trim().toLowerCase();
+  
+  // Check if prompt is too trivial to create assumptions
+  const trivialInputs = ["hi", "hello", "hey", "yo", "sup", ""];
+  if (trivialInputs.includes(trimmedPrompt)) {
+    console.log(`[Action] move_to_assumptions: Staying in chat (trivial input: "${prompt}")`);
+    return "chat" as WorkflowStage; // Stay in chat
+  }
+  
+  console.log(`[Action] move_to_assumptions: chat -> assumptions`);
+  
+  // Perform side effect: save aggregated prompts
+  if (transitionHandler) {
+    await transitionHandler.handleChatToAssumptionsTransition(
+      prompt,
+      conversationHistory,
+      nativeToolsManager
+    );
+  }
+  
+  return "assumptions" as WorkflowStage;
+};
+
+/**
+ * Action: Move to assumptions from implementation
+ * User wants to revise the plan
+ */
+const moveToAssumptionsFromImplementation: TransitionAction = async (context): Promise<WorkflowStage | null> => {
+  console.log(`[Action] move_to_assumptions: implementation -> assumptions (revising plan)`);
+  // No specific side effects needed for this transition
+  return "assumptions" as WorkflowStage;
+};
+
+/**
+ * Action: Move to implementation from assumptions
+ * Side effect: Save assumptions data
+ */
+const moveToImplementation: TransitionAction = async (context): Promise<WorkflowStage | null> => {
+  const { prompt, transitionHandler, nativeToolsManager } = context;
+  console.log(`[Action] move_to_implementation: assumptions -> implementation`);
+  
+  // Perform side effect: save assumptions data
+  if (transitionHandler) {
+    await transitionHandler.handleAssumptionsToImplementationTransition(
+      prompt,
+      nativeToolsManager
+    );
+  }
+  
+  return "implementation" as WorkflowStage;
+};
+
+/**
+ * Action: Move to chat
+ */
+const moveToChat: TransitionAction = (context) => {
+  console.log(`[Action] move_to_chat: ${context.currentStage} -> chat`);
+  return "chat";
+};
+
+/**
+ * Action: Next step (stay in implementation)
+ */
+const nextStep: TransitionAction = (context) => {
+  console.log(`[Action] next_step: staying in implementation`);
+  return "implementation";
+};
+
+/**
+ * Action: Auto mode (stay in implementation)
+ */
+const autoMode: TransitionAction = (context) => {
+  console.log(`[Action] auto: staying in implementation`);
+  return "implementation";
+};
+
+/**
+ * Action: Verbose info (stay in current stage)
+ */
+const verboseInfo: TransitionAction = (context) => {
+  console.log(`[Action] verbose_info: staying in ${context.currentStage}`);
+  return context.currentStage;
+};
+
+/**
+ * ============================================
+ * TRANSITION TABLE
+ * ============================================
+ * Format: [from_state, to_state, trigger, action_function, priority]
  */
 const TRANSITION_TABLE: TransitionRule[] = [
   // Initialization (highest priority)
-  { from: "init", trigger: "initialize", to: "chat", priority: 100 },
+  { from: "init", to: "chat", trigger: "initialize", action: initializeAction, priority: 100 },
 
   // Explicit commands (high priority)
-  {
-    from: "assumptions",
-    trigger: "move_to_implementation",
-    to: "implementation",
-    priority: 100,
-  },
-  {
-    from: "implementation",
-    trigger: "move_to_assumptions",
-    to: "assumptions",
-    priority: 100,
-  },
-  {
-    from: "implementation",
-    trigger: "move_to_chat",
-    to: "chat",
-    priority: 100,
-  },
-  {
-    from: "chat",
-    trigger: "move_to_assumptions",
-    to: "assumptions",
-    priority: 100,
-  },
-
-  // Explicit implementation commands from assumptions
-  {
-    from: "assumptions",
-    trigger: "explicit_implementation_command",
-    to: "implementation",
-    priority: 90,
-  },
-
-  // Error recovery (high priority)
-  {
-    from: "implementation",
-    trigger: "error_recovery",
-    to: "chat",
-    priority: 80,
-  },
-
-  // Code regeneration
-  {
-    from: "implementation",
-    trigger: "regenerate_code",
-    to: "assumptions",
-    priority: 70,
-  },
-
-  // Clarification requests
-  {
-    from: "implementation",
-    trigger: "clarification_request",
-    to: "chat",
-    priority: 60,
-  },
+  { from: "assumptions", to: "implementation", trigger: "move_to_implementation", action: moveToImplementation, priority: 100 },
+  { from: "implementation", to: "assumptions", trigger: "move_to_assumptions", action: moveToAssumptionsFromImplementation, priority: 100 },
+  { from: "implementation", to: "chat", trigger: "move_to_chat", action: moveToChat, priority: 100 },
+  { from: "chat", to: "assumptions", trigger: "move_to_assumptions", action: moveToAssumptionsFromChat, priority: 100 },
 
   // Implementation stage self-loops (execute step, stay in stage)
-  {
-    from: "implementation",
-    trigger: "next_step",
-    to: "implementation",
-    priority: 100,
-  },
-  {
-    from: "implementation",
-    trigger: "auto",
-    to: "implementation",
-    priority: 100,
-  },
+  { from: "implementation", to: "implementation", trigger: "next_step", action: nextStep, priority: 100 },
+  { from: "implementation", to: "implementation", trigger: "auto", action: autoMode, priority: 100 },
 
   // All stages self-loops (generate verboseInfo, stay in stage)
-  { from: "init", trigger: "verbose_info", to: "init", priority: 100 },
-  { from: "chat", trigger: "verbose_info", to: "chat", priority: 100 },
-  {
-    from: "assumptions",
-    trigger: "verbose_info",
-    to: "assumptions",
-    priority: 100,
-  },
-  {
-    from: "implementation",
-    trigger: "verbose_info",
-    to: "implementation",
-    priority: 100,
-  },
+  { from: "init", to: "init", trigger: "verbose_info", action: verboseInfo, priority: 100 },
+  { from: "chat", to: "chat", trigger: "verbose_info", action: verboseInfo, priority: 100 },
+  { from: "assumptions", to: "assumptions", trigger: "verbose_info", action: verboseInfo, priority: 100 },
+  { from: "implementation", to: "implementation", trigger: "verbose_info", action: verboseInfo, priority: 100 },
 
   // Chat -> Assumptions transitions (DISABLED: Auto-transition removed, requires explicit "move to assumptions")
-  // { from: 'chat', trigger: 'code_keywords', to: 'assumptions', priority: 50 },
-  // { from: 'chat', trigger: 'file_operations_without_ext', to: 'assumptions', priority: 50 },
-  // { from: 'chat', trigger: 'file_operations_with_ext', to: 'assumptions', priority: 50 },
+  // { from: 'chat', to: 'assumptions', trigger: 'code_keywords', action: ..., priority: 50 },
+  // { from: 'chat', to: 'assumptions', trigger: 'file_operations_without_ext', action: ..., priority: 50 },
+  // { from: 'chat', to: 'assumptions', trigger: 'file_operations_with_ext', action: ..., priority: 50 },
 ];
 
+/**
+ * Valid transitions map (for quick lookup)
+ */
 /**
  * Valid transitions map (for quick lookup)
  */
@@ -220,22 +281,7 @@ export class StageStateMachine {
       return "move_to_chat";
     }
 
-    // Explicit implementation commands
-    if (
-      /\b(now|then|next|please)\s+(create|write|make|implement|build|generate).*\b(file|code|implementation)\b/i.test(
-        promptLower
-      ) ||
-      /\b(do\s+it|implement\s+it|create\s+it|create\s+the\s+file|write\s+the\s+file|make\s+the\s+file)\b/i.test(
-        promptLower
-      ) ||
-      /\b(create_file|write_file|replace_file|update_file|edit_file|modify_file)\b/i.test(
-        promptLower
-      )
-    ) {
-      return "explicit_implementation_command";
-    }
-
-    // Detect verbose_info command (works from any stage) - check before stage-specific triggers
+    // Detect verbose_info command (works from any stage)
     if (
       /@cmd:verbose(?:[_-]?info)?|verbose\s+info|show\s+info|display\s+info/i.test(
         promptLower
@@ -244,9 +290,8 @@ export class StageStateMachine {
       return "verbose_info";
     }
 
-    // Error recovery and clarification (from implementation)
+    // Detect next_step and auto commands (only in implementation stage)
     if (currentStage === "implementation") {
-      // Detect next_step and auto commands (only in implementation stage)
       // Check for @cmd:next_step or natural language equivalents
       if (
         /@cmd:next(?:[_-]?step)?|next\s+step|continue|proceed|advance/i.test(
@@ -260,39 +305,6 @@ export class StageStateMachine {
       if (/@cmd:auto|auto\s+mode|execute\s+all/i.test(promptLower)) {
         return "auto";
       }
-
-      const clarificationKeywords =
-        /\b(what|how|why|clarify|explain|understand|confused|error|wrong|doesn'?t\s+work|not\s+working)\b/i;
-      if (clarificationKeywords.test(promptLower)) {
-        return "clarification_request";
-      }
-
-      const regenerateKeywords =
-        /\b(regenerate|redo|fix\s+the\s+code|update\s+the\s+code|change\s+the\s+code|modify\s+the\s+code)\b/i;
-      if (regenerateKeywords.test(promptLower)) {
-        return "regenerate_code";
-      }
-    }
-
-    // Chat -> Assumptions triggers
-    if (currentStage === "chat") {
-      const codeKeywords =
-        /\b(code|snippet|example|solution|how\s+to|fix|update|refactor|improve).*\b(code|function|class|method|variable|snippet)\b/i;
-      if (codeKeywords.test(promptLower)) {
-        return "code_keywords";
-      }
-
-      const fileOperationKeywords =
-        /\b(create|write|make|add|implement|code|generate|build|update|modify|edit|change).*\b(file|module|class|function|component|feature)\b/i;
-      if (fileOperationKeywords.test(promptLower)) {
-        return "file_operations_without_ext";
-      }
-
-      const fileOperationWithExtension =
-        /\b(create|write|make|add|implement|code|generate|build|update|modify|edit|change)(?:\s+\w+)*\s+\w+\.\w{2,4}(\s|$)/i;
-      if (fileOperationWithExtension.test(promptLower)) {
-        return "file_operations_with_ext";
-      }
     }
 
     return "none";
@@ -303,12 +315,14 @@ export class StageStateMachine {
    * Returns the target stage, or null if should stay in current stage
    * For self-loop transitions (same stage), returns the current stage
    */
-  determineNextStage(
+  async determineNextStage(
     currentStage: WorkflowStage,
     prompt: string,
     conversationHistory?: readonly ChatMessage[],
-    confirmationManager?: ConfirmationManager
-  ): WorkflowStage | null {
+    confirmationManager?: ConfirmationManager,
+    transitionHandler?: TransitionHandler,
+    nativeToolsManager?: NativeToolsManager
+  ): Promise<WorkflowStage | null> {
     // Detect trigger from prompt
     const trigger = this.detectTrigger(
       prompt,
@@ -335,17 +349,36 @@ export class StageStateMachine {
     // Use highest priority matching transition
     const transition = matchingTransitions[0];
 
-    // Verify transition is valid
-    if (!this.canTransition(currentStage, transition.to)) {
+    // Call the action function to determine actual target stage
+    const transitionContext: TransitionContext = {
+      prompt,
+      currentStage,
+      conversationHistory,
+      confirmationManager,
+      transitionHandler,
+      nativeToolsManager,
+    };
+    
+    const targetStage = await transition.action(transitionContext);
+    
+    if (targetStage === null) {
       console.log(
-        `[StageStateMachine] Transition rejected: ${currentStage} -> ${transition.to} (invalid per state machine rules)`
+        `[StageStateMachine] Action function aborted transition: ${currentStage} + ${trigger}`
+      );
+      return null;
+    }
+
+    // Verify transition is valid
+    if (!this.canTransition(currentStage, targetStage)) {
+      console.log(
+        `[StageStateMachine] Transition rejected: ${currentStage} -> ${targetStage} (invalid per state machine rules)`
       );
       return null;
     }
 
     // For self-loop transitions (same stage), return the current stage
     // This indicates an event occurred (next_step, auto, verbose_info) without stage change
-    if (currentStage === transition.to) {
+    if (currentStage === targetStage) {
       console.log(
         `[StageStateMachine] ✅ Event detected: ${currentStage} (trigger: ${trigger}) - staying in same stage`
       );
@@ -353,9 +386,9 @@ export class StageStateMachine {
     }
 
     console.log(
-      `[StageStateMachine] ✅ Transition approved: ${currentStage} -> ${transition.to} (trigger: ${trigger})`
+      `[StageStateMachine] ✅ Transition approved: ${currentStage} -> ${targetStage} (trigger: ${trigger})`
     );
-    return transition.to;
+    return targetStage;
   }
 
   /**
@@ -539,6 +572,7 @@ Example with just a tool call (no reasoning needed):
 - Creates files with the specified content
 - Fails if file already exists (use replace_file instead)
 - Best for: Initial file creation, fresh implementations
+- For auxiliary files, use 'stepX_' prefix to avoid naming conflicts
 
 **replace_file**: Use to REPLACE entire file content
 - Overwrites all file content completely

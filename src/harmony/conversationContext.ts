@@ -176,11 +176,12 @@ export class ConversationContextManager {
       };
     } else {
       this.context.progressPlan = plan;
-      // Synchronize maxSteps with plan's totalSteps when plan is updated
-      // BUT: don't override if maxSteps is already set to a lower value (could be a manual limit for testing or user preference)
-      if (this.context.maxSteps === undefined || this.context.maxSteps > plan.totalSteps) {
-        this.context.maxSteps = plan.totalSteps;
-      }
+      // Reset currentStep to 1 and maxSteps to totalSteps when setting a new progress plan
+      // This prevents the issue where conversation steps accumulate before the plan is created,
+      // causing currentStep to exceed maxSteps immediately when the plan workflow begins
+      this.context.currentStep = 1;
+      this.context.maxSteps = plan.totalSteps;
+      console.log(`[ConversationContext] Reset currentStep to 1 and maxSteps to ${plan.totalSteps} when setting progress plan`);
     }
   }
 

@@ -1080,20 +1080,8 @@ describe('HarmonyClient - Chat Stage', () => {
       const contextManager = (client as any).contextManager;
       contextManager.initialize('create a calculator app', 'chat');
       
-      // Mock response for chat -> assumptions transition
-      const chatToAssumptionsResponse = {
-        status: 200,
-        data: {
-          choices: [{ text: '<|channel|>final<|message|>Moving to assumptions stage<|end|>' }],
-        },
-      };
-      
-      mockedAxios.post.mockResolvedValueOnce(chatToAssumptionsResponse);
-      mockHarmonyProcessor.parseResponse.mockReturnValueOnce({
-        content: 'Moving to assumptions stage',
-        rawToolCalls: [],
-      });
-      mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
+      // NEW BEHAVIOR: "move to assumptions" now returns early without LLM call
+      // So we don't need to mock a response for it
       
       await client.callServer('move to assumptions', 'assumptions', undefined, false, [
         { role: 'user', content: 'create a calculator app' },

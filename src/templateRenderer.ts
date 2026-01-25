@@ -31,9 +31,9 @@ export class TemplateRenderer {
         ? this.formatConversationHistory(conversationHistory)
         : '';
       
-      let defaultPrompt = `${historyText}{{prompt}}`;
+      let defaultPrompt = `{{prompt}}`;
       
-      // Add harmony tokens at beginning and end when harmony mode is true
+      // Add harmony tokens to the new user message when harmony mode is true
       if (this.harmonyMode) {
         defaultPrompt = `<|start|>user<|channel|>final<|message|>${defaultPrompt}<|end|>`;
       }
@@ -46,6 +46,11 @@ export class TemplateRenderer {
         }
         return String(value);
       });
+      
+      // Add history before the new message
+      if (historyText) {
+        defaultPrompt = historyText + defaultPrompt;
+      }
       
       return defaultPrompt;
     }
@@ -121,14 +126,14 @@ ${assistantContent}
         return String(value);
       });
     
-    // Insert conversation history before the content
-    if (historyText) {
-      rendered = historyText + rendered;
-    }
-    
-    // Add harmony tokens at beginning and end when harmony mode is true
+    // Add harmony tokens to the new content only when harmony mode is true
     if (this.harmonyMode) {
       rendered = `<|start|>user<|channel|>final<|message|>${rendered}<|end|>`;
+    }
+    
+    // Insert conversation history BEFORE the new wrapped content
+    if (historyText) {
+      rendered = historyText + rendered;
     }
     
     return rendered;

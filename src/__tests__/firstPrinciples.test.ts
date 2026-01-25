@@ -398,7 +398,7 @@ describe('First Principles Thinking', () => {
         mockHarmonyClient.getCurrentStage.mockReturnValue('chat');
         mockHarmonyClient.shouldActivateFirstPrinciples.mockReturnValue(true);
         mockHarmonyClient.isFirstPrinciplesMode.mockReturnValue(false);
-        mockStageStateMachine.determineNextStage.mockReturnValue('chat');
+        mockStageStateMachine.determineNextStage.mockReturnValue(Promise.resolve('chat'));
 
         await assistant['handleChatMessage']('@first-principles analyze this');
 
@@ -410,7 +410,7 @@ describe('First Principles Thinking', () => {
         mockHarmonyClient.getCurrentStage.mockReturnValue('assumptions');
         mockHarmonyClient.shouldActivateFirstPrinciples.mockReturnValue(true);
         mockHarmonyClient.isFirstPrinciplesMode.mockReturnValue(true);
-        mockStageStateMachine.determineNextStage.mockReturnValue('assumptions');
+        mockStageStateMachine.determineNextStage.mockReturnValue(Promise.resolve('assumptions'));
 
         await assistant['handleChatMessage']('@first-principles analyze this');
 
@@ -435,7 +435,7 @@ describe('First Principles Thinking', () => {
         mockHarmonyClient.isFirstPrinciplesMode
           .mockReturnValueOnce(true)
           .mockReturnValue(true);
-        mockStageStateMachine.determineNextStage.mockReturnValue('assumptions');
+        mockStageStateMachine.determineNextStage.mockReturnValue(Promise.resolve('assumptions'));
 
         await assistant['handleChatMessage']('move to assumptions');
 
@@ -445,7 +445,7 @@ describe('First Principles Thinking', () => {
       it('should not deactivate if not active', async () => {
         mockHarmonyClient.getCurrentStage.mockReturnValue('chat');
         mockHarmonyClient.isFirstPrinciplesMode.mockReturnValue(false);
-        mockStageStateMachine.determineNextStage.mockReturnValue('chat');
+        mockStageStateMachine.determineNextStage.mockReturnValue(Promise.resolve('chat'));
 
         await assistant['handleChatMessage']('hello');
 
@@ -459,7 +459,7 @@ describe('First Principles Thinking', () => {
       it('should use assumptions template even if mode was active when entering assumptions stage', async () => {
         mockHarmonyClient.getCurrentStage.mockReturnValue('assumptions');
         mockHarmonyClient.isFirstPrinciplesMode.mockReturnValue(true);
-        mockStageStateMachine.determineNextStage.mockReturnValue('assumptions');
+        mockStageStateMachine.determineNextStage.mockReturnValue(Promise.resolve('assumptions'));
 
         await assistant['handleChatMessage']('continue analysis');
 
@@ -470,7 +470,7 @@ describe('First Principles Thinking', () => {
       it('should use assumptions template when mode is not active in assumptions stage', async () => {
         mockHarmonyClient.getCurrentStage.mockReturnValue('assumptions');
         mockHarmonyClient.isFirstPrinciplesMode.mockReturnValue(false);
-        mockStageStateMachine.determineNextStage.mockReturnValue('assumptions');
+        mockStageStateMachine.determineNextStage.mockReturnValue(Promise.resolve('assumptions'));
 
         await assistant['handleChatMessage']('analyze this');
 
@@ -481,7 +481,7 @@ describe('First Principles Thinking', () => {
       it('should use chat template when in chat stage regardless of first-principles mode', async () => {
         mockHarmonyClient.getCurrentStage.mockReturnValue('chat');
         mockHarmonyClient.isFirstPrinciplesMode.mockReturnValue(true);
-        mockStageStateMachine.determineNextStage.mockReturnValue('chat');
+        mockStageStateMachine.determineNextStage.mockReturnValue(Promise.resolve('chat'));
 
         await assistant['handleChatMessage']('hello');
 
@@ -492,7 +492,7 @@ describe('First Principles Thinking', () => {
       it('should use implementation template when in implementation stage', async () => {
         mockHarmonyClient.getCurrentStage.mockReturnValue('implementation');
         mockHarmonyClient.isFirstPrinciplesMode.mockReturnValue(true);
-        mockStageStateMachine.determineNextStage.mockReturnValue('implementation');
+        mockStageStateMachine.determineNextStage.mockReturnValue(Promise.resolve('implementation'));
 
         await assistant['handleChatMessage']('create the file');
 

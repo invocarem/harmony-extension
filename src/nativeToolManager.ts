@@ -215,7 +215,7 @@ export class NativeToolsManager {
       {
         name: "exec_terminal",
         description:
-          "Execute a shell command in the terminal. Use this to run scripts, execute programs, change directories, or run any command-line operations. Supports command chaining with && (e.g., 'cd /path/to/folder && python calc.py'). Returns the command output. The command runs in the workspace root directory by default, or in the specified working_directory.",
+          "Execute a shell command in the terminal. Use this to run scripts, execute programs, change directories, or run any command-line operations. Supports command chaining with && (e.g., 'cd /path/to/folder && python calc.py'). Returns the command output. The command runs in the workspace root directory by default, or in the specified working_directory. IMPORTANT: Never use .harmony folder as working_directory - it's only for storing metadata files.",
         inputSchema: {
           type: "object",
           properties: {
@@ -227,7 +227,7 @@ export class NativeToolsManager {
             working_directory: {
               type: "string",
               description:
-                "Optional working directory for the command. If not provided, uses workspace root or current file's directory.",
+                "Optional working directory for the command. If not provided, uses workspace root or current file's directory. Do NOT use .harmony folder.",
             },
           },
           required: ["command"],
@@ -1013,13 +1013,13 @@ export class NativeToolsManager {
 
           try {
             await stat(activatePath);
-            // Unix-style venv found
+            // Unix-style venv found - use absolute path so it works from any directory
             console.log(`[NativeTools] Found venv at ${venvPath}`);
             return `source "${activatePath}" && ${command}`;
           } catch {
             try {
               await stat(activateWindowsPath);
-              // Windows-style venv found
+              // Windows-style venv found - use absolute path so it works from any directory
               console.log(`[NativeTools] Found venv at ${venvPath}`);
               return `"${activateWindowsPath}" && ${command}`;
             } catch {
@@ -1047,9 +1047,28 @@ export class NativeToolsManager {
   ): Promise<NativeToolResult> {
     try {
       // Resolve working directory
-      const cwd = workingDirectory
+      let cwd = workingDirectory
         ? this.resolvePath(workingDirectory, true)
         : this.resolveDirectoryPath();
+
+      // If the working directory is inside .harmony folder, use the workspace root instead
+      // .harmony is just for storing files, not for executing commands
+      if (cwd.includes(path.sep + '.harmony')) {
+        // First try to use the stored workspace root
+        if (this.workspaceRoot) {
+          console.log(
+            `[NativeTools] Working directory is inside .harmony folder, using workspace root instead: "${this.workspaceRoot}"`
+          );
+          cwd = this.workspaceRoot;
+        } else {
+          // Fallback: extract workspace root from the path
+          const workspaceRoot = cwd.split(path.sep + '.harmony')[0];
+          console.log(
+            `[NativeTools] Working directory is inside .harmony folder, using extracted workspace root: "${workspaceRoot}"`
+          );
+          cwd = workspaceRoot;
+        }
+      }
 
       console.log(
         `[NativeTools] Executing command: "${command}" in directory: "${cwd}"`

@@ -213,131 +213,137 @@ describe("StageStateMachine", () => {
   });
 
   describe("determineNextStage()", () => {
-    it('should detect explicit "move to implementation" command from assumptions stage', () => {
-      const nextStage = stateMachine.determineNextStage(
+    it('should detect explicit "move to implementation" command from assumptions stage', async () => {
+      const nextStage = await stateMachine.determineNextStage(
         "assumptions",
         "move to implementation"
       );
       expect(nextStage).toBe("implementation");
     });
 
-    it('should reject "move to implementation" from chat stage (invalid transition)', () => {
-      const nextStage = stateMachine.determineNextStage(
+    it('should reject "move to implementation" from chat stage (invalid transition)', async () => {
+      const nextStage = await stateMachine.determineNextStage(
         "chat",
         "move to implementation"
       );
       expect(nextStage).toBe(null); // Invalid transition
     });
 
-    it("should NOT auto-transition from chat to assumptions for code-related questions (auto-transition disabled)", () => {
+    it("should NOT auto-transition from chat to assumptions for code-related questions (auto-transition disabled)", async () => {
       // Auto-transition is disabled - code keywords no longer trigger auto-transition
       // Users must explicitly say "move to assumptions" to transition
-      const nextStage = stateMachine.determineNextStage(
+      const nextStage = await stateMachine.determineNextStage(
         "chat",
         "how to implement a function"
       );
       expect(nextStage).toBeNull(); // Should stay in chat stage
     });
 
-    it("should NOT auto-transition from chat to assumptions for file operations (auto-transition disabled)", () => {
+    it("should NOT auto-transition from chat to assumptions for file operations (auto-transition disabled)", async () => {
       // Auto-transition is disabled - file operations no longer trigger auto-transition
       // Users must explicitly say "move to assumptions" to transition
-      const nextStage = stateMachine.determineNextStage(
+      const nextStage = await stateMachine.determineNextStage(
         "chat",
         "create hello.py file"
       );
       expect(nextStage).toBeNull(); // Should stay in chat stage
     });
 
-    it('should detect explicit "move to assumptions" command from chat stage', () => {
-      const nextStage = stateMachine.determineNextStage(
+    it('should detect explicit "move to assumptions" command from chat stage', async () => {
+      const nextStage = await stateMachine.determineNextStage(
         "chat",
         "move to assumptions"
       );
       expect(nextStage).toBe("assumptions");
     });
 
-    it("should NOT auto-transition from assumptions to implementation for file operations (auto-transition disabled)", () => {
+    it('should transition to assumptions with move_to_assumptions command even for trivial prompts', async () => {
+      // When user explicitly types "move to assumptions", it should work
+      // The action function checks the TRIGGER PROMPT, not what came before
+      const nextStage = await stateMachine.determineNextStage(
+        "chat",
+        "move to assumptions"
+      );
+      expect(nextStage).toBe("assumptions");
+    });
+
+    it('should demonstrate action function conditional logic', async () => {
+      // The action function receives the prompt and can decide whether to transition
+      // For "move to assumptions" trigger, the action checks if the prompt itself is meaningful
+      
+      // Case 1: Meaningful prompt with move command -> transition
+      const meaningful = await stateMachine.determineNextStage(
+        "chat",
+        "move to assumptions to create a new feature"
+      );
+      expect(meaningful).toBe("assumptions");
+      
+      // Case 2: The trigger detection happens first
+      // If user types just "hi", no trigger is detected, so action never runs
+      const trivial = await stateMachine.determineNextStage(
+        "chat",
+        "hi"
+      );
+      expect(trivial).toBeNull(); // No trigger detected
+    });
+
+    it("should NOT auto-transition from assumptions to implementation for file operations (auto-transition disabled)", async () => {
       // Auto-transition is disabled - file operations with extensions no longer auto-transition
       // Users must explicitly say "move to implementation" to transition
-      const nextStage = stateMachine.determineNextStage(
+      const nextStage = await stateMachine.determineNextStage(
         "assumptions",
         "create config.json"
       );
       expect(nextStage).toBeNull(); // Should stay in assumptions stage
     });
 
-    it("should detect explicit implementation commands from assumptions stage", () => {
-      const nextStage = stateMachine.determineNextStage(
-        "assumptions",
-        "now create the file"
-      );
-      expect(nextStage).toBe("implementation");
-    });
-
-    it("should detect clarification requests and transition to chat from implementation", () => {
-      const nextStage = stateMachine.determineNextStage(
-        "implementation",
-        "what went wrong?"
-      );
-      expect(nextStage).toBe("chat");
-    });
-
-    it("should detect @cmd:back_to_chat command and transition to chat from implementation", () => {
-      const nextStage = stateMachine.determineNextStage(
+    it("should detect @cmd:back_to_chat command and transition to chat from implementation", async () => {
+      const nextStage = await stateMachine.determineNextStage(
         "implementation",
         "@cmd:back_to_chat"
       );
       expect(nextStage).toBe("chat");
     });
 
-    it("should detect @cmd:back-to-chat command (with hyphens) and transition to chat from implementation", () => {
-      const nextStage = stateMachine.determineNextStage(
+    it("should detect @cmd:back-to-chat command (with hyphens) and transition to chat from implementation", async () => {
+      const nextStage = await stateMachine.determineNextStage(
         "implementation",
         "@cmd:back-to-chat"
       );
       expect(nextStage).toBe("chat");
     });
 
-    it("should detect code regeneration requests and transition to assumptions from implementation", () => {
-      const nextStage = stateMachine.determineNextStage(
-        "implementation",
-        "regenerate the code"
-      );
-      expect(nextStage).toBe("assumptions");
-    });
-
-    it("should detect @cmd:next as alias for next_step and stay in implementation", () => {
-      const nextStage = stateMachine.determineNextStage(
+    it("should detect @cmd:next as alias for next_step and stay in implementation", async () => {
+      const nextStage = await stateMachine.determineNextStage(
         "implementation",
         "@cmd:next"
       );
       expect(nextStage).toBe("implementation");
     });
 
-    it("should detect @cmd:next_step (original) and stay in implementation", () => {
-      const nextStage = stateMachine.determineNextStage(
+    it("should detect @cmd:next_step (original) and stay in implementation", async () => {
+      const nextStage = await stateMachine.determineNextStage(
         "implementation",
         "@cmd:next_step"
       );
       expect(nextStage).toBe("implementation");
     });
 
-    it("should detect @cmd:verbose as alias for verbose_info and stay in current stage", () => {
-      const nextStage = stateMachine.determineNextStage("chat", "@cmd:verbose");
+    it("should detect @cmd:verbose as alias for verbose_info and stay in current stage", async () => {
+      const nextStage = await stateMachine.determineNextStage("chat", "@cmd:verbose");
       expect(nextStage).toBe("chat");
     });
 
-    it("should detect @cmd:verbose_info (original) and stay in current stage", () => {
-      const nextStage = stateMachine.determineNextStage(
+    it("should detect @cmd:verbose_info (original) and stay in current stage", async () => {
+      const nextStage = await stateMachine.determineNextStage(
         "implementation",
         "@cmd:verbose_info"
       );
       expect(nextStage).toBe("implementation");
     });
 
-    it("should return null when no transition is needed", () => {
-      const nextStage = stateMachine.determineNextStage(
+    it("should return null when no transition is needed", async () => {
+      const nextStage = await stateMachine.determineNextStage(
         "chat",
         "hello, how are you?"
       );

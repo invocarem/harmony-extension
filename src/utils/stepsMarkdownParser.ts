@@ -44,51 +44,112 @@ export class StepsMarkdownParser {
     // Split text into lines and trim each line
     const lines = cleanText.split('\n').map(line => line.trim()).filter(line => line.length > 0);
 
-    let steps: Array<{ number: number; content: string; isPlanStep: boolean }> = [];
-    let planSection = "";
-    let hasPlanSection = false;
-    let inPlanSection = false;
-    // More specific plan headers - must end with colon or be standalone
+    // Plan section patterns - ordered by priority (most specific first)
+    // Patterns must handle markdown headers (###), numbered sections (5.), and plain text
     const planHeaderPatterns = [
-      /^(\d+\.\s*)?numbered\s+plan\s*:?$/i,
-      /^(\d+\.\s*)?plan\s*:$/i,
-      /^(\d+\.\s*)?steps?\s*:$/i,
-      /^(\d+\.\s*)?execution\s*:$/i,
+      { pattern: /^#+\s*(\d+\.\s*)?implementation\s+plan/i, priority: 1, name: 'Implementation Plan (Markdown)' },
+      { pattern: /^(\d+\.\s*)?implementation\s+plan/i, priority: 1, name: 'Implementation Plan' },
+      { pattern: /^#+\s*(\d+\.\s*)?execution\s+plan/i, priority: 1, name: 'Execution Plan (Markdown)' },
+      { pattern: /^(\d+\.\s*)?execution\s+plan/i, priority: 1, name: 'Execution Plan' },
+      { pattern: /^#+\s*(\d+\.\s*)?numbered\s+plan\s*:?$/i, priority: 2, name: 'Numbered Plan (Markdown)' },
+      { pattern: /^(\d+\.\s*)?numbered\s+plan\s*:?$/i, priority: 2, name: 'Numbered Plan' },
+      { pattern: /^#+\s*(\d+\.\s*)?plan\s*:$/i, priority: 3, name: 'Plan (Markdown)' },
+      { pattern: /^(\d+\.\s*)?plan\s*:$/i, priority: 3, name: 'Plan' },
+      { pattern: /^#+\s*(\d+\.\s*)?steps?\s*:$/i, priority: 3, name: 'Steps (Markdown)' },
+      { pattern: /^(\d+\.\s*)?steps?\s*:$/i, priority: 3, name: 'Steps' },
+      { pattern: /^#+\s*(\d+\.\s*)?execution\s*:$/i, priority: 3, name: 'Execution (Markdown)' },
+      { pattern: /^(\d+\.\s*)?execution\s*:$/i, priority: 3, name: 'Execution' },
     ];
 
-    // First pass: look for plan section headers
-    let planStartIndex = -1;
+    // Section headers that indicate we should stop extracting steps
+    const stopSectionPatterns = [
+      /^#+\s*\d+\.\s*assumptions/i,
+      /^#+\s*assumptions/i,
+      /^#+\s*\d+\.\s*edge\s+cases/i,
+      /^#+\s*edge\s+cases/i,
+      /^#+\s*\d+\.\s*considerations/i,
+      /^#+\s*special\s+considerations/i,
+      /^#+\s*\d+\.\s*notes/i,
+      /^#+\s*background/i,
+      /^#+\s*context/i,
+      /^#+\s*summary/i,
+    ];
+
+    // Scan through all lines and find ALL plan section headers
+    const planSections: Array<{ index: number; priority: number; name: string }> = [];
+    
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      if (planHeaderPatterns.some(pattern => pattern.test(line))) {
-        planStartIndex = i;
-        inPlanSection = true;
-        hasPlanSection = true;
-        break;
+      
+      for (const planPattern of planHeaderPatterns) {
+        if (planPattern.pattern.test(line)) {
+          planSections.push({
+            index: i,
+            priority: planPattern.priority,
+            name: planPattern.name
+          });
+          console.log(`[StepsMarkdownParser] Found plan section at line ${i}: "${line}" (${planPattern.name}, priority ${planPattern.priority})`);
+          break; // Only match one pattern per line
+        }
       }
     }
 
-    // If we found a plan section, extract steps from that section onward
-    if (planStartIndex >= 0) {
-      const planLines = lines.slice(planStartIndex + 1);
+    // If we found multiple plan sections, use the one with highest priority (lowest number)
+    // If there are ties, use the LAST one (as it's likely the actual implementation plan)
+    let bestPlanIndex = -1;
+    let bestPriority = Infinity;
+    
+    if (planSections.length > 0) {
+      // Sort by priority (ascending), then by index (descending for tie-breaking)
+      planSections.sort((a, b) => {
+        if (a.priority !== b.priority) {
+          return a.priority - b.priority; // Lower priority number = higher priority
+        }
+        return b.index - a.index; // For same priority, prefer later occurrence
+      });
+      
+      const bestSection = planSections[0];
+      bestPlanIndex = bestSection.index;
+      console.log(`[StepsMarkdownParser] Selected plan section: ${bestSection.name} at line ${bestPlanIndex}`);
+    }
+
+    // Extract steps from the selected plan section
+    let steps: Array<{ number: number; content: string; isPlanStep: boolean }> = [];
+    let planSection = "";
+    
+    if (bestPlanIndex >= 0) {
+      // Find where the plan section ends (next section header or end of text)
+      let planEndIndex = lines.length;
+      for (let i = bestPlanIndex + 1; i < lines.length; i++) {
+        if (stopSectionPatterns.some(pattern => pattern.test(lines[i]))) {
+          planEndIndex = i;
+          console.log(`[StepsMarkdownParser] Plan section ends at line ${i}: "${lines[i]}"`);
+          break;
+        }
+      }
+      
+      const planLines = lines.slice(bestPlanIndex + 1, planEndIndex);
       planSection = planLines.join('\n');
       steps = this.extractStepsFromLines(planLines, true);
+      console.log(`[StepsMarkdownParser] Extracted ${steps.length} steps from plan section`);
     }
 
     // If no plan section found, try to extract steps from the whole text
     if (steps.length === 0) {
+      console.log(`[StepsMarkdownParser] No plan section found, scanning entire text for steps`);
       steps = this.extractStepsFromLines(lines, false);
     }
 
     return {
       hasPlan: steps.length > 0,
       steps,
-      planSection: hasPlanSection && planSection.length > 0 ? planSection : undefined,
+      planSection: bestPlanIndex >= 0 && planSection.length > 0 ? planSection : undefined,
     };
   }
 
   /**
    * Extract steps from an array of lines
+   * This method now assumes the lines are already from a specific section
    */
   private static extractStepsFromLines(
     lines: string[],

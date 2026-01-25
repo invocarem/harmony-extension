@@ -304,7 +304,7 @@ describe('HarmonyAssistant', () => {
   describe('handleChatMessage - Stage Detection', () => {
     it('should detect stage transition from assumptions to implementation', async () => {
       mockHarmonyClient.getCurrentStage.mockReturnValue('assumptions');
-      mockStageStateMachine.determineNextStage.mockReturnValue('implementation');
+      mockStageStateMachine.determineNextStage.mockReturnValue(Promise.resolve('implementation'));
 
       await assistant['handleChatMessage']('move to implementation');
 
@@ -327,7 +327,7 @@ describe('HarmonyAssistant', () => {
 
     it('should use correct template for implementation stage after transition', async () => {
       mockHarmonyClient.getCurrentStage.mockReturnValue('assumptions');
-      mockStageStateMachine.determineNextStage.mockReturnValue('implementation');
+      mockStageStateMachine.determineNextStage.mockReturnValue(Promise.resolve('implementation'));
 
       await assistant['handleChatMessage']('move to implementation');
 
@@ -337,7 +337,7 @@ describe('HarmonyAssistant', () => {
 
     it('should use assumptions template when in assumptions stage', async () => {
       mockHarmonyClient.getCurrentStage.mockReturnValue('assumptions');
-      mockStageStateMachine.determineNextStage.mockReturnValue('assumptions');
+      mockStageStateMachine.determineNextStage.mockReturnValue(Promise.resolve('assumptions'));
 
       await assistant['handleChatMessage']('how to implement a function');
 
@@ -347,7 +347,7 @@ describe('HarmonyAssistant', () => {
 
     it('should use chat template when in chat stage', async () => {
       mockHarmonyClient.getCurrentStage.mockReturnValue('chat');
-      mockStageStateMachine.determineNextStage.mockReturnValue('chat');
+      mockStageStateMachine.determineNextStage.mockReturnValue(Promise.resolve('chat'));
 
       await assistant['handleChatMessage']('hello');
 
@@ -357,7 +357,7 @@ describe('HarmonyAssistant', () => {
 
     it('should detect stage from prompt when no context exists', async () => {
       mockHarmonyClient.getCurrentStage.mockReturnValue('chat');
-      mockStageStateMachine.determineNextStage.mockReturnValue('assumptions');
+      mockStageStateMachine.determineNextStage.mockReturnValue(Promise.resolve('assumptions'));
       // Mock hasUnansweredProblems to return true so transition is allowed
       const mockChatManager = mockHarmonyClient.getChatManager();
       (mockChatManager.hasUnansweredProblems as jest.Mock).mockReturnValue(true);

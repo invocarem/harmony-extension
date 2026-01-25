@@ -512,11 +512,18 @@ export class HarmonyAssistant {
       }
 
       // Add user message to history (store original message)
-      const userMessage: ChatMessage = {
-        role: "user",
-        content: text, // Store original message with @file references
-      };
-      this.conversationManager.addMessage(userMessage);
+      // Filter out stage transition commands from conversation history
+      const isStageTransitionCommand = /^\s*(?:move\s+to|go\s+to|goto)\s+(?:assumptions?|analysis|analyze|implementations?|implement|chat)\s*$/i.test(text);
+      
+      if (!isStageTransitionCommand) {
+        const userMessage: ChatMessage = {
+          role: "user",
+          content: text, // Store original message with @file references
+        };
+        this.conversationManager.addMessage(userMessage);
+      } else {
+        console.log(`[Harmony] Filtering out stage transition command from conversation history: "${text}"`);
+      }
 
       console.log(
         `[DEBUG] Calling Harmony server with ${this.conversationManager.getLength()} messages in history...`
@@ -583,7 +590,7 @@ export class HarmonyAssistant {
         const history = this.conversationManager.getHistoryForTemplate();
         if (currentStage !== "chat") {
           // If we have a context, check for stage transitions from the current stage
-          const detectedStage = this.stageStateMachine.determineNextStage(
+          const detectedStage = await this.stageStateMachine.determineNextStage(
             currentStage,
             finalMessage,
             history,
@@ -599,7 +606,7 @@ export class HarmonyAssistant {
           }
         } else {
           // If no context exists or we're in chat, detect stage from prompt
-          const detectedStage = this.stageStateMachine.determineNextStage(
+          const detectedStage = await this.stageStateMachine.determineNextStage(
             "chat",
             finalMessage,
             history,
@@ -893,7 +900,7 @@ export class HarmonyAssistant {
     switch (commandLower) {
       case "move_to_implementation": {
         const currentStage = this.harmonyClient.getCurrentStage();
-        // Validate transition
+        // Validate transition using state machine table
         if (
           !this.stageStateMachine.canTransition(currentStage, "implementation")
         ) {
@@ -903,16 +910,35 @@ export class HarmonyAssistant {
             message: `Cannot transition to implementation stage from ${currentStage}. Valid transitions: ${currentStage === "chat" ? "chat -> assumptions" : currentStage === "assumptions" ? "assumptions -> implementation" : "N/A"}`,
           };
         }
+
+        // Execute transition directly - no LLM call needed
+        const transitionHandler = (this.harmonyClient as any).stateTransitionManager.transitionHandler;
+        const contextManager = (this.harmonyClient as any).contextManager;
+        
+        // Execute transition side effects based on current stage
+        if (currentStage === "assumptions") {
+          await transitionHandler.handleAssumptionsToImplementationTransition(
+            "move to implementation",
+            this.nativeToolsManager
+          );
+        }
+        
+        // Validate implementation has a plan
+        await transitionHandler.validateImplementationTransition();
+        
+        // Update stage in context
+        contextManager.updateStage("implementation", "move to implementation");
+        
         return {
           handled: true,
-          shouldReturn: false,
-          newStage: "implementation",
+          shouldReturn: true,
+          message: `✓ Transitioned to implementation stage`,
         };
       }
 
       case "move_to_assumptions": {
         const currentStage = this.harmonyClient.getCurrentStage();
-        // Validate transition
+        // Validate transition using state machine table
         if (
           !this.stageStateMachine.canTransition(currentStage, "assumptions")
         ) {
@@ -936,16 +962,33 @@ export class HarmonyAssistant {
           }
         }
 
+        // Execute transition directly - no LLM call needed
+        const transitionHandler = (this.harmonyClient as any).stateTransitionManager.transitionHandler;
+        const contextManager = (this.harmonyClient as any).contextManager;
+        const conversationHistory = this.conversationManager.getHistory();
+        
+        // Execute transition side effects based on current stage
+        if (currentStage === "chat") {
+          await transitionHandler.handleChatToAssumptionsTransition(
+            "move to assumptions",
+            conversationHistory,
+            this.nativeToolsManager
+          );
+        }
+        
+        // Update stage in context
+        contextManager.updateStage("assumptions", "move to assumptions");
+        
         return {
           handled: true,
-          shouldReturn: false,
-          newStage: "assumptions",
+          shouldReturn: true,
+          message: `✓ Transitioned to assumptions stage`,
         };
       }
 
       case "move_to_chat": {
         const currentStage = this.harmonyClient.getCurrentStage();
-        // Validate transition
+        // Validate transition using state machine table
         if (!this.stageStateMachine.canTransition(currentStage, "chat")) {
           return {
             handled: true,
@@ -953,10 +996,23 @@ export class HarmonyAssistant {
             message: `Cannot transition to chat stage from ${currentStage}. Valid transitions: ${currentStage === "assumptions" ? "assumptions -> chat" : currentStage === "implementation" ? "implementation -> chat" : "N/A"}`,
           };
         }
+
+        // Execute transition directly - no LLM call needed
+        const contextManager = (this.harmonyClient as any).contextManager;
+        const chatManager = this.harmonyClient.getChatManager();
+        
+        // Initialize chat manager if not already initialized
+        if (!chatManager.hasContent()) {
+          chatManager.initialize();
+        }
+        
+        // Update stage in context
+        contextManager.updateStage("chat", "move to chat");
+        
         return {
           handled: true,
-          shouldReturn: false,
-          newStage: "chat",
+          shouldReturn: true,
+          message: `✓ Transitioned to chat stage`,
         };
       }
 

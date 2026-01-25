@@ -76,6 +76,10 @@ export class AutoTransitionManager {
       : [];
 
     console.log(`[AutoTransitionManager] extractStepsFromText: complexity=${complexity}, contentSteps=${contentSteps.length}, promptSteps=${promptSteps.length}`);
+    console.log(`[AutoTransitionManager] Content being parsed (first 500 chars): "${content.substring(0, 500)}"`);
+    if (contentSteps.length > 0) {
+      console.log(`[AutoTransitionManager] Extracted contentSteps:`, contentSteps.map(s => `Step ${s.number}: ${s.content.substring(0, 100)}`));
+    }
 
     let selectedSteps = contentSteps;
     const requiredCount = complexity === "hard" ? 3 : 1;
@@ -310,9 +314,15 @@ export class AutoTransitionManager {
     const startingAtOne = groups.filter((group) => group[0]?.number === 1);
     const candidates = startingAtOne.length > 0 ? startingAtOne : groups;
 
+    // Prefer plan section steps (isPlanStep=true) over casual numbered lists
+    const planGroups = candidates.filter((group) => 
+      group.some((step) => step.isPlanStep)
+    );
+    const finalCandidates = planGroups.length > 0 ? planGroups : candidates;
+
     let best: Array<{ number: number; content: string; isPlanStep: boolean }> = [];
 
-    for (const group of candidates) {
+    for (const group of finalCandidates) {
       if (group.length > best.length || group.length === best.length) {
         best = group;
       }
@@ -344,6 +354,7 @@ export class AutoTransitionManager {
       "install", "setup", "set up", "configure", "initialize",
       "test", "verify", "validate", "check",
       "deploy", "run", "execute", "launch", "start",
+      "capture", "record", "save", "store", "persist",  // Data capture verbs
       // Analytical and planning verbs
       "identify", "determine", "analyze", "assess", "evaluate", "examine",
       "review", "investigate", "explore", "study", "research",
