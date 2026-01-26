@@ -200,5 +200,44 @@ describe("CommandExtractor", () => {
       expect(result.command?.command).toBe("verbose-info");
       expect(result.cleanMessage).toBe("");
     });
+
+    it("should extract @cmd:plan command", () => {
+      const message = "@cmd:plan";
+      const result = CommandExtractor.extractCommand(message);
+
+      expect(result.command).not.toBeNull();
+      expect(result.command?.command).toBe("plan");
+      expect(result.command?.originalText).toBe("@cmd:plan");
+      expect(result.cleanMessage).toBe("");
+    });
+
+    it("should extract @cmd:plan and ignore remaining text", () => {
+      const message = "@cmd:plan create the plan";
+      const result = CommandExtractor.extractCommand(message);
+
+      expect(result.command).not.toBeNull();
+      expect(result.command?.command).toBe("plan");
+      expect(result.cleanMessage).toBe("create the plan");
+    });
+
+    it("should detect text before command and mark it invalid", () => {
+      const message = "hi, @cmd:move_to_assumptions";
+      const result = CommandExtractor.extractCommand(message);
+
+      expect(result.command).not.toBeNull();
+      expect(result.command?.command).toBe("move_to_assumptions");
+      expect(result.command?.hasTextBefore).toBe(true);
+      expect(result.cleanMessage).toBe("hi,");
+    });
+
+    it("should allow command at the start of message", () => {
+      const message = "@cmd:move_to_assumptions create file.py";
+      const result = CommandExtractor.extractCommand(message);
+
+      expect(result.command).not.toBeNull();
+      expect(result.command?.command).toBe("move_to_assumptions");
+      expect(result.command?.hasTextBefore).toBe(false);
+      expect(result.cleanMessage).toBe("create file.py");
+    });
   });
 });

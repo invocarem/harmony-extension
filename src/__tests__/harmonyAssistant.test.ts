@@ -313,7 +313,10 @@ describe('HarmonyAssistant', () => {
         'assumptions',
         expect.any(String), // finalMessage may have file context prepended
         [],
-        expect.any(ConfirmationManager)
+        expect.any(ConfirmationManager),
+        undefined, // transitionHandler
+        undefined, // nativeToolsManager
+        expect.anything()  // chatManager
       );
       expect(mockHarmonyClient.callServer).toHaveBeenCalledWith(
         expect.any(String),
@@ -368,7 +371,10 @@ describe('HarmonyAssistant', () => {
         'chat',
         expect.any(String),
         [],
-        expect.any(ConfirmationManager)
+        expect.any(ConfirmationManager),
+        undefined, // transitionHandler
+        undefined, // nativeToolsManager
+        expect.anything()  // chatManager
       );
       // Verify callServer was called
       expect(mockHarmonyClient.callServer).toHaveBeenCalled();

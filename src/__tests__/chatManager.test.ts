@@ -1009,6 +1009,32 @@ describe('ChatManager', () => {
       expect(manager.hasUnansweredProblems()).toBe(false);
     });
 
+    it('should handle "Hi" with clarifying question response - no problem created', () => {
+      manager.initialize();
+      manager.addQuery('Hi');
+      
+      // LLM asks a clarifying question back
+      manager.processResponse('Got it! How can I help you today? Could you let me know what specific assistance you need?', 'Hi');
+      
+      // Still no problem because "hi" is a greeting
+      expect(manager.hasUnansweredProblems()).toBe(false);
+    });
+
+    it('should handle "what is 2+2?" - only restated, creates problem', () => {
+      manager.initialize();
+      const userQuery = 'what is 2+2?';
+      manager.addQuery(userQuery);
+      
+      // Response that only restates without answering
+      manager.processResponse('You are asking what 2+2 is. Let me help you with that calculation.', userQuery);
+      
+      // Should have a problem (question was not fully answered)
+      expect(manager.hasUnansweredProblems()).toBe(true);
+      const problems = manager.getUnansweredProblems();
+      expect(problems.length).toBeGreaterThan(0);
+      expect(problems[0].statement.toLowerCase()).toContain('2');
+    });
+
     it('should handle "What is the capital of France?" - answered immediately', () => {
       manager.initialize();
       const userQuery = 'What is the capital of France?';
@@ -1084,6 +1110,66 @@ describe('ChatManager', () => {
       const problems = manager.getUnansweredProblems();
       expect(problems.length).toBeGreaterThan(0);
       expect(problems[0].requiresTools).toBe(true);
+    });
+
+    it('should create problem for "create hello.py" command', () => {
+      manager.initialize();
+      const userQuery = 'create hello.py';
+      manager.addQuery(userQuery);
+      
+      // System warning response
+      const response = 'I understand you want to create files.\n\n⚠️ **Note**: File modification tools (create_file) are not available in the Chat stage.';
+      manager.processResponse(response, userQuery);
+      
+      // Should have a problem with requiresTools=true
+      expect(manager.hasUnansweredProblems()).toBe(true);
+      const problems = manager.getUnansweredProblems();
+      expect(problems.length).toBeGreaterThan(0);
+      expect(problems[0].requiresTools).toBe(true);
+      expect(problems[0].statement.toLowerCase()).toMatch(/create|file|hello/);
+    });
+
+    it('should detect requiresTools from user query even without warning in response', () => {
+      manager.initialize();
+      const userQuery = 'create hello.py';
+      manager.addQuery(userQuery);
+      
+      // LLM responds with just a restatement, no warning about tools
+      const response = 'You want to create a hello.py file. What should be in the file?';
+      manager.processResponse(response, userQuery);
+      
+      // Should have a problem with requiresTools=true (detected from user query)
+      expect(manager.hasUnansweredProblems()).toBe(true);
+      const problems = manager.getUnansweredProblems();
+      expect(problems.length).toBeGreaterThan(0);
+      expect(problems[0].requiresTools).toBe(true);
+      expect(problems[0].statement).toContain('want to create');
+    });
+
+    it('should detect requiresTools for various file operations', () => {
+      const testCases = [
+        'create test.js',
+        'write hello.py',
+        'modify config.json',
+        'fix bug in calculator.py',
+        'implement feature in app.ts',
+        'add function to utils.js',
+      ];
+
+      for (const userQuery of testCases) {
+        manager.initialize();
+        manager.addQuery(userQuery);
+        
+        // LLM just restates without warning
+        const response = `You want to ${userQuery}. Let me help with that.`;
+        manager.processResponse(response, userQuery);
+        
+        expect(manager.hasUnansweredProblems()).toBe(true);
+        const problems = manager.getUnansweredProblems();
+        expect(problems[0].requiresTools).toBe(true);
+        
+        manager.clear();
+      }
     });
 
     it('should get problem summary as string for backward compatibility', () => {

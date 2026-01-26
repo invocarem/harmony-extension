@@ -3,7 +3,7 @@ import { MCPToolResult } from "../mcpClient";
 import { ConfirmationManager } from "./confirmationManager";
 import { TransitionHandler } from "./transitionHandler";
 import { NativeToolsManager } from "../nativeToolManager";
-
+import { ChatManager } from "./chatManager";import { AssumptionsManager } from './assumptionsManager';
 export type WorkflowStage = "init" | "chat" | "assumptions" | "implementation";
 
 /**
@@ -17,6 +17,8 @@ export type TransitionTrigger =
   | "next_step" // Execute one step, stay in implementation
   | "auto" // Execute one step, stay in implementation (auto mode)
   | "verbose_info" // Generate verboseInfo, stay in current stage (works from any stage)
+  | "prompt" // Regular user prompt (stage-specific behavior)
+  | "plan" // Create or update plan (assumptions stage only)
   | "none";
 
 /**
@@ -29,6 +31,8 @@ export interface TransitionContext {
   confirmationManager?: ConfirmationManager;
   transitionHandler?: TransitionHandler;
   nativeToolsManager?: NativeToolsManager;
+  chatManager?: ChatManager;
+  assumptionsManager?: AssumptionsManager;
 }
 
 /**
@@ -73,21 +77,29 @@ const initializeAction: TransitionAction = async (context): Promise<WorkflowStag
 
 /**
  * Action: Move to assumptions from chat
- * Condition: Check if prompt is meaningful (not just "hi" or empty)
+ * For explicit @cmd:move_to_assumptions - always transition (user's direct intent)
+ * For natural language - check if there are unanswered problems
  * Side effect: Save aggregated prompts
  */
 const moveToAssumptionsFromChat: TransitionAction = async (context): Promise<WorkflowStage | null> => {
-  const { prompt, currentStage, conversationHistory, transitionHandler, nativeToolsManager } = context;
-  const trimmedPrompt = prompt.trim().toLowerCase();
+  const { prompt, currentStage, conversationHistory, transitionHandler, nativeToolsManager, chatManager } = context;
   
-  // Check if prompt is too trivial to create assumptions
-  const trivialInputs = ["hi", "hello", "hey", "yo", "sup", ""];
-  if (trivialInputs.includes(trimmedPrompt)) {
-    console.log(`[Action] move_to_assumptions: Staying in chat (trivial input: "${prompt}")`);
-    return "chat" as WorkflowStage; // Stay in chat
+  // Check if this is an explicit @cmd: command
+  const isExplicitCommand = /^@cmd:move_to_assumptions/i.test(prompt);
+  
+  // Validate transition: require either unanswered problems OR meaningful query
+  // This prevents transition from fresh chat or trivial greetings
+  if (chatManager) {
+    const hasProblems = chatManager.hasUnansweredProblems();
+    const allowTransition = chatManager.allowMoveToAssumptions();
+    
+    if (!hasProblems && !allowTransition) {
+      console.log(`[Action] move_to_assumptions: Staying in chat (no unanswered problems or meaningful queries)`);
+      return "chat" as WorkflowStage; // Stay in chat
+    }
   }
   
-  console.log(`[Action] move_to_assumptions: chat -> assumptions`);
+  console.log(`[Action] move_to_assumptions: chat -> assumptions${isExplicitCommand ? ' (explicit command)' : ''}`);
   
   // Perform side effect: save aggregated prompts
   if (transitionHandler) {
@@ -108,7 +120,15 @@ const moveToAssumptionsFromChat: TransitionAction = async (context): Promise<Wor
  * Side effect: Save assumptions data
  */
 const moveToImplementation: TransitionAction = async (context): Promise<WorkflowStage | null> => {
-  const { prompt, transitionHandler, nativeToolsManager } = context;
+  const { prompt, transitionHandler, nativeToolsManager, assumptionsManager } = context;
+  
+  // Validate transition: require plan to be created or updated
+  // This prevents premature transition before assumptions analysis is complete
+  if (assumptionsManager && !assumptionsManager.allowMoveToImplementation()) {
+    console.log(`[Action] move_to_implementation: Staying in assumptions (no plan created yet)`);
+    return "assumptions" as WorkflowStage; // Stay in assumptions
+  }
+  
   console.log(`[Action] move_to_implementation: assumptions -> implementation`);
   
   // Perform side effect: save assumptions data
@@ -155,6 +175,36 @@ const verboseInfo: TransitionAction = (context) => {
 };
 
 /**
+ * Action: Restate user's problem (stay in chat stage)
+ * Used when user provides a regular prompt in chat stage
+ */
+const restateAction: TransitionAction = async (context): Promise<WorkflowStage> => {
+  console.log(`[Action] restate: staying in chat - will restate user's problem and clarify`);
+  
+  // Perform side effect: ensure ChatManager is ready
+  if (context.transitionHandler) {
+    await context.transitionHandler.handleChatPromptAction();
+  }
+  
+  return "chat" as WorkflowStage;
+};
+
+/**
+ * Action: Generate or update plan (stay in assumptions stage)
+ * Used when user provides a regular prompt in assumptions stage
+ */
+const generateOrUpdatePlanAction: TransitionAction = async (context): Promise<WorkflowStage> => {
+  console.log(`[Action] generate_or_update_plan: staying in assumptions - will generate/update plan`);
+  
+  // Perform side effect: ensure AssumptionsManager is ready
+  if (context.transitionHandler) {
+    await context.transitionHandler.handleAssumptionsPromptAction();
+  }
+  
+  return "assumptions" as WorkflowStage;
+};
+
+/**
  * ============================================
  * TRANSITION TABLE
  * ============================================
@@ -178,6 +228,10 @@ const TRANSITION_TABLE: TransitionRule[] = [
   { from: "chat", to: "chat", trigger: "verbose_info", action: verboseInfo, priority: 100 },
   { from: "assumptions", to: "assumptions", trigger: "verbose_info", action: verboseInfo, priority: 100 },
   { from: "implementation", to: "implementation", trigger: "verbose_info", action: verboseInfo, priority: 100 },
+
+  // Regular prompt handling (stage-specific default behavior)
+  { from: "chat", to: "chat", trigger: "prompt", action: restateAction, priority: 10 },
+  { from: "assumptions", to: "assumptions", trigger: "plan", action: generateOrUpdatePlanAction, priority: 10 },
 
   // Chat -> Assumptions transitions (DISABLED: Auto-transition removed, requires explicit "move to assumptions")
   // { from: 'chat', to: 'assumptions', trigger: 'code_keywords', action: ..., priority: 50 },
@@ -250,7 +304,8 @@ export class StageStateMachine {
     if (
       /\b(move\s+to|go\s+to|goto|start|begin)\s+(implementation|implement)\b/i.test(
         promptLower
-      )
+      ) ||
+      /@cmd:move[_-]?to[_-]?implementation/i.test(promptLower)
     ) {
       return "move_to_implementation";
     }
@@ -258,7 +313,8 @@ export class StageStateMachine {
     if (
       /\b(move\s+to|go\s+to|goto|start|begin)\s+(assumptions|analysis|analyze|plan|design)\b/i.test(
         promptLower
-      )
+      ) ||
+      /@cmd:move[_-]?to[_-]?assumptions/i.test(promptLower)
     ) {
       return "move_to_assumptions";
     }
@@ -267,7 +323,8 @@ export class StageStateMachine {
       /\b(move\s+to|go\s+to|goto|back\s+to|return\s+to|clarify|chat|talk|discuss)\s+(chat|discussion|clarification)\b/i.test(
         promptLower
       ) ||
-      /@cmd:back[_-]?to[_-]?chat/i.test(promptLower)
+      /@cmd:back[_-]?to[_-]?chat/i.test(promptLower) ||
+      /@cmd:move[_-]?to[_-]?chat/i.test(promptLower)
     ) {
       return "move_to_chat";
     }
@@ -279,6 +336,13 @@ export class StageStateMachine {
       )
     ) {
       return "verbose_info";
+    }
+
+    // Detect plan command (assumptions stage only)
+    if (currentStage === "assumptions") {
+      if (/@cmd:plan|create\s+(?:a\s+)?plan|update\s+(?:the\s+)?plan|generate\s+(?:a\s+)?plan/i.test(promptLower)) {
+        return "plan";
+      }
     }
 
     // Detect next_step and auto commands (only in implementation stage)
@@ -298,6 +362,17 @@ export class StageStateMachine {
       }
     }
 
+    // Default: regular prompt (stage-specific behavior)
+    // This allows each stage to handle regular user prompts differently
+    if (currentStage === "chat") {
+      return "prompt";
+    }
+    
+    // In assumptions stage, regular prompts trigger plan update (fallback)
+    if (currentStage === "assumptions") {
+      return "plan";
+    }
+
     return "none";
   }
 
@@ -312,7 +387,9 @@ export class StageStateMachine {
     conversationHistory?: readonly ChatMessage[],
     confirmationManager?: ConfirmationManager,
     transitionHandler?: TransitionHandler,
-    nativeToolsManager?: NativeToolsManager
+    nativeToolsManager?: NativeToolsManager,
+    chatManager?: ChatManager,
+    assumptionsManager?: AssumptionsManager
   ): Promise<WorkflowStage | null> {
     // Detect trigger from prompt
     const trigger = this.detectTrigger(
@@ -348,6 +425,8 @@ export class StageStateMachine {
       confirmationManager,
       transitionHandler,
       nativeToolsManager,
+      chatManager,
+      assumptionsManager,
     };
     
     const targetStage = await transition.action(transitionContext);

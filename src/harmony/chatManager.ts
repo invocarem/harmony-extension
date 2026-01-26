@@ -35,6 +35,7 @@ export interface ChatState {
   queries: ChatQuery[];           // All user queries in chat stage
   referredFiles: Array<{ file: string; description?: string }>;  // Files referred to/mentioned across all queries
   lastUpdated: number;
+  allowMoveToAssumptions: boolean;   // True if user has asked a meaningful question (not trivial greeting/command)
 }
 
 /**
@@ -58,6 +59,7 @@ export class ChatManager {
       queries: [],
       referredFiles: [],
       lastUpdated: Date.now(),
+      allowMoveToAssumptions: false,
     };
     console.log(`[ChatManager] Initialized chat state`);
   }
@@ -163,6 +165,15 @@ export class ChatManager {
     };
 
     this.state.queries.push(chatQuery);
+    
+    // Check if this is a meaningful query (not trivial greeting or command)
+    const isTrivialGreeting = /^(hi|hello|hey|greetings?|good\s+(morning|afternoon|evening|day))$/i.test(trimmedQuery);
+    const isCommand = /^@cmd:/i.test(trimmedQuery);
+    
+    if (!isTrivialGreeting && !isCommand) {
+      this.state.allowMoveToAssumptions = true;
+      console.log(`[ChatManager] Meaningful query detected`);
+    }
     
     // Update referred files array (deduplicate by file path)
     relatedFiles.forEach(file => {
@@ -364,7 +375,7 @@ export class ChatManager {
           this.removeProblemIfSolved(potentialSummary, responseContent, userQuery);
         } else {
           // Problem was only restated, not solved - add it
-          const requiresTools = this.detectRequiresTools(responseContent);
+          const requiresTools = this.detectRequiresTools(responseContent, userQuery);
           this.addProblem(potentialSummary, userQuery, requiresTools);
         }
       } else {
@@ -456,12 +467,26 @@ export class ChatManager {
   /**
    * Detect if response indicates tools are required
    */
-  private detectRequiresTools(responseContent: string): boolean {
+  private detectRequiresTools(responseContent: string, userQuery?: string): boolean {
     const lowerContent = responseContent.toLowerCase();
-    return lowerContent.includes('move to assumptions') ||
+    const responseNeedsTools = lowerContent.includes('move to assumptions') ||
            lowerContent.includes('tools not available') ||
            lowerContent.includes('requires tools') ||
            lowerContent.includes('need tools');
+    
+    // Also check if user query itself indicates a file operation
+    if (userQuery) {
+      const lowerQuery = userQuery.toLowerCase();
+      const queryNeedsTools = lowerQuery.match(/\b(create|write|modify|update|delete|edit|add|change|fix|implement|build|generate)\s+.*\.(py|js|ts|json|html|css|java|cpp|c|h|go|rs|rb|php|txt|md|yaml|yml|toml|xml|sh|bat)/i) ||
+                             lowerQuery.match(/\b(create|write|make|generate)\s+(a\s+)?(file|folder|directory|class|function|module)/i) ||
+                             lowerQuery.match(/\b(implement|add|write)\s+(code|feature|functionality)/i);
+      
+      if (queryNeedsTools) {
+        return true;
+      }
+    }
+    
+    return responseNeedsTools;
   }
 
   /**
@@ -775,6 +800,13 @@ export class ChatManager {
    */
   hasContent(): boolean {
     return this.state !== null && this.state.queries.length > 0;
+  }
+
+  /**
+   * Check if move to assumptions is allowed (user has asked a meaningful question)
+   */
+  allowMoveToAssumptions(): boolean {
+    return this.state !== null && this.state.allowMoveToAssumptions;
   }
 }
 

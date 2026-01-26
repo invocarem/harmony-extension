@@ -9,6 +9,7 @@ export interface ExtractedCommand {
   command: string;          // e.g., "move_to_implementation" (lowercase, normalized)
   originalText: string;     // e.g., "@cmd:move_to_implementation"
   position: number;         // Position in original message
+  hasTextBefore: boolean;   // True if there is non-whitespace text before the command
 }
 
 export class CommandExtractor {
@@ -42,6 +43,10 @@ export class CommandExtractor {
     const commandName = firstMatch[1].toLowerCase().trim();  // e.g., "move_to_implementation"
     const position = firstMatch.index || 0;
     
+    // Check if there's non-whitespace text before the command
+    const textBeforeCommand = message.substring(0, position).trim();
+    const hasTextBefore = textBeforeCommand.length > 0;
+    
     // Remove command from message (only the first occurrence)
     const cleanMessage = message.replace(fullMatch, '').trim();
     
@@ -49,7 +54,8 @@ export class CommandExtractor {
       command: {
         command: commandName,
         originalText: fullMatch,
-        position: position
+        position: position,
+        hasTextBefore: hasTextBefore
       },
       cleanMessage: cleanMessage
     };

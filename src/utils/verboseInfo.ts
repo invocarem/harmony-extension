@@ -127,6 +127,8 @@ export interface AssumptionVerboseInfo {
     }>;
   };
 
+  hasPlan?: boolean; // Whether user has explicitly created/updated plan via @cmd:plan
+
   progressPlan?: {
     taskId: string;
     totalSteps: number;
@@ -519,6 +521,9 @@ export class VerboseInfoBuilder {
         })),
       };
     }
+
+    // Track whether user explicitly updated the plan via @cmd:plan
+    verboseInfo.hasPlan = context?.planUpdatedByUser || false;
 
     // Add tool calls
     if (toolCalls && toolCalls.length > 0) {

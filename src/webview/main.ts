@@ -119,8 +119,8 @@ if (arrowChatToAssumptions) {
         if (arrowChatToAssumptions.classList.contains('disabled')) {
             return;
         }
-        // Send message as if user typed "move to assumptions"
-        const message = 'move to assumptions';
+        // Send message using @cmd:move_to_assumptions format
+        const message = '@cmd:move_to_assumptions';
         addMessage(message, true, undefined, undefined);
         addTypingIndicator();
         vscode.postMessage({
@@ -137,8 +137,8 @@ if (arrowAssumptionsToImplementation) {
         if (arrowAssumptionsToImplementation.classList.contains('disabled')) {
             return;
         }
-        // Send message as if user typed "move to implementation"
-        const message = 'move to implementation';
+        // Send message using @cmd:move_to_implementation format
+        const message = '@cmd:move_to_implementation';
         addMessage(message, true, undefined, undefined);
         addTypingIndicator();
         vscode.postMessage({

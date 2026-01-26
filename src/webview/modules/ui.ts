@@ -8,6 +8,7 @@ import { verboseInfoToString, addToString, VerboseInfo } from './verboseInfoForm
 
 const messagesDiv = document.getElementById('messages') as HTMLDivElement;
 let lastUserMessageElement: HTMLElement | null = null;
+let currentHasPlan = false; // Track whether a plan exists in assumptions stage
 
 export function addMessage(
     text: string,
@@ -203,7 +204,13 @@ export function removeTypingIndicator(): void {
  * Update stage indicator lights based on current stage
  * Also enables/disables arrows based on valid transitions
  */
-export function updateStageIndicator(stage?: 'init' | 'chat' | 'assumptions' | 'implementation'): void {
+export function updateStageIndicator(stage?: 'init' | 'chat' | 'assumptions' | 'implementation', hasPlan?: boolean): void {
+    // Update plan status if provided
+    // hasPlan indicates whether user has explicitly created/updated plan via @cmd:plan
+    if (hasPlan !== undefined) {
+        currentHasPlan = hasPlan;
+    }
+    
     // Remove active class from all lights
     const allLights = document.querySelectorAll('.stage-light');
     allLights.forEach(light => light.classList.remove('active'));
@@ -226,7 +233,7 @@ export function updateStageIndicator(stage?: 'init' | 'chat' | 'assumptions' | '
     // Update arrow states based on valid transitions
     // Valid transitions:
     // - chat -> assumptions
-    // - assumptions -> implementation
+    // - assumptions -> implementation (only if user has explicitly created plan via @cmd:plan)
     // - assumptions -> chat (backward)
     // - implementation -> chat (backward)
     // - implementation -> assumptions (backward)
@@ -244,8 +251,10 @@ export function updateStageIndicator(stage?: 'init' | 'chat' | 'assumptions' | '
     }
     
     if (arrowAssumptionsToImplementation) {
-        // Enable if we're in assumptions stage
-        if (stage === 'assumptions') {
+        // Enable ONLY if:
+        // 1. We're in assumptions stage AND
+        // 2. User has explicitly created/updated plan via @cmd:plan (currentHasPlan is true)
+        if (stage === 'assumptions' && currentHasPlan) {
             arrowAssumptionsToImplementation.classList.remove('disabled');
         } else {
             arrowAssumptionsToImplementation.classList.add('disabled');

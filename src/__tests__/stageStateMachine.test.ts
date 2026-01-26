@@ -1,6 +1,7 @@
 import { StageStateMachine, WorkflowStage } from "../harmony/stageStateMachine";
 import { ChatMessage } from "../conversationManager";
 import { MCPToolResult } from "../mcpClient";
+import { ChatManager } from "../harmony/chatManager";
 
 describe("StageStateMachine", () => {
   let stateMachine: StageStateMachine;
@@ -232,21 +233,23 @@ describe("StageStateMachine", () => {
     it("should NOT auto-transition from chat to assumptions for code-related questions (auto-transition disabled)", async () => {
       // Auto-transition is disabled - code keywords no longer trigger auto-transition
       // Users must explicitly say "move to assumptions" to transition
+      // However, regular prompts now trigger "prompt" event which stays in current stage
       const nextStage = await stateMachine.determineNextStage(
         "chat",
         "how to implement a function"
       );
-      expect(nextStage).toBeNull(); // Should stay in chat stage
+      expect(nextStage).toBe("chat"); // Should stay in chat stage (prompt trigger)
     });
 
     it("should NOT auto-transition from chat to assumptions for file operations (auto-transition disabled)", async () => {
       // Auto-transition is disabled - file operations no longer trigger auto-transition
       // Users must explicitly say "move to assumptions" to transition
+      // However, regular prompts now trigger "prompt" event which stays in current stage
       const nextStage = await stateMachine.determineNextStage(
         "chat",
         "create hello.py file"
       );
-      expect(nextStage).toBeNull(); // Should stay in chat stage
+      expect(nextStage).toBe("chat"); // Should stay in chat stage (prompt trigger)
     });
 
     it('should detect explicit "move to assumptions" command from chat stage', async () => {
@@ -257,6 +260,62 @@ describe("StageStateMachine", () => {
       expect(nextStage).toBe("assumptions");
     });
 
+    it('should transition to assumptions when there are unanswered problems', async () => {
+      // Simulate the scenario: user says "hi", then "create hello", LLM asks questions
+      const mockChatManager = new ChatManager();
+      mockChatManager.initialize();
+      
+      // User's first query: "hi"
+      mockChatManager.addQuery("hi");
+      
+      // User's second query: "create hello"
+      mockChatManager.addQuery("create hello");
+      
+      // LLM asks questions - this creates a "problem" in ChatManager
+      // Simulate the LLM asking clarifying questions by adding a problem
+      mockChatManager.addProblem("What should be inside hello.py?", "create hello", false);
+      
+      // Verify problem exists
+      expect(mockChatManager.hasUnansweredProblems()).toBe(true);
+      
+      // Now user types "move to assumptions" - should transition because there are unanswered problems
+      const nextStage = await stateMachine.determineNextStage(
+        "chat",
+        "move to assumptions",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        mockChatManager
+      );
+      expect(nextStage).toBe("assumptions");
+    });
+
+    it('should stay in chat when moving to assumptions but there are no unanswered problems', async () => {
+      // Simulate the scenario: user says "hi", LLM responds with no questions
+      const mockChatManager = new ChatManager();
+      mockChatManager.initialize();
+      
+      // User's query: "hi"
+      mockChatManager.addQuery("hi");
+      
+      // LLM responds without asking questions (no problems created)
+      // Just verify no problems exist
+      expect(mockChatManager.hasUnansweredProblems()).toBe(false);
+      
+      // Now user types "move to assumptions" - should stay in chat because no problems to work on
+      const nextStage = await stateMachine.determineNextStage(
+        "chat",
+        "move to assumptions",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        mockChatManager
+      );
+      expect(nextStage).toBe("chat"); // Should stay in chat
+    });
+
     it('should transition to assumptions with move_to_assumptions command even for trivial prompts', async () => {
       // When user explicitly types "move to assumptions", it should work
       // The action function checks the TRIGGER PROMPT, not what came before
@@ -265,6 +324,180 @@ describe("StageStateMachine", () => {
         "move to assumptions"
       );
       expect(nextStage).toBe("assumptions");
+    });
+
+    it('should block move to assumptions when no user prompt at all (fresh chat)', async () => {
+      // Scenario: User types @cmd:move_to_assumptions as their VERY FIRST command
+      const mockChatManager = new ChatManager();
+      mockChatManager.initialize();
+      
+      // No queries added, no problems - completely fresh chat
+      expect(mockChatManager.hasUnansweredProblems()).toBe(false);
+      
+      // User tries to move to assumptions without any prior conversation
+      const nextStage = await stateMachine.determineNextStage(
+        "chat",
+        "@cmd:move_to_assumptions",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        mockChatManager
+      );
+      
+      // Should stay in chat because there are no unanswered problems to work on
+      expect(nextStage).toBe("chat");
+    });
+
+    it('should transition to assumptions with @cmd:move_to_assumptions even when LLM already answered', async () => {
+      // BUG REPRODUCTION: User says "create hello.py", LLM responds saying it will help
+      // User then uses @cmd:move_to_assumptions but system refuses because no "unanswered problems"
+      const mockChatManager = new ChatManager();
+      mockChatManager.initialize();
+      
+      // User query: "create hello.py"
+      mockChatManager.addQuery("create hello.py");
+      
+      // LLM responds affirmatively (no questions, just confirmation)
+      // This means no unanswered problems exist
+      mockChatManager.processResponse(
+        "I can help you create hello.py. Let me analyze the requirements.",
+        "create hello.py",
+        []
+      );
+      
+      // Verify no unanswered problems (LLM already responded)
+      expect(mockChatManager.hasUnansweredProblems()).toBe(false);
+      
+      // Now user explicitly uses @cmd:move_to_assumptions command
+      // This is a DIRECT USER COMMAND and should ALWAYS work
+      const nextStage = await stateMachine.determineNextStage(
+        "chat",
+        "@cmd:move_to_assumptions",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        mockChatManager
+      );
+      
+      // Expected: should transition to assumptions (explicit command overrides problem detection)
+      // Current bug: stays in chat because hasUnansweredProblems() returns false
+      expect(nextStage).toBe("assumptions");
+    });
+
+    it('should block move to assumptions after only greeting (hi)', async () => {
+      // Scenario from user logs: User types "hi", LLM responds, then user types @cmd:move_to_assumptions
+      const mockChatManager = new ChatManager();
+      mockChatManager.initialize();
+      
+      // User types "hi"
+      mockChatManager.addQuery("hi");
+      
+      // LLM responds with clarifying question (but greeting creates no problem)
+      mockChatManager.processResponse('Got it! How can I help you today? Could you let me know what specific assistance you need?', 'hi');
+      
+      // Verify no problems exist (greeting doesn't create problems)
+      expect(mockChatManager.hasUnansweredProblems()).toBe(false);
+      
+      // Now user tries to move to assumptions
+      const nextStage = await stateMachine.determineNextStage(
+        "chat",
+        "@cmd:move_to_assumptions",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        mockChatManager
+      );
+      
+      // Should stay in chat because there are no unanswered problems
+      expect(nextStage).toBe("chat");
+    });
+
+    it('should allow move to assumptions after asking real question that was not answered', async () => {
+      // Scenario: User asks "what is 2+2?", LLM only restates, then user types @cmd:move_to_assumptions
+      const mockChatManager = new ChatManager();
+      mockChatManager.initialize();
+      
+      // User asks a real question
+      mockChatManager.addQuery("what is 2+2?");
+      
+      // LLM responds with restatement but no answer
+      mockChatManager.processResponse('You are asking what 2+2 is. Let me help you with that calculation.', 'what is 2+2?');
+      
+      // Verify problem exists (question was not answered)
+      expect(mockChatManager.hasUnansweredProblems()).toBe(true);
+      
+      // Now user tries to move to assumptions
+      const nextStage = await stateMachine.determineNextStage(
+        "chat",
+        "@cmd:move_to_assumptions",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        mockChatManager
+      );
+      
+      // Should transition because there ARE unanswered problems
+      expect(nextStage).toBe("assumptions");
+    });
+
+    it('should allow move to assumptions when user asks to create file', async () => {
+      // Scenario: User types "create hello.py", LLM responds, then user types @cmd:move_to_assumptions
+      // This is the bug the user reported!
+      const mockChatManager = new ChatManager();
+      mockChatManager.initialize();
+      
+      // User asks to create a file
+      mockChatManager.addQuery("create hello.py");
+      
+      // LLM responds with restatement (no explicit warning about tools)
+      mockChatManager.processResponse('You want to create a hello.py file. What should be in the file?', 'create hello.py');
+      
+      // Verify problem exists with requiresTools=true
+      expect(mockChatManager.hasUnansweredProblems()).toBe(true);
+      const problems = mockChatManager.getUnansweredProblems();
+      expect(problems[0].requiresTools).toBe(true);
+      
+      // Now user tries to move to assumptions
+      const nextStage = await stateMachine.determineNextStage(
+        "chat",
+        "@cmd:move_to_assumptions",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        mockChatManager
+      );
+      
+      // Should transition because there ARE unanswered problems that require tools
+      expect(nextStage).toBe("assumptions");
+    });
+
+    it('should block move to assumptions after trivial chat (hi + greeting)', async () => {
+      // Scenario: User types "hi", LLM responds with greeting, then user types @cmd:move_to_assumptions
+      const mockChatManager = new ChatManager();
+      mockChatManager.initialize();
+      
+      // User types "hi"
+      mockChatManager.addQuery("hi");
+      
+      // No problems added (just a greeting conversation)
+      // Now user tries to move to assumptions with command
+      const nextStage = await stateMachine.determineNextStage(
+        "chat",
+        "@cmd:move_to_assumptions",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        mockChatManager
+      );
+      
+      // Should stay in chat because there are no unanswered problems
+      expect(nextStage).toBe("chat");
     });
 
     it('should demonstrate action function conditional logic', async () => {
@@ -279,22 +512,23 @@ describe("StageStateMachine", () => {
       expect(meaningful).toBe("assumptions");
       
       // Case 2: The trigger detection happens first
-      // If user types just "hi", no trigger is detected, so action never runs
+      // If user types just "hi", prompt trigger is detected (stays in chat)
       const trivial = await stateMachine.determineNextStage(
         "chat",
         "hi"
       );
-      expect(trivial).toBeNull(); // No trigger detected
+      expect(trivial).toBe("chat"); // Prompt trigger detected, stays in chat
     });
 
     it("should NOT auto-transition from assumptions to implementation for file operations (auto-transition disabled)", async () => {
       // Auto-transition is disabled - file operations with extensions no longer auto-transition
       // Users must explicitly say "move to implementation" to transition
+      // However, regular prompts now trigger "prompt" event which stays in current stage
       const nextStage = await stateMachine.determineNextStage(
         "assumptions",
         "create config.json"
       );
-      expect(nextStage).toBeNull(); // Should stay in assumptions stage
+      expect(nextStage).toBe("assumptions"); // Should stay in assumptions stage (prompt trigger)
     });
 
     it("should detect @cmd:back_to_chat command and transition to chat from implementation", async () => {
@@ -342,12 +576,113 @@ describe("StageStateMachine", () => {
       expect(nextStage).toBe("implementation");
     });
 
-    it("should return null when no transition is needed", async () => {
+    it("should return current stage when prompt trigger is detected", async () => {
+      // Regular prompts now trigger "prompt" event which stays in current stage
       const nextStage = await stateMachine.determineNextStage(
         "chat",
         "hello, how are you?"
       );
-      expect(nextStage).toBe(null);
+      expect(nextStage).toBe("chat"); // Prompt trigger detected, stays in chat
+    });
+  });
+
+  describe("detectTrigger()", () => {
+    it("should detect prompt trigger for regular messages in chat stage", () => {
+      const trigger = stateMachine.detectTrigger(
+        "Can you help me understand this code?",
+        "chat"
+      );
+      expect(trigger).toBe("prompt");
+    });
+
+    it("should detect plan trigger for regular messages in assumptions stage", () => {
+      const trigger = stateMachine.detectTrigger(
+        "Let me add more context about the requirements",
+        "assumptions"
+      );
+      expect(trigger).toBe("plan");
+    });
+
+    it("should NOT detect prompt trigger in implementation stage", () => {
+      const trigger = stateMachine.detectTrigger(
+        "Just a regular message",
+        "implementation"
+      );
+      expect(trigger).toBe("none");
+    });
+
+    it("should NOT detect prompt trigger in init stage", () => {
+      const trigger = stateMachine.detectTrigger(
+        "Hello",
+        "init"
+      );
+      expect(trigger).toBe("initialize");
+    });
+
+    it("should prioritize explicit commands over prompt trigger in chat stage", () => {
+      const trigger = stateMachine.detectTrigger(
+        "move to assumptions",
+        "chat"
+      );
+      expect(trigger).toBe("move_to_assumptions");
+    });
+
+    it("should prioritize explicit commands over prompt trigger in assumptions stage", () => {
+      const trigger = stateMachine.detectTrigger(
+        "move to implementation",
+        "assumptions"
+      );
+      expect(trigger).toBe("move_to_implementation");
+    });
+
+    it("should prioritize verbose_info command over prompt trigger", () => {
+      const trigger = stateMachine.detectTrigger(
+        "@cmd:verbose",
+        "chat"
+      );
+      expect(trigger).toBe("verbose_info");
+    });
+  });
+
+  describe("determineNextStage() with prompt trigger", () => {
+    it("should stay in chat stage when prompt trigger is detected", async () => {
+      const nextStage = await stateMachine.determineNextStage(
+        "chat",
+        "Can you help me understand the architecture?"
+      );
+      expect(nextStage).toBe("chat");
+    });
+
+    it("should stay in assumptions stage when prompt trigger is detected", async () => {
+      const nextStage = await stateMachine.determineNextStage(
+        "assumptions",
+        "I need to add another requirement to the plan"
+      );
+      expect(nextStage).toBe("assumptions");
+    });
+
+    it("should execute restate action in chat stage", async () => {
+      const consoleSpy = jest.spyOn(console, "log");
+      await stateMachine.determineNextStage(
+        "chat",
+        "What are the main components?"
+      );
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining("[Action] restate")
+      );
+      consoleSpy.mockRestore();
+    });
+
+    it("should execute generate_or_update_plan action in assumptions stage", async () => {
+      const consoleSpy = jest.spyOn(console, "log");
+      await stateMachine.determineNextStage(
+        "assumptions",
+        "Let's add error handling to the plan"
+      );
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining("[Action] generate_or_update_plan")
+      );
+      consoleSpy.mockRestore();
     });
   });
 

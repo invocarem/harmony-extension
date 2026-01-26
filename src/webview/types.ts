@@ -57,6 +57,7 @@ export interface ExtensionToWebviewMessage {
                 waitForCreate: boolean;
             }>;
         };
+        hasPlan?: boolean;  // Whether a plan has been created in assumptions stage
         progressPlan?: {
             taskId: string;
             totalSteps: number;

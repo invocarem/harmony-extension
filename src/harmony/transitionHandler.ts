@@ -48,6 +48,43 @@ export class TransitionHandler {
   }
 
   /**
+   * Handle chat stage prompt action (restate)
+   * This is called when user sends a regular prompt in chat stage
+   * The LLM will restate the problem and clarify any unclear points
+   */
+  async handleChatPromptAction(): Promise<void> {
+    console.log(`[TransitionHandler] Handling chat prompt action (restate)`);
+    
+    // Ensure chat manager is initialized
+    if (!this.chatManager.hasContent()) {
+      this.chatManager.initialize();
+      console.log(`[TransitionHandler] Initialized ChatManager for restate action`);
+    }
+    
+    // The actual query tracking with files is handled in extension.ts
+    // This method just ensures ChatManager is ready
+    // The LLM will receive stage-specific instructions to restate the problem
+  }
+
+  /**
+   * Handle assumptions stage prompt action (generate or update plan)
+   * This is called when user sends a regular prompt in assumptions stage
+   * The LLM will generate or update the implementation plan
+   */
+  async handleAssumptionsPromptAction(): Promise<void> {
+    console.log(`[TransitionHandler] Handling assumptions prompt action (generate/update plan)`);
+    
+    // Ensure assumptions manager is initialized
+    if (!this.assumptionsManager.hasContent()) {
+      this.assumptionsManager.initialize();
+      console.log(`[TransitionHandler] Initialized AssumptionsManager for plan generation`);
+    }
+    
+    // The actual plan generation is handled by the LLM with stage-specific instructions
+    // This method just ensures AssumptionsManager is ready
+  }
+
+  /**
    * Handle transition from chat to assumptions stage
    */
   async handleChatToAssumptionsTransition(

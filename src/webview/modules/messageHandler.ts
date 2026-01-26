@@ -21,7 +21,7 @@ export function handleExtensionMessage(message: ExtensionToWebviewMessage): void
             addMessage(message.text || '', false, message.reasoning, undefined, message.verboseInfo, message.final, message.commentary);
             // Update stage indicator lights
             if (message.verboseInfo?.stage) {
-                updateStageIndicator(message.verboseInfo.stage);
+                updateStageIndicator(message.verboseInfo.stage, message.verboseInfo.hasPlan);
             }
             break;
         case 'updateContext':

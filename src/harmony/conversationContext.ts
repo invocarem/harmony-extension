@@ -26,6 +26,7 @@ export interface ConversationContext {
     to: WorkflowStage;
   };
   progressPlan?: ProgressPlan;
+  planUpdatedByUser?: boolean; // Track if user explicitly updated plan via @cmd:plan
   // Code contexts ready for file creation from assumptions stage
   // Map from filename to array of versions
   codeContexts?: Map<string, CodeContext[]>;
@@ -108,6 +109,11 @@ export class ConversationContextManager {
         from: previousStage,
         to: newStage,
       };
+      
+      // Clear planUpdatedByUser flag when leaving assumptions stage
+      if (previousStage === 'assumptions' && newStage !== 'assumptions') {
+        this.clearPlanUpdatedByUser();
+      }
     }
   }
 
@@ -182,6 +188,25 @@ export class ConversationContextManager {
       this.context.currentStep = 1;
       this.context.maxSteps = plan.totalSteps;
       console.log(`[ConversationContext] Reset currentStep to 1 and maxSteps to ${plan.totalSteps} when setting progress plan`);
+    }
+  }
+
+  /**
+   * Mark that the plan was explicitly updated by the user via @cmd:plan
+   */
+  markPlanUpdatedByUser(): void {
+    if (this.context) {
+      this.context.planUpdatedByUser = true;
+      console.log(`[ConversationContext] Plan marked as explicitly updated by user`);
+    }
+  }
+
+  /**
+   * Clear the planUpdatedByUser flag (e.g., when leaving assumptions stage)
+   */
+  clearPlanUpdatedByUser(): void {
+    if (this.context) {
+      this.context.planUpdatedByUser = false;
     }
   }
 

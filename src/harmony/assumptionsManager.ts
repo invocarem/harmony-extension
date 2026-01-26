@@ -31,6 +31,7 @@ export interface AssumptionState {
   codeSnippets: AssumptionCodeSnippet[]; // Code snippets extracted
   taskId?: string; // Reference to ProgressPlan taskId
   lastUpdated: number;
+  allowMoveToImplementation: boolean; // True when a plan has been created or updated
 }
 
 /**
@@ -65,6 +66,7 @@ export class AssumptionsManager {
       assumptions: [],
       codeSnippets: [],
       lastUpdated: Date.now(),
+      allowMoveToImplementation: false,
     };
     console.log(`[AssumptionsManager] Initialized assumptions state`);
   }
@@ -199,6 +201,13 @@ export class AssumptionsManager {
   }
 
   /**
+   * Check if transition to implementation is allowed (plan has been created or updated)
+   */
+  allowMoveToImplementation(): boolean {
+    return this.state !== null && this.state.allowMoveToImplementation;
+  }
+
+  /**
    * Create or update a plan based on assumptions stage response
    * This is the central place for plan creation during assumptions stage
    *
@@ -293,6 +302,13 @@ export class AssumptionsManager {
     console.log(
       `[AssumptionsManager] Plan ${plan.taskId} - ${complexity} complexity, ${plan.totalSteps} step(s)`
     );
+    
+    // Enable transition to implementation once plan is created/updated
+    if (this.state) {
+      this.state.allowMoveToImplementation = true;
+      console.log(`[AssumptionsManager] Transition to implementation now allowed`);
+    }
+    
     return plan;
   }
 

@@ -30,6 +30,9 @@
 │          Review results, decide next iteration          │
 │ Tools:   read_file, list_files, grep_files (read-only) │
 │                                                         │
+│ Events:                                                 │
+│ • prompt: Regular user messages trigger restate action │
+│                                                         │
 │ ✅ Must restate the problem                            │
 │ ✅ Review implementation results                        │
 │ ✅ Decide next action (iterate or done)                │
@@ -51,6 +54,11 @@
 │ 1. Transition from chat (no plan created yet)          │
 │ 2. User sends message → LLM analyzes + creates plan    │
 │ 3. Can now move to implementation with plan            │
+│                                                         │
+│ Events:                                                 │
+│ • plan: Regular messages or @cmd:plan update the plan  │
+│         Triggered by: @cmd:plan, "create/update plan" │
+│         Fallback: Any regular message (plan update)    │
 │                                                         │
 │ ✅ Generate code content/snippets                      │
 │ ✅ Explain assumptions                                 │
@@ -434,7 +442,7 @@ The `StageStateMachine` class enforces these rules:
 
 ### State Machine Implementation
 - `canTransition(from, to)`: Checks if a transition is valid according to the state machine rules
-- `detectTrigger(prompt, currentStage)`: Detects triggers from prompt (including events like `next_step`, `auto`, `verbose_info`)
+- `detectTrigger(prompt, currentStage)`: Detects triggers from prompt (including events like `next_step`, `auto`, `verbose_info`, `prompt`, `plan`)
 - `determineNextStage(currentStage, prompt)`: Determines the next stage based on prompt content
   - Returns same stage for self-loop transitions (events)
   - Returns new stage for actual transitions
@@ -445,6 +453,20 @@ The `StageStateMachine` class enforces these rules:
 - Self-loop transitions (same stage → same stage) indicate events occurred
 - Trigger information is passed to stage handlers for execution
 - Events don't cause stage transitions but execute stage-specific actions
+
+**Stage-Specific Events**:
+- **Chat Stage**:
+  - `prompt`: Regular user messages → restate action (restates user's problem)
+  - Fallback: Any message that doesn't match explicit commands
+- **Assumptions Stage**:
+  - `plan`: Create or update implementation plan
+  - Explicit: `@cmd:plan`, "create plan", "update plan", "generate plan"
+  - Fallback: Any regular message (automatically triggers plan update)
+- **Implementation Stage**:
+  - `next_step`: Execute next step in plan (manual mode)
+  - `auto`: Execute all remaining steps automatically
+- **All Stages**:
+  - `verbose_info`: Display current state information (@cmd:verbose, @cmd:verbose_info)
 
 The state machine prevents invalid transitions (like Chat → Implementation, Init → Analysis) and enables proper error recovery loops and iterative workflows. It also handles stage events that execute actions without changing stages.
 

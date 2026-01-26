@@ -326,6 +326,17 @@ export class HarmonyAssistant {
     );
 
     try {
+      // Auto-detect vague prompts in assumptions stage and convert to @cmd:plan
+      // This must happen BEFORE command extraction to avoid adding to history
+      const currentStageForVagueDetection = this.harmonyClient.getCurrentStage();
+      if (currentStageForVagueDetection === "assumptions") {
+        const vagueTriggers = /^(next|continue|go|proceed|okay|ok|yes|sure|alright|start)$/i;
+        if (vagueTriggers.test(text.trim())) {
+          console.log(`[Harmony] Auto-converting vague prompt "${text}" to @cmd:plan`);
+          text = "@cmd:plan";
+        }
+      }
+
       // STEP 1: Extract @cmd: commands FIRST (before file extraction)
       const { command, cleanMessage: messageAfterCommand } =
         CommandExtractor.extractCommand(text);
@@ -511,18 +522,16 @@ export class HarmonyAssistant {
           fileContextText + "\n\n" + "USER REQUEST:\n" + finalMessage;
       }
 
-      // Add user message to history (store original message)
-      // Filter out stage transition commands from conversation history
-      const isStageTransitionCommand = /^\s*(?:move\s+to|go\s+to|goto)\s+(?:assumptions?|analysis|analyze|implementations?|implement|chat)\s*$/i.test(text);
-      
-      if (!isStageTransitionCommand) {
+      // Add user message to history if it's not a command
+      // Commands like @cmd:plan should not be added to conversation history
+      if (!commandHandled) {
         const userMessage: ChatMessage = {
           role: "user",
           content: text, // Store original message with @file references
         };
         this.conversationManager.addMessage(userMessage);
       } else {
-        console.log(`[Harmony] Filtering out stage transition command from conversation history: "${text}"`);
+        console.log(`[Harmony] Command detected - not adding to conversation history: "${text.substring(0, 50)}..."`);
       }
 
       console.log(
@@ -594,7 +603,10 @@ export class HarmonyAssistant {
             currentStage,
             finalMessage,
             history,
-            this.confirmationManager
+            this.confirmationManager,
+            undefined,
+            undefined,
+            chatManager
           );
           if (detectedStage && detectedStage !== currentStage) {
             console.log(
@@ -610,28 +622,15 @@ export class HarmonyAssistant {
             "chat",
             finalMessage,
             history,
-            this.confirmationManager
+            this.confirmationManager,
+            undefined,
+            undefined,
+            chatManager
           );
           if (detectedStage && detectedStage !== currentStage) {
-            // If transitioning to assumptions, check if there are unanswered problems
-            if (detectedStage === "assumptions") {
-              const hasUnanswered = chatManager.hasUnansweredProblems();
-              if (!hasUnanswered) {
-                console.log(
-                  `[Harmony] Blocking transition to assumptions - all problems have been solved`
-                );
-                // Stay in chat stage
-                currentStage = "chat";
-              } else {
-                // Clear confirmation after successful transition
-                this.confirmationManager.clear();
-                currentStage = detectedStage;
-              }
-            } else {
-              // Clear confirmation after successful transition
-              this.confirmationManager.clear();
-              currentStage = detectedStage;
-            }
+            // Clear confirmation after successful transition
+            this.confirmationManager.clear();
+            currentStage = detectedStage;
           } else {
             currentStage = detectedStage || "chat";
           }
@@ -938,34 +937,39 @@ export class HarmonyAssistant {
 
       case "move_to_assumptions": {
         const currentStage = this.harmonyClient.getCurrentStage();
-        // Validate transition using state machine table
-        if (
-          !this.stageStateMachine.canTransition(currentStage, "assumptions")
-        ) {
+        const transitionHandler = (this.harmonyClient as any).stateTransitionManager.transitionHandler;
+        const contextManager = (this.harmonyClient as any).contextManager;
+        const conversationHistory = this.conversationManager.getHistory();
+        const chatManager = (this.harmonyClient as any).chatManager;
+        
+        // Use state machine to determine if transition should happen
+        // This respects hasUnansweredProblems() check
+        const nextStage = await this.stageStateMachine.determineNextStage(
+          currentStage,
+          "@cmd:move_to_assumptions",
+          conversationHistory,
+          undefined,
+          transitionHandler,
+          this.nativeToolsManager,
+          chatManager
+        );
+        
+        // Check if state machine blocked the transition
+        if (nextStage === currentStage) {
+          return {
+            handled: true,
+            shouldReturn: true,
+            message: `⚠️ Cannot transition to assumptions stage - no problems to work on. Please ask a question or describe what you need first.`,
+          };
+        }
+        
+        if (nextStage !== "assumptions") {
           return {
             handled: true,
             shouldReturn: true,
             message: `Cannot transition to assumptions stage from ${currentStage}. Valid transitions: ${currentStage === "chat" ? "chat -> assumptions" : currentStage === "implementation" ? "implementation -> assumptions" : "N/A"}`,
           };
         }
-
-        // If transitioning from chat, check if there are unanswered problems
-        if (currentStage === "chat") {
-          const chatManager = this.harmonyClient.getChatManager();
-          const hasUnanswered = chatManager.hasUnansweredProblems();
-          if (!hasUnanswered) {
-            return {
-              handled: true,
-              shouldReturn: true,
-              message: `All questions have been answered. No need to move to assumptions stage.`,
-            };
-          }
-        }
-
-        // Execute transition directly - no LLM call needed
-        const transitionHandler = (this.harmonyClient as any).stateTransitionManager.transitionHandler;
-        const contextManager = (this.harmonyClient as any).contextManager;
-        const conversationHistory = this.conversationManager.getHistory();
         
         // Execute transition side effects based on current stage
         if (currentStage === "chat") {
@@ -983,6 +987,32 @@ export class HarmonyAssistant {
           handled: true,
           shouldReturn: true,
           message: `✓ Transitioned to assumptions stage`,
+        };
+      }
+
+      case "plan": {
+        // @cmd:plan - Create or update implementation plan (assumptions stage only)
+        // This command triggers plan generation without adding user message to history
+        const currentStage = this.harmonyClient.getCurrentStage();
+        
+        if (currentStage !== "assumptions") {
+          return {
+            handled: true,
+            shouldReturn: true,
+            message: `❌ @cmd:plan can only be used in assumptions stage. Current stage: ${currentStage}`,
+          };
+        }
+
+        // Mark that the user explicitly requested plan creation/update
+        const contextManager = (this.harmonyClient as any).contextManager;
+        contextManager.markPlanUpdatedByUser();
+
+        // Replace the cleaned message with system instruction that won't be counted as a user request
+        // This instructs the LLM to analyze EXISTING requests, not add a new request
+        return {
+          handled: true,
+          shouldReturn: false,
+          modifiedMessage: "SYSTEM INSTRUCTION: Analyze all user requests from the conversation history above and create a numbered implementation plan. Do NOT treat this instruction as a user request to be included in the plan.",
         };
       }
 
@@ -1018,7 +1048,7 @@ export class HarmonyAssistant {
 
       // next_step, auto, and verbose_info are now handled by state machine as events
       // They are detected by StageStateMachine.detectTrigger() and handled in stage handlers
-      // No command handling needed here - pass through to state machine
+      // Mark as handled=true to prevent adding to conversation history (these are system commands, not user requests)
       case "next_step":
       case "next-step":
       case "auto":
@@ -1027,7 +1057,16 @@ export class HarmonyAssistant {
       case "verbose-info":
         // These commands are passed through to the state machine as triggers
         // They will be detected by StageStateMachine.detectTrigger() and handled in stage handlers
-        return { handled: false, shouldReturn: false };
+        // Return handled=true to prevent these system commands from being added to conversation history
+        // This ensures the LLM doesn't misinterpret them as user requests
+        // IMPORTANT: Preserve the original command by returning the full original text in modifiedMessage
+        // This allows detectTrigger() to properly detect the verbose_info/next_step/auto triggers
+        // instead of defaulting to "prompt" or "plan"
+        return { 
+          handled: true, 
+          shouldReturn: false,
+          modifiedMessage: remainingMessage ? `@cmd:${command} ${remainingMessage}`.trim() : `@cmd:${command}`
+        };
 
       case "convert": {
         // Convert DOCX/PDF file to markdown
