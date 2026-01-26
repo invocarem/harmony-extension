@@ -512,7 +512,7 @@ This stage should quickly transition to the Chat stage.`,
 
       chat: `## Current Stage: CHAT/CLARIFICATION
 
-**PRIMARY GOAL**
+**PRIMARY GOAL:**
 - Restate user's problem in your own words to show understanding; 
 - Understand and clarify any ambiguities in the user's request;
 - Use read/search tools to understand codebase context
@@ -555,7 +555,8 @@ Ask questions ONLY when:
 `,
 
       assumptions: `## Current Stage: ASSUMPTIONS/ANALYSIS
-**PRIMARY GOAL**: Create comprehensive implementation plan before writing any code
+**PRIMARY GOAL:** 
+- Create comprehensive implementation plan to solve user's problems.
 
 **MANDATORY FORMAT**: Your plan MUST use numbered steps: "Step 1:", "Step 2:", "Step 3:" (with colon)
 
