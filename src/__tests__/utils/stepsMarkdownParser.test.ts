@@ -73,6 +73,30 @@ describe('StepsMarkdownParser', () => {
 
 
   describe('extractPlanAndSteps', () => {
+    test('should extract steps using assumptions plan delimiters', () => {
+      const text = `Intro text before plan.
+
+Assumptions Plan Start
+Step 1: Gather requirements from the user
+Step 2: Draft the implementation outline
+Assumptions Plan End
+
+Other sections after plan.`;
+
+      const result = StepsMarkdownParser.extractPlanAndSteps(text);
+
+      expect(result.hasPlan).toBe(true);
+      expect(result.steps).toHaveLength(2);
+      expect(result.steps[0]).toEqual({
+        number: 1,
+        content: 'Gather requirements from the user',
+        isPlanStep: true
+      });
+      expect(result.steps[1].content).toBe('Draft the implementation outline');
+      expect(result.planSection).toContain('Step 1:');
+      expect(result.planSection).not.toContain('Assumptions Plan Start');
+    });
+
     test('should extract steps from numbered plan with colon', () => {
       const text = `4. Numbered Plan:
 Step 1: Locate the relevant docx file in the uploads folder

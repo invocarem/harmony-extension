@@ -41,6 +41,22 @@ export class StepsMarkdownParser {
   } {
     const cleanText = this.stripBoldMarkdown(text);
     
+     // First, try to extract plan using header/footer delimiters (simpler and more reliable)
+     const delimiterMatch = cleanText.match(/Assumptions\s+Plan\s+Start([\s\S]*?)Assumptions\s+Plan\s+End/i);
+   
+     if (delimiterMatch) {
+       const planContent = delimiterMatch[1].trim();
+       console.log(`[StepsMarkdownParser] Found plan using delimiters (Assumptions Plan Start/End)`);
+     
+       const planLines = planContent.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+       const steps = this.extractStepsFromLines(planLines, true);
+     
+       return {
+         hasPlan: steps.length > 0,
+         steps,
+         planSection: planContent,
+       };
+     }
     // Split text into lines and trim each line
     const lines = cleanText.split('\n').map(line => line.trim()).filter(line => line.length > 0);
 

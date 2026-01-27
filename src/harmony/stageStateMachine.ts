@@ -573,7 +573,6 @@ Ask questions ONLY when:
 ❌ NO MCP tools (focus on analysis, not execution)
 
 **COMPLETION CRITERIA**:
-- Restatement of the problem/requirements
 - Numbered plan exists covering ALL user requests
 - Edge cases and special considerations
 - Complexity assessment complete
@@ -591,6 +590,7 @@ Ask questions ONLY when:
 - **Create a comprehensive plan** - Your plan must address ALL identified user requirements, not just one
 
 **Creating Your Plan:**
+- **Header and Footer** - The final plan should start with 'Assumptions Plan Start' as header, and end with 'Assumptions Plan End' as footer
 - **Format steps clearly** - You MUST format your plan steps as "Step 1:", "Step 2:", "Step 3:" (with colon) so the system can detect complexity correctly
 - **One step per requirement** - If you identified 3 distinct user requests, create at least 3 steps (one for each requirement)
 - **Number your steps** - Always use explicit numbering: "Step 1:", "Step 2:", "Step 3:" - this is critical for the system to detect task complexity
