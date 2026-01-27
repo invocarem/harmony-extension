@@ -584,17 +584,18 @@ Ask questions ONLY when:
 
 **IMPORTANT: Comprehensive Analysis**
 - **Review ALL conversation history above** - Examine ALL user messages and assistant responses from the beginning. Do not focus only on the first or most recent message
-- **Identify ALL user requests** - Count and list all distinct user requests/queries from the conversation history. The user may have made multiple separate requests
+- **Identify ALL user requests** - Count and list all distinct user requests/queries from the conversation history. Do not count user's confirmation or trial questions
 - **Analyze the current prompt below** - Consider both the conversation history and the current prompt together
 - **Assess actual complexity** - Determine the complexity based on ALL requirements identified, not just the first one
 - **Create a comprehensive plan** - Your plan must address ALL identified user requirements, not just one
 
 **Creating Your Plan:**
-- **Header and Footer** - The final plan should start with 'Assumptions Plan Start' as header, and end with 'Assumptions Plan End' as footer
+- **Header**: Starts with: **Implementation plan (one step per request)**
 - **Format steps clearly** - You MUST format your plan steps as "Step 1:", "Step 2:", "Step 3:" (with colon) so the system can detect complexity correctly
 - **One step per requirement** - If you identified 3 distinct user requests, create at least 3 steps (one for each requirement)
 - **Number your steps** - Always use explicit numbering: "Step 1:", "Step 2:", "Step 3:" - this is critical for the system to detect task complexity
 - **Don't combine unrelated requests** - Each distinct user request should have its own step unless they're truly part of one task
+- **Footer**: Ends with: **Implementation plan (end)**
 
 **Workflow:**
 - **Analyze comprehensively** - Review ALL conversation history to identify ALL user requests
