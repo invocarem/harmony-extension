@@ -133,7 +133,7 @@ export function logVerboseInfo(verboseInfo: any, formatted?: string): void {
       console.log(`[VerboseInfo] Problem restated: ${verboseInfo.problemSummary.restatedProblem}`);
     }
     if (verboseInfo.stageTransition) {
-      console.log(`[VerboseInfo] Stage transition: ${verboseInfo.stageTransition.from} → ${verboseInfo.stageTransition.to}`);
+      console.log(`[VerboseInfo] Current Stage: ${verboseInfo.stageTransition.to}`);
     }
     if (verboseInfo.isComplete) {
       console.log(`[VerboseInfo] Status: Complete`);
@@ -166,7 +166,7 @@ export function logVerboseInfo(verboseInfo: any, formatted?: string): void {
   } else {
     // Unknown stage - just log basic info
     if (verboseInfo.stageTransition) {
-      console.log(`[VerboseInfo] Stage transition: ${verboseInfo.stageTransition.from} → ${verboseInfo.stageTransition.to}`);
+      console.log(`[VerboseInfo] Current Stage: ${verboseInfo.stageTransition.to}`);
     }
   }
   

@@ -1327,4 +1327,164 @@ console.log("Hello");`;
       expect(result.content[0].text).toContain("Successfully edited");
     });
   });
+
+  describe("Folder Exclusions", () => {
+    it("should exclude venv folder from list_files", async () => {
+      const mockReaddir = mockFs.promises.readdir as jest.Mock;
+      const mockStat = mockFs.promises.stat as jest.Mock;
+
+      // Mock directory listing
+      mockReaddir.mockResolvedValueOnce(["src", "venv", "package.json"]);
+
+      // stat calls: workspace (dir), src (dir), package.json (file)
+      mockStat
+        .mockResolvedValueOnce({
+          isDirectory: () => true,
+          isFile: () => false,
+        }) // workspace
+        .mockResolvedValueOnce({
+          isDirectory: () => true,
+          isFile: () => false,
+        }) // src
+        .mockResolvedValueOnce({
+          isFile: () => true,
+          isDirectory: () => false,
+          size: 1000,
+        }); // package.json
+
+      const result = await manager.callTool("list_files", {
+        directory_path: "/workspace",
+        recursive: false,
+      });
+
+      expect(result.isError).toBeUndefined();
+      const text = result.content[0].text || "";
+      expect(text).toContain("src");
+      expect(text).toContain("package.json");
+      expect(text).not.toContain("venv");
+    });
+
+    it("should exclude .venv folder from list_files", async () => {
+      const mockReaddir = mockFs.promises.readdir as jest.Mock;
+      const mockStat = mockFs.promises.stat as jest.Mock;
+
+      mockReaddir.mockResolvedValueOnce(["src", ".venv"]);
+
+      // stat calls: workspace (dir), src (dir)
+      mockStat
+        .mockResolvedValueOnce({
+          isDirectory: () => true,
+          isFile: () => false,
+        }) // workspace
+        .mockResolvedValueOnce({
+          isDirectory: () => true,
+          isFile: () => false,
+        }); // src
+
+      const result = await manager.callTool("list_files", {
+        directory_path: "/workspace",
+        recursive: false,
+      });
+
+      expect(result.isError).toBeUndefined();
+      const text = result.content[0].text || "";
+      expect(text).toContain("src");
+      expect(text).not.toContain(".venv");
+    });
+
+    it("should exclude __pycache__ folder from list_files", async () => {
+      const mockReaddir = mockFs.promises.readdir as jest.Mock;
+      const mockStat = mockFs.promises.stat as jest.Mock;
+
+      mockReaddir.mockResolvedValueOnce(["main.py", "__pycache__"]);
+
+      // stat calls: workspace (dir), main.py (file)
+      mockStat
+        .mockResolvedValueOnce({
+          isDirectory: () => true,
+          isFile: () => false,
+        }) // workspace
+        .mockResolvedValueOnce({
+          isFile: () => true,
+          isDirectory: () => false,
+          size: 200,
+        }); // main.py
+
+      const result = await manager.callTool("list_files", {
+        directory_path: "/workspace",
+        recursive: false,
+      });
+
+      expect(result.isError).toBeUndefined();
+      const text = result.content[0].text || "";
+      expect(text).toContain("main.py");
+      expect(text).not.toContain("__pycache__");
+    });
+
+    it("should exclude common build folders", async () => {
+      const mockReaddir = mockFs.promises.readdir as jest.Mock;
+      const mockStat = mockFs.promises.stat as jest.Mock;
+
+      mockReaddir.mockResolvedValueOnce(["src", "dist", "build"]);
+
+      // stat calls: workspace (dir), src (dir)
+      mockStat
+        .mockResolvedValueOnce({
+          isDirectory: () => true,
+          isFile: () => false,
+        }) // workspace
+        .mockResolvedValueOnce({
+          isDirectory: () => true,
+          isFile: () => false,
+        }); // src
+
+      const result = await manager.callTool("list_files", {
+        directory_path: "/workspace",
+        recursive: false,
+      });
+
+      expect(result.isError).toBeUndefined();
+      const text = result.content[0].text || "";
+      expect(text).toContain("src");
+      expect(text).not.toContain("dist");
+      expect(text).not.toContain("build");
+    });
+
+    it("should exclude node_modules from recursive file list", async () => {
+      const mockReaddir = mockFs.promises.readdir as jest.Mock;
+      const mockStat = mockFs.promises.stat as jest.Mock;
+
+      // Mock recursive directory listing
+      mockReaddir
+        .mockResolvedValueOnce(["src", "node_modules"]) // root
+        .mockResolvedValueOnce(["index.ts"]); // src
+
+      // stat calls: workspace (dir), src (dir), index.ts (file)
+      mockStat
+        .mockResolvedValueOnce({
+          isDirectory: () => true,
+          isFile: () => false,
+        }) // workspace
+        .mockResolvedValueOnce({
+          isDirectory: () => true,
+          isFile: () => false,
+        }) // src
+        .mockResolvedValueOnce({
+          isFile: () => true,
+          isDirectory: () => false,
+          size: 500,
+        }); // index.ts
+
+      const result = await manager.callTool("list_files", {
+        directory_path: "/workspace",
+        recursive: true,
+      });
+
+      expect(result.isError).toBeUndefined();
+      const text = result.content[0].text || "";
+      expect(text).toContain("src");
+      expect(text).toContain("index.ts");
+      expect(text).not.toContain("node_modules");
+    });
+  });
 });

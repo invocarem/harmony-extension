@@ -503,7 +503,7 @@ export class StageStateMachine {
   /**
    * Get stage-specific instructions for prompts
    */
-  getInstructions(stage: WorkflowStage): string {
+  getInstructions(stage: WorkflowStage, harmonyMode: boolean = true): string {
     const instructions: Record<WorkflowStage, string> = {
       init: `## Current Stage: INITIALIZATION
 
@@ -617,7 +617,7 @@ Ask questions ONLY when:
 2. For each step, generate the actual code/content
 3. All tools are available in this stage. Use appropriate tools, see TOOL USAGE GUIDE below.
 
-**RESPONSE FORMAT** (CRITICAL):
+${harmonyMode ? `**RESPONSE FORMAT** (CRITICAL):
 Use analysis channel for reasoning, final channel for tool calls. **ALWAYS close each channel with \`<|end|>\` before starting a new channel or ending your response.**
 
 Example with reasoning and tool call:
@@ -636,7 +636,19 @@ Example with just a tool call (no reasoning needed):
 <|end|>
 \`\`\`
 
-**REMEMBER**: Every \`<|channel|>\` you open MUST be closed with \`<|end|>\` - no exceptions!
+**REMEMBER**: Every \`<|channel|>\` you open MUST be closed with \`<|end|>\` - no exceptions!` : `**RESPONSE FORMAT**:
+Use standard tool call format for tool invocations.
+
+Example:
+\`\`\`
+<tool_call name="read_file" args='{"file_path": "test.py"}' />
+\`\`\`
+
+Example with multiple tool calls:
+\`\`\`
+<tool_call name="create_file" args='{"file_path": "app.py", "content": "print(\"hello\")"}' />
+<tool_call name="read_file" args='{"file_path": "config.json"}' />
+\`\`\``}
 
 **TOOL USAGE GUIDE**:
 

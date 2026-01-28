@@ -11,6 +11,23 @@ const mkdir = promisify(fs.mkdir);
 const stat = promisify(fs.stat);
 const readdir = promisify(fs.readdir);
 
+// Folders to exclude from file listing and searching
+const EXCLUDED_FOLDERS = new Set([
+  "node_modules",
+  ".git",
+  ".venv",
+  "venv",
+  ".env",
+  "__pycache__",
+  ".pytest_cache",
+  "dist",
+  "build",
+  ".next",
+  ".nuxt",
+  "coverage",
+  ".coverage",
+]);
+
 export interface NativeTool {
   name: string;
   description: string;
@@ -39,6 +56,16 @@ export class NativeToolsManager {
     if (workspaceFolders && workspaceFolders.length > 0) {
       this.workspaceRoot = workspaceFolders[0].uri.fsPath;
     }
+  }
+
+  private shouldExcludeFolder(folderName: string, relativePath: string): boolean {
+    // Check if folder name is in excluded list
+    if (EXCLUDED_FOLDERS.has(folderName)) {
+      return true;
+    }
+    // Also check if any path segment is excluded (e.g., node_modules anywhere in the path)
+    const pathSegments = relativePath.split(path.sep);
+    return pathSegments.some(segment => EXCLUDED_FOLDERS.has(segment));
   }
 
   getAvailableTools(): NativeTool[] {
@@ -636,6 +663,10 @@ export class NativeToolsManager {
       } else {
         const entries = await readdir(resolvedPath);
         for (const entry of entries) {
+          // Skip excluded folders first (before hidden check, so .venv, etc. are excluded)
+          if (this.shouldExcludeFolder(entry, entry)) {
+            continue;
+          }
           if (!includeHidden && entry.startsWith(".")) {
             continue;
           }
@@ -696,17 +727,14 @@ export class NativeToolsManager {
   ): Promise<void> {
     const entries = await readdir(currentPath);
     for (const entry of entries) {
-      if (!includeHidden && entry.startsWith(".")) {
-        continue;
-      }
+      // Skip excluded folders first (before hidden check, so .venv, etc. are excluded)
       const entryPath = path.join(currentPath, entry);
       const relativePath = path.relative(rootPath, entryPath);
 
-      // Skip node_modules and other common build/dependency directories
-      if (
-        relativePath.includes("node_modules") ||
-        relativePath.includes(".git")
-      ) {
+      if (this.shouldExcludeFolder(entry, relativePath)) {
+        continue;
+      }
+      if (!includeHidden && entry.startsWith(".")) {
         continue;
       }
 
@@ -928,12 +956,11 @@ export class NativeToolsManager {
     try {
       const entries = await readdir(directoryPath);
       for (const entry of entries) {
-        // Skip hidden files and common build/dependency directories
-        if (
-          entry.startsWith(".") ||
-          entry === "node_modules" ||
-          entry === ".git"
-        ) {
+        // Skip hidden files and excluded folders
+        if (entry.startsWith(".")) {
+          continue;
+        }
+        if (this.shouldExcludeFolder(entry, entry)) {
           continue;
         }
 

@@ -39,7 +39,7 @@ export class PromptBuilder {
     const rulesContext = this.buildRulesContext(prompt, conversationHistory);
     
     // Build stage instructions (with code snippets ready flag for implementation stage)
-    let stageInstructions = this.stageStateMachine.getInstructions(currentStage);
+    let stageInstructions = this.stageStateMachine.getInstructions(currentStage, this.config.harmonyMode);
     
     // If in assumptions stage, add referred files from chat stage so AI doesn't re-detect them
     if (currentStage === 'assumptions' && conversationContext) {

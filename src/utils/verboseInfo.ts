@@ -726,9 +726,7 @@ export class VerboseInfoFormatter {
     lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
 
     if (info.stageTransition) {
-      lines.push(
-        `\n🔄 Stage Transition: ${info.stageTransition.from} → ${info.stageTransition.to}`
-      );
+      lines.push(`\n📍 Current Stage: ${info.stageTransition.to}`);
     }
 
     if (info.step !== undefined && info.maxSteps !== undefined) {
@@ -803,9 +801,7 @@ export class VerboseInfoFormatter {
     lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
 
     if (info.stageTransition) {
-      lines.push(
-        `\n🔄 Stage Transition: ${info.stageTransition.from} → ${info.stageTransition.to}`
-      );
+      lines.push(`\n📍 Current Stage: ${info.stageTransition.to}`);
     }
 
     if (info.step !== undefined && info.maxSteps !== undefined) {
@@ -890,18 +886,9 @@ export class VerboseInfoFormatter {
     lines.push(`⚙️ Implementation Stage Verbose Info`);
     lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
 
-    // Only show stage transition if we're just starting (no progress yet)
-    // Don't show it if plan is completed or we've already completed steps
+    // Always show current stage
     if (info.stageTransition) {
-      const shouldShowTransition =
-        !info.planProgress || // No plan yet
-        (!info.planProgress.planCompleted &&
-          info.planProgress.completedSteps === 0); // Plan exists but not started
-      if (shouldShowTransition) {
-        lines.push(
-          `\n🔄 Stage Transition: ${info.stageTransition.from} → ${info.stageTransition.to}`
-        );
-      }
+      lines.push(`\n📍 Current Stage: ${info.stageTransition.to}`);
     }
 
     // For implementation stage with planProgress, use planProgress values for top-level progress
