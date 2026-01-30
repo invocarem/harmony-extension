@@ -160,6 +160,7 @@ export class PromptBuilder {
 
     // Apply template if specified
     if (templateName && applyTemplate) {
+      const clarityLevel = this.config.clarityLevel ?? 2; // Default to 2 (full)
       const templateContext = {
         prompt: prompt + toolsContext + continuationContext,
         rules: rulesContext || undefined,
@@ -168,6 +169,8 @@ export class PromptBuilder {
         stageInstructions: stageInstructions,
         // First principles rules only apply in chat stage
         firstPrinciplesRules: (currentStage === 'chat' && isFirstPrinciplesMode) ? this.getFirstPrinciplesRules() : undefined,
+        // Clarity assessment criteria only apply in chat stage
+        clarityAssessmentCriteria: (currentStage === 'chat') ? this.getClarityAssessmentCriteria(clarityLevel) : undefined,
       };
       return await applyTemplate(templateName, templateContext);
     }
@@ -374,6 +377,50 @@ After restating with first principles, proceed with normal chat stage workflow:
 
 **Begin immediately with your first fundamental question.**
 `;
+  }
+
+  /**
+   * Get clarity assessment criteria based on clarity level
+   * @param clarityLevel 0=minimal, 1=user friendly, 2=full (default)
+   */
+  private getClarityAssessmentCriteria(clarityLevel: number = 2): string | undefined {
+    if (clarityLevel === 0) {
+      // Level 0: Minimal - ask only if request is genuinely unclear
+      return `
+**CLARITY ASSESSMENT CRITERIA**:
+Ask questions ONLY when:
+- The request is genuinely unclear or ambiguous
+- You cannot understand what the user wants without clarification
+
+Keep questions minimal and only ask when absolutely necessary.
+`;
+    } else if (clarityLevel === 1) {
+      // Level 1: User friendly - do not ask about edge cases or constraints
+      return `
+**CLARITY ASSESSMENT CRITERIA**:
+Ask questions ONLY when:
+- The request contains ambiguous terms or vague requirements
+- The scope is unclear or potentially too broad
+- Context from the codebase is needed but unavailable
+
+DO NOT ask about:
+- Edge cases or special scenarios
+- Constraints or limitations
+- Detailed implementation specifics
+
+Focus on understanding the core request without probing for edge cases.
+`;
+    } else {
+      // Level 2: Full criteria (default) - current detailed version
+      return `
+**CLARITY ASSESSMENT CRITERIA**:
+Ask questions ONLY when:
+- The request contains ambiguous terms or vague requirements
+- Edge cases or constraints are not specified
+- The scope is unclear or potentially too broad
+- Context from the codebase is needed but unavailable
+`;
+    }
   }
 }
 

@@ -3,7 +3,7 @@ import { MCPToolResult } from "../mcpClient";
 import { ConfirmationManager } from "./confirmationManager";
 import { TransitionHandler } from "./transitionHandler";
 import { NativeToolsManager } from "../nativeToolManager";
-import { ChatManager } from "./chatManager";import { AssumptionsManager } from './assumptionsManager';
+import { ChatManager } from "./chatManager"; import { AssumptionsManager } from './assumptionsManager';
 export type WorkflowStage = "init" | "chat" | "assumptions" | "implementation";
 
 /**
@@ -66,12 +66,12 @@ interface TransitionRule {
  */
 const initializeAction: TransitionAction = async (context): Promise<WorkflowStage | null> => {
   console.log(`[Action] initialize: init -> chat`);
-  
+
   // Perform side effect: initialize chat
   if (context.transitionHandler) {
     await context.transitionHandler.handleInitToChatTransition();
   }
-  
+
   return "chat" as WorkflowStage;
 };
 
@@ -83,24 +83,24 @@ const initializeAction: TransitionAction = async (context): Promise<WorkflowStag
  */
 const moveToAssumptionsFromChat: TransitionAction = async (context): Promise<WorkflowStage | null> => {
   const { prompt, currentStage, conversationHistory, transitionHandler, nativeToolsManager, chatManager } = context;
-  
+
   // Check if this is an explicit @cmd: command
   const isExplicitCommand = /^@cmd:move_to_assumptions/i.test(prompt);
-  
+
   // Validate transition: require either unanswered problems OR meaningful query
   // This prevents transition from fresh chat or trivial greetings
   if (chatManager) {
     const hasProblems = chatManager.hasUnansweredProblems();
     const allowTransition = chatManager.allowMoveToAssumptions();
-    
+
     if (!hasProblems && !allowTransition) {
       console.log(`[Action] move_to_assumptions: Staying in chat (no unanswered problems or meaningful queries)`);
       return "chat" as WorkflowStage; // Stay in chat
     }
   }
-  
+
   console.log(`[Action] move_to_assumptions: chat -> assumptions${isExplicitCommand ? ' (explicit command)' : ''}`);
-  
+
   // Perform side effect: save aggregated prompts
   if (transitionHandler) {
     await transitionHandler.handleChatToAssumptionsTransition(
@@ -109,7 +109,7 @@ const moveToAssumptionsFromChat: TransitionAction = async (context): Promise<Wor
       nativeToolsManager
     );
   }
-  
+
   return "assumptions" as WorkflowStage;
 };
 
@@ -121,16 +121,16 @@ const moveToAssumptionsFromChat: TransitionAction = async (context): Promise<Wor
  */
 const moveToImplementation: TransitionAction = async (context): Promise<WorkflowStage | null> => {
   const { prompt, transitionHandler, nativeToolsManager, assumptionsManager } = context;
-  
+
   // Validate transition: require plan to be created or updated
   // This prevents premature transition before assumptions analysis is complete
   if (assumptionsManager && !assumptionsManager.allowMoveToImplementation()) {
     console.log(`[Action] move_to_implementation: Staying in assumptions (no plan created yet)`);
     return "assumptions" as WorkflowStage; // Stay in assumptions
   }
-  
+
   console.log(`[Action] move_to_implementation: assumptions -> implementation`);
-  
+
   // Perform side effect: save assumptions data
   if (transitionHandler) {
     await transitionHandler.handleAssumptionsToImplementationTransition(
@@ -138,7 +138,7 @@ const moveToImplementation: TransitionAction = async (context): Promise<Workflow
       nativeToolsManager
     );
   }
-  
+
   return "implementation" as WorkflowStage;
 };
 
@@ -180,12 +180,12 @@ const verboseInfo: TransitionAction = (context) => {
  */
 const restateAction: TransitionAction = async (context): Promise<WorkflowStage> => {
   console.log(`[Action] restate: staying in chat - will restate user's problem and clarify`);
-  
+
   // Perform side effect: ensure ChatManager is ready
   if (context.transitionHandler) {
     await context.transitionHandler.handleChatPromptAction();
   }
-  
+
   return "chat" as WorkflowStage;
 };
 
@@ -195,12 +195,12 @@ const restateAction: TransitionAction = async (context): Promise<WorkflowStage> 
  */
 const generateOrUpdatePlanAction: TransitionAction = async (context): Promise<WorkflowStage> => {
   console.log(`[Action] generate_or_update_plan: staying in assumptions - will generate/update plan`);
-  
+
   // Perform side effect: ensure AssumptionsManager is ready
   if (context.transitionHandler) {
     await context.transitionHandler.handleAssumptionsPromptAction();
   }
-  
+
   return "assumptions" as WorkflowStage;
 };
 
@@ -367,7 +367,7 @@ export class StageStateMachine {
     if (currentStage === "chat") {
       return "prompt";
     }
-    
+
     // In assumptions stage, regular prompts trigger plan update (fallback)
     if (currentStage === "assumptions") {
       return "plan";
@@ -428,9 +428,9 @@ export class StageStateMachine {
       chatManager,
       assumptionsManager,
     };
-    
+
     const targetStage = await transition.action(transitionContext);
-    
+
     if (targetStage === null) {
       console.log(
         `[StageStateMachine] Action function aborted transition: ${currentStage} + ${trigger}`
@@ -515,14 +515,15 @@ This stage should quickly transition to the Chat stage.`,
 **PRIMARY GOAL:**
 - Restate user's problem in your own words to show understanding; 
 - Understand and clarify any ambiguities in the user's request;
-- Use read/search tools to understand codebase context
-- If rules are available, confirm with user which ones are relevant
+- Use **read-only native tools** to understand codebase context
+- If **rules** are available, ask user which ones are relevant
 
 **DO:**
-✅ Restate user's problem in your own words
-✅ Ask clarifying questions when genuinely unclear
-✅ Use read-only tools to gather context about the codebase
-✅ Identify ALL distinct requests in the conversation history
+✅ Review conversation history, synthesize all previous messages
+✅ Restate user's problem in your own words to show understanding
+✅ If the request is genuinely unclear, ask clarifying questions
+✅ Use read-only native tools to gather context about the codebase
+✅ Identify ALL distinct requirements in the conversation history
 ✅ If rules are available, ask: "I found applicable rule(s): [list]. Are these relevant to your task? (yes/no/which ones)"
 
 **DO NOT:**
@@ -545,13 +546,6 @@ This stage should quickly transition to the Chat stage.`,
 - Wait for user confirmation before proceeding
 - Only use rules user explicitly confirmed as relevant
 - Skip rules user says are not relevant
-
-**CLARITY ASSESSMENT CRITERIA**:
-Ask questions ONLY when:
-- The request contains ambiguous terms or vague requirements
-- Edge cases or constraints are not specified
-- The scope is unclear or potentially too broad
-- Context from the codebase is needed but unavailable
 
 **COMPLETION CRITERIA**:
 - You have restated the problem accurately

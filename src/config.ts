@@ -18,6 +18,7 @@ export interface LlamaConfig {
   verbose: boolean;
   verboseToolExtraction?: boolean; // Control XmlProcessor and ToolCallExtractor logging
   firstPrinciplesMode?: boolean; // Enable first-principles thinking mode by default in chat stage
+  clarityLevel?: number; // Clarity assessment level: 0=minimal (ask if unclear), 1=user friendly (no edge cases), 2=full (default)
 }
 
 /**
@@ -108,6 +109,7 @@ export function loadConfig(): LlamaConfig {
     verbose: config.get("verbose", false),
     verboseToolExtraction: config.get("verboseToolExtraction", false), // Control XmlProcessor and ToolCallExtractor logging
     firstPrinciplesMode: config.get("firstPrinciplesMode", false), // Default: disabled
+    clarityLevel: config.get("clarityLevel", 2), // Default: 2 (full criteria)
   };
 }
 

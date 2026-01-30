@@ -40,16 +40,16 @@ export class HarmonyProcessor {
       // and filtering might remove legitimate content that matches token patterns
       const trimmed = response.trim();
       console.log(`[HarmonyProcessor] After trim: ${trimmed.length} chars, last 50 chars: "${trimmed.substring(Math.max(0, trimmed.length - 50))}"`);
-      
+
       // Extract <think> tags as reasoning (similar to harmony protocol's analysis channel)
       const { reasoning, contentWithoutThinks, hasThinkTags } = XmlProcessor.extractThinkTags(trimmed);
       if (hasThinkTags) {
         console.log(`[HarmonyProcessor] Extracted ${reasoning.length} think tag(s) as reasoning`);
       }
-      
+
       // Extract tool calls from the response (there might be both content and tool calls)
       const rawToolCalls: string[] = [];
-      
+
       // Try to extract XML tool calls
       const xmlToolCalls = XmlProcessor.extractToolCalls(contentWithoutThinks);
       if (xmlToolCalls.length > 0) {
@@ -60,7 +60,7 @@ export class HarmonyProcessor {
           contentWithoutToolCalls = contentWithoutToolCalls.replace(tc.raw, '').trim();
         });
         rawToolCalls.push(...xmlToolCalls.map(tc => tc.raw));
-        
+
         console.log(`[HarmonyProcessor] Plain jinja response: content=${contentWithoutToolCalls.length} chars, tool calls=${rawToolCalls.length}`);
         return {
           content: contentWithoutToolCalls,
@@ -69,7 +69,7 @@ export class HarmonyProcessor {
           remaining: response
         };
       }
-      
+
       // Try MCP/JSON format tool calls
       const looksLikeMcpOrJson = ToolCallExtractor.looksLikeToolCall(contentWithoutThinks);
       if (contentWithoutThinks && looksLikeMcpOrJson) {
@@ -87,7 +87,7 @@ export class HarmonyProcessor {
         // Otherwise, it's content with embedded tool calls - extract them
         // For now, return as content and let extractToolCalls handle it later
       }
-      
+
       // Check if content describes a file update with code blocks
       // This handles cases where the model describes a file instead of making a tool call
       // Note: extractFileUpdateFromContent will check user intent if available
@@ -103,7 +103,7 @@ export class HarmonyProcessor {
           remaining: response
         };
       }
-      
+
       // Otherwise, return as content and also set as final for simple responses
       console.log(`[HarmonyProcessor] Plain jinja response treated as content (${contentWithoutThinks.length} chars)`);
       return {
@@ -116,12 +116,12 @@ export class HarmonyProcessor {
     }
     // Check if response contains Harmony tokens
     const hasHarmonyTokens = this.validateResponse(response);
-    
+
     if (!hasHarmonyTokens) {
       // Plain text response (jinja-only model) - treat entire response as content
       console.log(`[HarmonyProcessor] No Harmony tokens detected, treating as plain text`);
       const trimmed = response.trim();
-      
+
       // Check if it looks like a tool call even without tokens
       const looksLikeMcpOrJson = ToolCallExtractor.looksLikeToolCall(trimmed);
       const looksLikeXml = XmlProcessor.looksLikeXmlToolCall(trimmed);
@@ -133,7 +133,7 @@ export class HarmonyProcessor {
           remaining: response
         };
       }
-      
+
       // Check if content describes a file update with code blocks
       // This handles cases where the model describes a file instead of making a tool call
       // Note: extractFileUpdateFromContent will check user intent if available
@@ -148,7 +148,7 @@ export class HarmonyProcessor {
           remaining: response
         };
       }
-      
+
       // Otherwise, return as content and also set as final for simple responses
       console.log(`[HarmonyProcessor] Plain text response treated as content (${trimmed.length} chars)`);
       return {
@@ -158,14 +158,14 @@ export class HarmonyProcessor {
         remaining: response
       };
     }
-    
+
     // Harmony token-based parsing (existing logic)
     let content = '';
     let reasoning: string | undefined;
     let commentary: string | undefined;
     let final: string | undefined;
     const rawToolCalls: string[] = [];
-    
+
     let i = 0;
     let currentChannel: 'analysis' | 'final' | 'commentary' | 'none' = 'none';
     let inMessage = false;
@@ -174,16 +174,16 @@ export class HarmonyProcessor {
     let pendingToolName: string | undefined = undefined;
     // Track current role to avoid extracting tool calls from user messages
     let currentRole: Role | null = null;
-    
+
     while (i < response.length) {
       // Check for token start
       if (response.substring(i, i + 2) === '<|') {
         const tokenEnd = response.indexOf('|>', i);
-        
+
         if (tokenEnd !== -1) {
           const fullToken = response.substring(i, tokenEnd + 2);
           const tokenContent = response.substring(i + 2, tokenEnd);
-          
+
           // Handle based on token type
           switch (tokenContent) {
             case 'channel':
@@ -195,14 +195,14 @@ export class HarmonyProcessor {
                 console.log(`[HarmonyProcessor] Detected channel: ${currentChannel}`);
               }
               continue;
-              
+
             case 'message':
               // Start of message content
               inMessage = true;
               currentBuffer = '';
               i = tokenEnd + 2;
               continue;
-              
+
             case 'end':
               // End of current section - save buffer
               this.saveBuffer(currentChannel, currentBuffer, {
@@ -214,13 +214,13 @@ export class HarmonyProcessor {
               }, pendingToolName, userPrompt);
               // Reset pending tool name after saving buffer
               pendingToolName = undefined;
-              
+
               currentChannel = 'none';
               inMessage = false;
               currentBuffer = '';
               i = tokenEnd + 2;
               continue;
-              
+
             case 'start':
               // Start token - reset state
               // Check if this is a role token (<|start|>user or <|start|>assistant)
@@ -249,7 +249,7 @@ export class HarmonyProcessor {
               inMessage = false;
               currentBuffer = '';
               continue;
-              
+
             default:
               // Check for variant token with tool_call=name syntax (e.g., <|analysis tool_call=analyze_latin)
               const toolCallMatch = tokenContent.match(/[^\s]+\s+tool_call=([^\s<]+)/);
@@ -274,15 +274,15 @@ export class HarmonyProcessor {
           }
         }
       }
-      
+
       // Accumulate message content if we're in a message
       if (inMessage) {
         currentBuffer += response[i];
       }
-      
+
       i++;
     }
-    
+
     // Save any remaining buffer
     if (currentBuffer.trim() && currentChannel !== 'none') {
       this.saveBuffer(currentChannel, currentBuffer, {
@@ -293,7 +293,7 @@ export class HarmonyProcessor {
         rawToolCalls: (t) => rawToolCalls.push(t)
       }, pendingToolName, userPrompt);
     }
-    
+
     // Special handling: If content contains tool calls, extract them
     // Only extract tool calls from assistant messages, not from user messages
     if (content && (content.includes('<tool_call') || content.includes('<MCP_CALL'))) {
@@ -301,7 +301,7 @@ export class HarmonyProcessor {
       // If currentRole is null or user, we should be cautious about extracting tool calls
       // Tool calls should typically come from assistant responses
       const shouldExtractToolCalls = currentRole === null || currentRole.isAssistant();
-      
+
       if (shouldExtractToolCalls) {
         const extracted = ToolCallExtractor.extractFromText(content);
         if (extracted.length > 0) {
@@ -314,7 +314,7 @@ export class HarmonyProcessor {
         console.log(`[HarmonyProcessor] Skipping tool call extraction from user message`);
       }
     }
-    
+
     // Extract file updates from content if model describes files but didn't make tool calls
     if (rawToolCalls.length === 0 && content) {
       // Try to extract file update from content (handles cases where model describes file with code block)
@@ -345,15 +345,15 @@ export class HarmonyProcessor {
             /(?:here'?s|here is).*file.*`[^`]+`/i,  // Matches "Here's a file `filename`"
             /(?:the|a) file.*`[^`]+`.*(?:has been|was|is)/i,  // Matches "the file `filename` has been..."
           ];
-          
+
           const fileOperationPhrases = [
             /(?:I'll|I will|going to|need to|should|will).*(?:open|read|view|see|check|examine|edit|modify|update|change|replace).*(?:file|content)/i,
             /(?:open|read|view|see|check|examine|edit|modify|update|change|replace).*(?:the|this|that|a|an).*(?:file|content)/i,
           ];
-          
+
           const hasFileCreationClaim = fileCreationPhrases.some(phrase => phrase.test(content));
           const hasFileOperation = fileOperationPhrases.some(phrase => phrase.test(content));
-          
+
           if (hasFileCreationClaim) {
             console.warn(`[HarmonyProcessor] ⚠️ Model claims to have created/modified files but extraction failed!`);
             console.warn(`[HarmonyProcessor] Content preview: "${content.substring(0, 300)}..."`);
@@ -366,12 +366,12 @@ export class HarmonyProcessor {
         }
       }
     }
-    
+
     // If final is set but content is not, use final as content
     if (final && !content) {
       content = final;
     }
-    
+
     // Fix tool call file_paths using analysis buffer if available
     // This handles cases where analysis buffer comes after final channel
     let fixedRawToolCalls = rawToolCalls;
@@ -381,9 +381,9 @@ export class HarmonyProcessor {
         fixedRawToolCalls = rawToolCalls.map(toolCall => this.fixToolCallFilePath(toolCall, fullPath));
       }
     }
-    
+
     console.log(`[HarmonyProcessor] Result: content=${content.length} chars, reasoning=${reasoning?.length || 0} chars, final=${final?.length || 0} chars, toolCalls=${fixedRawToolCalls.length}`);
-    
+
     // Debug: Log what's in rawToolCalls
     if (fixedRawToolCalls.length > 0) {
       fixedRawToolCalls.forEach((raw, idx) => {
@@ -397,10 +397,10 @@ export class HarmonyProcessor {
         }
       });
     }
-    
+
     return { content, reasoning, commentary, final, rawToolCalls: fixedRawToolCalls, remaining: response };
   }
-  
+
   /**
    * Handle channel token and return new position
    */
@@ -409,21 +409,21 @@ export class HarmonyProcessor {
     let i = tokenEnd + 2;
     return i;
   }
-  
+
   /**
    * Detect channel type (analysis, final, commentary) at current position
    */
   private detectChannelType(response: string, startPos: number): 'analysis' | 'final' | 'commentary' | 'none' {
     let i = startPos;
-    
+
     // Skip any whitespace
     while (i < response.length && response[i].match(/\s/)) {
       i++;
     }
-    
+
     // Check for channel types - use substring instead of deprecated substr
     const remaining = response.substring(i);
-    
+
     if (remaining.startsWith('analysis')) {
       return 'analysis';
     } else if (remaining.startsWith('final')) {
@@ -431,17 +431,17 @@ export class HarmonyProcessor {
     } else if (remaining.startsWith('commentary')) {
       return 'commentary';
     }
-    
+
     return 'none';
   }
-  
+
   /**
    * Extract full path from analysis buffer JSON
    * Returns the path value if found, null otherwise
    */
   private extractPathFromAnalysis(analysisBuffer: string | undefined): string | null {
     if (!analysisBuffer) return null;
-    
+
     try {
       const parsed = JSON.parse(analysisBuffer.trim());
       if (parsed && typeof parsed === 'object' && parsed.path && typeof parsed.path === 'string') {
@@ -450,7 +450,7 @@ export class HarmonyProcessor {
     } catch {
       // Not valid JSON or doesn't have path field
     }
-    
+
     return null;
   }
 
@@ -459,7 +459,7 @@ export class HarmonyProcessor {
    */
   private fixToolCallFilePath(toolCallText: string, fullPath: string | null): string {
     if (!fullPath) return toolCallText;
-    
+
     try {
       // Try to parse as JSON tool call
       const parsed = JSON.parse(toolCallText.trim());
@@ -539,7 +539,7 @@ export class HarmonyProcessor {
         // Can't fix, return original
       }
     }
-    
+
     return toolCallText;
   }
 
@@ -561,9 +561,9 @@ export class HarmonyProcessor {
   ) {
     const trimmed = buffer.trim();
     if (!trimmed) return;
-    
+
     console.log(`[HarmonyProcessor] Saving ${channel} buffer (${trimmed.length} chars): "${trimmed.substring(0, 100)}..."`);
-    
+
     switch (channel) {
       case 'analysis':
         setters.reasoning(trimmed);
@@ -572,7 +572,7 @@ export class HarmonyProcessor {
       case 'final':
         // Check if this is a tool call
         let toolCallText: string | null = null;
-        
+
         // Use XmlProcessor to extract tool calls (more robust than regex)
         // This handles complex JSON in args attributes correctly
         const xmlToolCalls = XmlProcessor.extractToolCalls(trimmed);
@@ -589,7 +589,7 @@ export class HarmonyProcessor {
           const openingTagPattern = /<(?:tool_call|MCP_CALL)\s+[^>]*>/;
           const variantMatch = trimmed.match(/<\|?[^>]*(?:tool_call|MCP_CALL)[^>]*\/?>/);
           const fullElementMatch = trimmed.match(/<(?:tool_call|MCP_CALL)[^>]*>[\s\S]*?<\/(?:tool_call|MCP_CALL)>/);
-          
+
           // Try self-closing first (most common)
           let match = trimmed.match(selfClosingPattern);
           if (!match) {
@@ -604,14 +604,14 @@ export class HarmonyProcessor {
           if (!match && fullElementMatch) {
             match = fullElementMatch;
           }
-          
+
           if (match) {
             // It's an XML-style tool call
             toolCallText = match[0];
             console.log(`[HarmonyProcessor] Matched XML tool call pattern via regex, length: ${toolCallText.length}`);
           }
         }
-        
+
         if (!toolCallText && ToolCallExtractor.looksLikeToolCall(trimmed)) {
           // It's a non-XML tool call (MCP or JSON format)
           toolCallText = trimmed;
@@ -637,7 +637,7 @@ export class HarmonyProcessor {
             // Not valid JSON, continue with regular content handling
           }
         }
-        
+
         if (toolCallText) {
           console.log(`[HarmonyProcessor] Detected tool call in final channel: ${toolCallText.substring(0, 100)}...`);
           console.log(`[HarmonyProcessor] Full tool call text (${toolCallText.length} chars): "${toolCallText}"`);
@@ -700,7 +700,7 @@ export class HarmonyProcessor {
         console.warn(`[HarmonyProcessor] Unknown channel type: ${channel}`);
     }
   }
-  
+
   /**
    * Extract file update from content that claims to have updated/created a file
    * but doesn't make an explicit tool call
@@ -728,30 +728,30 @@ export class HarmonyProcessor {
         console.log(`[HarmonyProcessor] Excluding Tool Results section from file extraction`);
       }
     }
-    
+
     // NOTE: Intention detection removed - stage validator will block file modifications at CHAT stage
     // This allows AI to suggest file operations at chat stage that will be blocked appropriately
     // No need to check user intent here; the stage machine handles access control
-    
+
     // First, try to extract code block content
     // Handle both formats: with newline after language (```swift\n) and without (```swift ) due to whitespace normalization
     const codeBlockPattern = /```(?:\w+)?\s*[\n ]([\s\S]*?)```/;
     const codeBlockMatch = content.match(codeBlockPattern);
     const hasCodeBlock = codeBlockMatch && codeBlockMatch[1];
     const codeContent = hasCodeBlock ? codeBlockMatch[1].trim() : null;
-    
+
     // If there's no code block and file is referenced, default to read_file
     // This allows reviewing existing files at CHAT stage
     if (!hasCodeBlock) {
       // Extract file name for reading
       const filePathPatterns = [
-        /`([^`]+\.(?:py|js|ts|jsx|tsx|java|swift|go|rs|cpp|c|cc|cxx|h|hpp|hxx|html|css|json|md|txt|xml|yaml|yml|sh|bat|ps1|rb|php|kt|kts|r|R|scala|clj|cljs|ex|exs|erl|hrl|lua|pl|pm|sql|vue|svelte|elm|dart|zig|nim|fs|fsx|f90|f95|f03|f08))`/i,
-        /\*\*([^*]+\.(?:py|js|ts|jsx|tsx|java|swift|go|rs|cpp|c|cc|cxx|h|hpp|hxx|html|css|json|md|txt|xml|yaml|yml|sh|bat|ps1|rb|php|kt|kts|r|R|scala|clj|cljs|ex|exs|erl|hrl|lua|pl|pm|sql|vue|svelte|elm|dart|zig|nim|fs|fsx|f90|f95|f03|f08))\*\*/i,
-        /\*\*(?:file|filename|path)\*\*[:\s]+`([^`]+\.(?:py|js|ts|jsx|tsx|java|swift|go|rs|cpp|c|cc|cxx|h|hpp|hxx|html|css|json|md|txt|xml|yaml|yml|sh|bat|ps1|rb|php|kt|kts|r|R|scala|clj|cljs|ex|exs|erl|hrl|lua|pl|pm|sql|vue|svelte|elm|dart|zig|nim|fs|fsx|f90|f95|f03|f08))`/i,
-        /(?:file|filename|path)[:\s]+`?([^\s`]+\.(?:py|js|ts|jsx|tsx|java|swift|go|rs|cpp|c|cc|cxx|h|hpp|hxx|html|css|json|md|txt|xml|yaml|yml|sh|bat|ps1|rb|php|kt|kts|r|R|scala|clj|cljs|ex|exs|erl|hrl|lua|pl|pm|sql|vue|svelte|elm|dart|zig|nim|fs|fsx|f90|f95|f03|f08))`?/i,
-        /\b([a-zA-Z0-9_\-/]+\.(?:py|js|ts|jsx|tsx|java|swift|go|rs|cpp|c|cc|cxx|h|hpp|hxx|html|css|json|md|txt|xml|yaml|yml|sh|bat|ps1|rb|php|kt|kts|r|R|scala|clj|cljs|ex|exs|erl|hrl|lua|pl|pm|sql|vue|svelte|elm|dart|zig|nim|fs|fsx|f90|f95|f03|f08))\b/i,
+        /`([^`]+\.(?:py|js|ts|jsx|tsx|java|swift|go|rs|awk|cpp|c|cc|cxx|h|hpp|hxx|html|css|json|md|txt|xml|yaml|yml|sh|bat|ps1|rb|php|kt|kts|r|R|scala|clj|cljs|ex|exs|erl|hrl|lua|pl|pm|sql|vue|svelte|elm|dart|zig|nim|fs|fsx|f90|f95|f03|f08))`/i,
+        /\*\*([^*]+\.(?:py|js|ts|jsx|tsx|java|swift|go|rs|awk|cpp|c|cc|cxx|h|hpp|hxx|html|css|json|md|txt|xml|yaml|yml|sh|bat|ps1|rb|php|kt|kts|r|R|scala|clj|cljs|ex|exs|erl|hrl|lua|pl|pm|sql|vue|svelte|elm|dart|zig|nim|fs|fsx|f90|f95|f03|f08))\*\*/i,
+        /\*\*(?:file|filename|path)\*\*[:\s]+`([^`]+\.(?:py|js|ts|jsx|tsx|java|swift|go|rs|awk|cpp|c|cc|cxx|h|hpp|hxx|html|css|json|md|txt|xml|yaml|yml|sh|bat|ps1|rb|php|kt|kts|r|R|scala|clj|cljs|ex|exs|erl|hrl|lua|pl|pm|sql|vue|svelte|elm|dart|zig|nim|fs|fsx|f90|f95|f03|f08))`/i,
+        /(?:file|filename|path)[:\s]+`?([^\s`]+\.(?:py|js|ts|jsx|tsx|java|swift|go|rs|awk|cpp|c|cc|cxx|h|hpp|hxx|html|css|json|md|txt|xml|yaml|yml|sh|bat|ps1|rb|php|kt|kts|r|R|scala|clj|cljs|ex|exs|erl|hrl|lua|pl|pm|sql|vue|svelte|elm|dart|zig|nim|fs|fsx|f90|f95|f03|f08))`?/i,
+        /\b([a-zA-Z0-9_\-/]+\.(?:py|js|ts|jsx|tsx|java|swift|go|rs|awk|cpp|c|cc|cxx|h|hpp|hxx|html|css|json|md|txt|xml|yaml|yml|sh|bat|ps1|rb|php|kt|kts|r|R|scala|clj|cljs|ex|exs|erl|hrl|lua|pl|pm|sql|vue|svelte|elm|dart|zig|nim|fs|fsx|f90|f95|f03|f08))\b/i,
       ];
-      
+
       let filePath: string | null = null;
       for (const pattern of filePathPatterns) {
         const globalPattern = new RegExp(pattern.source, pattern.flags + (pattern.global ? '' : 'g'));
@@ -759,8 +759,8 @@ export class HarmonyProcessor {
         for (const match of matches) {
           if (match[1] && match[1].length > 0) {
             const candidate = match[1];
-            if (!/(?:^import|^from|require\(|\.includes\()/i.test(candidate) && 
-                !/(?:package\.json|tsconfig\.json|webpack\.config)/i.test(candidate)) {
+            if (!/(?:^import|^from|require\(|\.includes\()/i.test(candidate) &&
+              !/(?:package\.json|tsconfig\.json|webpack\.config)/i.test(candidate)) {
               filePath = candidate;
               break;
             }
@@ -768,15 +768,15 @@ export class HarmonyProcessor {
         }
         if (filePath) break;
       }
-      
+
       if (filePath) {
         // Normalize file path (remove leading slashes)
         filePath = filePath.startsWith('/') ? filePath.substring(1) : filePath;
-        
+
         // Determine if path looks complete (has directory separators) or incomplete (just filename)
         const isFullPath = filePath.includes('/') || filePath.includes('\\');
         const toolName = isFullPath ? 'read_file' : 'find_files';
-        
+
         // Create tool call - use find_files for incomplete paths, read_file for full paths
         const toolCall = {
           name: toolName,
@@ -786,15 +786,15 @@ export class HarmonyProcessor {
             ...(toolName === 'find_files' && { name_pattern: filePath })
           }
         };
-        
+
         // Remove file_path from find_files arguments if needed
         if (toolName === 'find_files') {
           delete (toolCall.arguments as any).file_path;
         }
-        
+
         const raw = JSON.stringify(toolCall);
         console.log(`[HarmonyProcessor] Extracted ${toolName} for file: ${filePath} (isFullPath=${isFullPath})`);
-        
+
         return {
           raw,
           name: toolName,
@@ -804,15 +804,15 @@ export class HarmonyProcessor {
           } as any
         };
       }
-      
+
       return null; // No file referenced and no code block
     }
-    
+
     // Has code block - determine if it's create_file or replace_file
     if (!codeContent || codeContent.length < 10) {
       return null; // Code block too short or empty
     }
-    
+
     // Extract file name - look for backticked file names or file extensions
     // Try multiple patterns to find file paths
     const filePathPatterns = [
@@ -825,7 +825,7 @@ export class HarmonyProcessor {
       // Also look for file names in the content text itself (like "animation.py" or "Tests/LatinService/Psalm101Tests.swift")
       /\b([a-zA-Z0-9_\-/]+\.(?:py|js|ts|jsx|tsx|java|swift|go|rs|cpp|c|cc|cxx|h|hpp|hxx|html|css|json|md|txt|xml|yaml|yml|sh|bat|ps1|rb|php|kt|kts|r|R|scala|clj|cljs|ex|exs|erl|hrl|lua|pl|pm|sql|vue|svelte|elm|dart|zig|nim|fs|fsx|f90|f95|f03|f08))\b/i,
     ];
-    
+
     let filePath: string | null = null;
     for (const pattern of filePathPatterns) {
       // Make sure pattern is global for matchAll
@@ -836,8 +836,8 @@ export class HarmonyProcessor {
         if (match[1] && match[1].length > 0) {
           // Skip common false positives (like "import json" matching "json")
           const candidate = match[1];
-          if (!/(?:^import|^from|require\(|\.includes\()/i.test(candidate) && 
-              !/(?:package\.json|tsconfig\.json|webpack\.config)/i.test(candidate)) {
+          if (!/(?:^import|^from|require\(|\.includes\()/i.test(candidate) &&
+            !/(?:package\.json|tsconfig\.json|webpack\.config)/i.test(candidate)) {
             filePath = candidate;
             break;
           }
@@ -845,30 +845,30 @@ export class HarmonyProcessor {
       }
       if (filePath) break;
     }
-    
+
     if (!filePath) {
       return null; // No file path found
     }
-    
+
     // Normalize file path: remove leading '/' if present to make it relative to workspace
     // Paths like "/Tests/LatinService/..." should be "Tests/LatinService/..." (relative)
     if (filePath.startsWith('/')) {
       filePath = filePath.substring(1);
     }
-    
+
     // Check for file update claims (for determining create vs replace)
     const fileUpdatePhrases = [
       /(?:I've|I have|I|we've|we have).*(?:replaced|updated|created|wrote|modified|generated).*(?:file|contents?)/i,
       /(?:file|contents?).*(?:has been|was|have been).*(?:replaced|updated|created|written|modified|generated)/i,
       /(?:here'?s|here is).*(?:the|an?)?.*(?:updated|new|modified).*(?:file|code)/i,
     ];
-    
+
     const hasFileUpdateClaim = fileUpdatePhrases.some(phrase => phrase.test(content));
-    
+
     // Check if file name is mentioned anywhere in content (even without explicit claims)
     // If we have a code block and a file name, that's a strong signal to extract it
     const fileMentioned = new RegExp(filePath.replace(/\./g, '\\.'), 'i').test(content);
-    
+
     // Extract if:
     // 1. There's an explicit file update claim, OR
     // 2. There's a file name mentioned in the content (even without explicit claim)
@@ -876,14 +876,14 @@ export class HarmonyProcessor {
     if (!hasFileUpdateClaim && !fileMentioned) {
       return null; // No file mentioned and no explicit claim
     }
-    
+
     // Determine if it's create_file or replace_file
     // If content explicitly mentions modification, use replace_file
     // Otherwise default to create_file (new files are more common)
     const hasModificationKeywords = /(?:updated|replaced|modified|modify|change|update)/i.test(content);
     const toolName = hasModificationKeywords ? 'replace_file' : 'create_file';
 
-    
+
     // Create tool call JSON
     const toolCall = {
       name: toolName,
@@ -892,25 +892,25 @@ export class HarmonyProcessor {
         content: codeContent
       }
     };
-    
+
     const raw = JSON.stringify(toolCall);
-    
+
     console.log(`[HarmonyProcessor] Extracted file update: ${toolName} ${filePath} (${codeContent.length} chars)`);
-    
+
     return {
       raw,
       name: toolName,
       arguments: toolCall.arguments
     };
   }
-  
+
   /**
    * Extract file operations (read_file, replace_file) from descriptive text
    * This is a fallback when the model describes actions instead of making tool calls
    */
   private extractFileOperationsFromDescription(content: string): Array<{ raw: string; name: string; arguments: any }> {
     const operations: Array<{ raw: string; name: string; arguments: any }> = [];
-    
+
     // Patterns for file paths (similar to extractFileUpdateFromContent)
     const filePathPatterns = [
       /`([^`]+\.(?:py|js|ts|jsx|tsx|java|swift|go|rs|cpp|c|cc|cxx|h|hpp|hxx|html|css|json|md|txt|xml|yaml|yml|sh|bat|ps1|rb|php|kt|kts|r|R|scala|clj|cljs|ex|exs|erl|hrl|lua|pl|pm|sql|vue|svelte|elm|dart|zig|nim|fs|fsx|f90|f95|f03|f08))`/i,
@@ -918,7 +918,7 @@ export class HarmonyProcessor {
       /(?:file|filename|path)[:\s]+`?([^\s`]+\.(?:py|js|ts|jsx|tsx|java|swift|go|rs|cpp|c|cc|cxx|h|hpp|hxx|html|css|json|md|txt|xml|yaml|yml|sh|bat|ps1|rb|php|kt|kts|r|R|scala|clj|cljs|ex|exs|erl|hrl|lua|pl|pm|sql|vue|svelte|elm|dart|zig|nim|fs|fsx|f90|f95|f03|f08))`?/i,
       /\b([a-zA-Z0-9_\-/]+\.(?:py|js|ts|jsx|tsx|java|swift|go|rs|cpp|c|cc|cxx|h|hpp|hxx|html|css|json|md|txt|xml|yaml|yml|sh|bat|ps1|rb|php|kt|kts|r|R|scala|clj|cljs|ex|exs|erl|hrl|lua|pl|pm|sql|vue|svelte|elm|dart|zig|nim|fs|fsx|f90|f95|f03|f08))\b/i,
     ];
-    
+
     // Extract file path
     let filePath: string | null = null;
     for (const pattern of filePathPatterns) {
@@ -928,8 +928,8 @@ export class HarmonyProcessor {
         if (match[1] && match[1].length > 0) {
           const candidate = match[1];
           // Skip common false positives
-          if (!/(?:^import|^from|require\(|\.includes\()/i.test(candidate) && 
-              !/(?:package\.json|tsconfig\.json|webpack\.config)/i.test(candidate)) {
+          if (!/(?:^import|^from|require\(|\.includes\()/i.test(candidate) &&
+            !/(?:package\.json|tsconfig\.json|webpack\.config)/i.test(candidate)) {
             filePath = candidate;
             break;
           }
@@ -937,26 +937,26 @@ export class HarmonyProcessor {
       }
       if (filePath) break;
     }
-    
+
     if (!filePath) {
       return operations; // No file path found
     }
-    
+
     // Normalize file path: remove leading '/' if present to make it relative to workspace
     // Paths like "/Tests/LatinService/..." should be "Tests/LatinService/..." (relative)
     if (filePath.startsWith('/')) {
       filePath = filePath.substring(1);
     }
-    
+
     // Check for file read operations
     const readPhrases = [
       /(?:I'll|I will|going to|need to|should|will).*(?:open|read|view|see|check|examine|look at).*(?:file|content|contents)/i,
       /(?:open|read|view|see|check|examine|look at).*(?:the|this|that|a|an).*(?:file|content|contents)/i,
       /(?:file|content|contents).*(?:from previous|already|earlier)/i,
     ];
-    
+
     const hasReadOperation = readPhrases.some(phrase => phrase.test(content));
-    
+
     if (hasReadOperation) {
       const toolCall = {
         name: 'read_file',
@@ -971,7 +971,7 @@ export class HarmonyProcessor {
       });
       console.log(`[HarmonyProcessor] Extracted read_file operation for: ${filePath}`);
     }
-    
+
     // Check for file edit/update operations (but only if we have enough context)
     // This is more conservative - we only extract if there's a clear indication
     // of what needs to be changed
@@ -979,19 +979,19 @@ export class HarmonyProcessor {
       /(?:I'll|I will|going to|need to|should|will).*(?:edit|modify|update|change|replace|insert|add).*(?:property|field|value|text|content)/i,
       /(?:edit|modify|update|change|replace|insert|add).*(?:the|this|that).*(?:property|field|value|text|content|englishText)/i,
     ];
-    
+
     const hasEditOperation = editPhrases.some(phrase => phrase.test(content));
-    
+
     // Note: We don't extract edit operations without code blocks because we don't know
     // what the new content should be. The model should make a proper tool call for edits.
     // However, we can log a warning to help debug.
     if (hasEditOperation && !content.includes('```')) {
       console.warn(`[HarmonyProcessor] Model describes editing ${filePath} but no code block provided. Model should use replace_file tool call.`);
     }
-    
+
     return operations;
   }
-  
+
   /**
    * Preserve code blocks in content (markdown code blocks)
    */
@@ -1002,7 +1002,7 @@ export class HarmonyProcessor {
     // with markdown code blocks.
     return content;
   }
-  
+
   /**
    * Extract MCPToolCalls from raw strings
    * Delegates to ToolCallExtractor for the actual extraction logic
@@ -1010,7 +1010,7 @@ export class HarmonyProcessor {
   extractToolCalls(rawToolCalls: string[]): MCPToolCall[] {
     return ToolCallExtractor.extractToolCalls(rawToolCalls);
   }
-  
+
   /**
    * Simple text cleaner
    */
@@ -1020,7 +1020,7 @@ export class HarmonyProcessor {
       .replace(/\s+/g, ' ')
       .trim();
   }
-  
+
   /**
    * Format a prompt with Harmony tokens (or plain text if harmonyMode is false)
    */
@@ -1034,7 +1034,7 @@ ${userMessage}
 <|end|>
 <|start|>assistant<|channel|>final<|message|>`;
   }
-  
+
   /**
    * Validate if response looks like Harmony format
    */
