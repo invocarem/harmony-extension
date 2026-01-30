@@ -73,13 +73,13 @@ describe('StepsMarkdownParser', () => {
 
 
   describe('extractPlanAndSteps', () => {
-    test('should extract steps using assumptions plan delimiters', () => {
+    test('should extract steps using implementation plan delimiters', () => {
       const text = `Intro text before plan.
 
-Assumptions Plan Start
+**Implementation plan (one step per request)**
 Step 1: Gather requirements from the user
 Step 2: Draft the implementation outline
-Assumptions Plan End
+**Implementation plan (end)**
 
 Other sections after plan.`;
 
@@ -94,7 +94,7 @@ Other sections after plan.`;
       });
       expect(result.steps[1].content).toBe('Draft the implementation outline');
       expect(result.planSection).toContain('Step 1:');
-      expect(result.planSection).not.toContain('Assumptions Plan Start');
+      expect(result.planSection).not.toContain('Implementation plan (one step per request)');
     });
 
     test('should extract steps from numbered plan with colon', () => {

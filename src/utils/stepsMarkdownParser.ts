@@ -77,8 +77,31 @@ export class StepsMarkdownParser {
       };
     }
 
+    // ---------------------------------------------------------------    // 2b️⃣  "Numbered plan:" section delimiter
     // ---------------------------------------------------------------
-    // 3️⃣  Simple fallback – grab any “Step N:” lines in the whole text
+    const numberedPlanMatch = clean.match(
+      /[*_]*Numbered\s+plan\s*[*_]*\s*:?([\s\S]*?)(?=\n\n|\n[*_]+|$)/i
+    );
+
+    if (numberedPlanMatch) {
+      const planContent = numberedPlanMatch[1].trim();
+
+      const planLines = planContent
+        .split('\n')
+        .map(l => l.trim())
+        .filter(l => l.length > 0);
+
+      const steps = this.extractStepsFromLines(planLines, true);
+      if (steps.length > 0) {
+        return {
+          hasPlan: true,
+          steps,
+          planSection: planContent,
+        };
+      }
+    }
+
+    // ---------------------------------------------------------------    // 3️⃣  Simple fallback – grab any “Step N:” lines in the whole text
     // ---------------------------------------------------------------
     const allLines = clean
       .split('\n')

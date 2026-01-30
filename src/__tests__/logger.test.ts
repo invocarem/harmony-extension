@@ -182,7 +182,7 @@ describe('Logger Tests', () => {
       logVerboseInfo(chatVerboseInfo, formattedString);
 
       expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('[VerboseInfo] Stage transition: chat → assumptions')
+        expect.stringContaining('[VerboseInfo] Current Stage: assumptions')
       );
       expect(consoleLogSpy).toHaveBeenCalledWith(
         expect.stringContaining('[VerboseInfo] Status: Complete')

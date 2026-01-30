@@ -1,5 +1,6 @@
 import { WorkflowStage } from "./stageStateMachine";
 import { ChatMessage } from "../conversationManager";
+import { Rule } from "../rulesManager";
 
 /**
  * Represents a pending confirmation that the user can respond to
@@ -13,6 +14,16 @@ export interface PendingConfirmation {
 }
 
 /**
+ * Represents a pending rule confirmation
+ */
+export interface PendingRuleConfirmation {
+  rules: Rule[];
+  query: string;
+  sourceStage: WorkflowStage;
+  timestamp: number;
+}
+
+/**
  * Manages confirmation detection and handling across workflow stages
  * 
  * Responsibilities:
@@ -23,6 +34,8 @@ export interface PendingConfirmation {
  */
 export class ConfirmationManager {
   private pendingConfirmation: PendingConfirmation | null = null;
+  private pendingRuleConfirmation: PendingRuleConfirmation | null = null;
+  private confirmedRules: Map<string, Set<string>> = new Map(); // query hash -> confirmed rule IDs
 
   /**
    * Detect confirmation questions in assistant responses and store pending confirmation
@@ -184,6 +197,126 @@ export class ConfirmationManager {
    */
   hasPendingConfirmation(): boolean {
     return this.pendingConfirmation !== null;
+  }
+
+  /**
+   * Store pending rule confirmation for user review
+   * Called when applicable rules are detected during chat stage
+   */
+  storePendingRuleConfirmation(rules: Rule[], query: string, stage: WorkflowStage): void {
+    if (!rules || rules.length === 0) {
+      this.pendingRuleConfirmation = null;
+      return;
+    }
+
+    this.pendingRuleConfirmation = {
+      rules,
+      query,
+      sourceStage: stage,
+      timestamp: Date.now(),
+    };
+
+    console.log(`[ConfirmationManager] Stored ${rules.length} rule(s) for confirmation: ${rules.map(r => r.id).join(', ')}`);
+  }
+
+  /**
+   * Get pending rule confirmation for user review
+   */
+  getPendingRuleConfirmation(): PendingRuleConfirmation | null {
+    if (!this.pendingRuleConfirmation) {
+      return null;
+    }
+
+    // Check if confirmation is too old (5 minutes timeout)
+    const age = Date.now() - this.pendingRuleConfirmation.timestamp;
+    const maxAge = 5 * 60 * 1000; // 5 minutes
+    if (age > maxAge) {
+      console.log(`[ConfirmationManager] Pending rule confirmation expired`);
+      this.pendingRuleConfirmation = null;
+      return null;
+    }
+
+    return this.pendingRuleConfirmation;
+  }
+
+  /**
+   * Confirm specific rules from pending confirmation
+   * User indicates which rules are relevant
+   */
+  confirmRules(ruleIds: string[]): void {
+    if (!this.pendingRuleConfirmation) {
+      console.log(`[ConfirmationManager] No pending rule confirmation to confirm`);
+      return;
+    }
+
+    // Create hash for this query to track confirmed rules
+    const queryHash = this.hashString(this.pendingRuleConfirmation.query);
+    
+    if (!this.confirmedRules.has(queryHash)) {
+      this.confirmedRules.set(queryHash, new Set());
+    }
+
+    const confirmed = this.confirmedRules.get(queryHash)!;
+    ruleIds.forEach(id => confirmed.add(id));
+
+    console.log(`[ConfirmationManager] Confirmed ${ruleIds.length} rule(s): ${ruleIds.join(', ')}`);
+    this.pendingRuleConfirmation = null;
+  }
+
+  /**
+   * Reject/skip specific rules from pending confirmation
+   * User indicates which rules are NOT relevant
+   */
+  rejectRules(ruleIds: string[]): void {
+    if (!this.pendingRuleConfirmation) {
+      console.log(`[ConfirmationManager] No pending rule confirmation to reject`);
+      return;
+    }
+
+    // Don't add to confirmed - just clear the pending
+    console.log(`[ConfirmationManager] Rejected ${ruleIds.length} rule(s): ${ruleIds.join(', ')}`);
+    this.pendingRuleConfirmation = null;
+  }
+
+  /**
+   * Get confirmed rules for a given query
+   * Returns only the rules that user explicitly confirmed
+   */
+  getConfirmedRules(query: string): string[] {
+    const queryHash = this.hashString(query);
+    const confirmed = this.confirmedRules.get(queryHash);
+    return confirmed ? Array.from(confirmed) : [];
+  }
+
+  /**
+   * Check if a rule is confirmed for a given query
+   */
+  isRuleConfirmed(query: string, ruleId: string): boolean {
+    const queryHash = this.hashString(query);
+    const confirmed = this.confirmedRules.get(queryHash);
+    return confirmed ? confirmed.has(ruleId) : false;
+  }
+
+  /**
+   * Clear all rule confirmations
+   */
+  clearRuleConfirmations(): void {
+    this.confirmedRules.clear();
+    this.pendingRuleConfirmation = null;
+    console.log(`[ConfirmationManager] Cleared all rule confirmations`);
+  }
+
+  /**
+   * Simple hash function for query strings
+   */
+  private hashString(str: string): string {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = (hash << 5) - hash + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    return Math.abs(hash).toString(36);
   }
 
   /**

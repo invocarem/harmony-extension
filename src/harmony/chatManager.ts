@@ -49,6 +49,7 @@ export interface ChatState {
  */
 export class ChatManager {
   private state: ChatState | null = null;
+  private appliedRuleIds: Set<string> = new Set(); // Track which rules have been applied/confirmed
 
   /**
    * Initialize chat state (called when entering chat stage)
@@ -62,6 +63,36 @@ export class ChatManager {
       allowMoveToAssumptions: false,
     };
     console.log(`[ChatManager] Initialized chat state`);
+  }
+
+  /**
+   * Set which rules are applied/confirmed for current queries
+   */
+  setAppliedRules(ruleIds: string[]): void {
+    this.appliedRuleIds = new Set(ruleIds);
+    console.log(`[ChatManager] Applied rules: ${ruleIds.join(', ')}`);
+  }
+
+  /**
+   * Get applied rules
+   */
+  getAppliedRules(): string[] {
+    return Array.from(this.appliedRuleIds);
+  }
+
+  /**
+   * Check if a rule is applied
+   */
+  isRuleApplied(ruleId: string): boolean {
+    return this.appliedRuleIds.has(ruleId);
+  }
+
+  /**
+   * Clear applied rules
+   */
+  clearAppliedRules(): void {
+    this.appliedRuleIds.clear();
+    console.log(`[ChatManager] Cleared applied rules`);
   }
 
   /**
