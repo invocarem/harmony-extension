@@ -516,14 +516,14 @@ This stage should quickly transition to the Chat stage.`,
 - Restate user's problem in your own words to show understanding; 
 - Understand and clarify any ambiguities in the user's request;
 - Use read/search tools to understand codebase context
-- **NEW**: If applicable rules are detected, confirm with user which ones are relevant
+- If rules are available, confirm with user which ones are relevant
 
 **DO:**
 ✅ Restate user's problem in your own words
 ✅ Ask clarifying questions when genuinely unclear
 ✅ Use read-only tools to gather context about the codebase
 ✅ Identify ALL distinct requests in the conversation history
-✅ If rules are detected, ask: "I found applicable rule(s): [list]. Are these relevant to your task? (yes/no/which ones)"
+✅ If rules are available, ask: "I found applicable rule(s): [list]. Are these relevant to your task? (yes/no/which ones)"
 
 **DO NOT:**
 ❌ Provide solutions, code, or implementation ideas
