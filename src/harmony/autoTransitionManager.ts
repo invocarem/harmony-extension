@@ -81,16 +81,18 @@ export class AutoTransitionManager {
       console.log(`[AutoTransitionManager] Extracted contentSteps:`, contentSteps.map(s => `Step ${s.number}: ${s.content.substring(0, 100)}`));
     }
 
+    // Always prefer contentSteps (LLM response) over promptSteps (original prompt)
+    // The LLM response is the source of truth for the plan
     let selectedSteps = contentSteps;
     const requiredCount = complexity === "hard" ? 3 : 1;
 
-    if (
-      promptSteps.length >= requiredCount &&
-      (selectedSteps.length < requiredCount ||
-        promptSteps.length > selectedSteps.length)
-    ) {
+    // Only use promptSteps as a fallback if contentSteps is completely empty
+    // Never prefer promptSteps over contentSteps, even if promptSteps has more steps
+    if (contentSteps.length === 0 && promptSteps.length >= requiredCount) {
       selectedSteps = promptSteps;
-      console.log(`[AutoTransitionManager] Using promptSteps instead of contentSteps`);
+      console.log(`[AutoTransitionManager] Using promptSteps as fallback (contentSteps is empty)`);
+    } else if (contentSteps.length > 0) {
+      console.log(`[AutoTransitionManager] Using contentSteps (LLM response) - ${contentSteps.length} step(s)`);
     }
 
     if (selectedSteps.length >= requiredCount) {

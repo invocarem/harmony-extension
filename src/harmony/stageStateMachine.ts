@@ -618,9 +618,10 @@ This stage should quickly transition to the Chat stage.`,
 **FIRST ACTION**: Review the numbered plan from Assumptions stage
 
 **EXECUTION RULES**:
-1. Follow steps in EXACT order from the plan
-2. For each step, generate the actual code/content
+1. Work on currrent step only, generate code or data context. 
+2. Do not work on previous or future steps. 
 3. All tools are available in this stage. Use appropriate tools, see TOOL USAGE GUIDE below.
+
 
 ${harmonyMode ? `**RESPONSE FORMAT** (CRITICAL):
 Use analysis channel for reasoning, final channel for tool calls. **ALWAYS close each channel with \`<|end|>\` before starting a new channel or ending your response.**
@@ -656,18 +657,12 @@ Example with multiple tool calls:
 \`\`\``}
 
 **TOOL USAGE GUIDE**:
-
+**replace_file**: Do not use this tool. Use edit_file instead.
 **create_file**: Use for NEW files only
 - Creates files with the specified content
 - Fails if file already exists (use replace_file instead)
 - Best for: Initial file creation, fresh implementations
 - For auxiliary files, use 'stepX_' prefix to avoid naming conflicts
-
-**replace_file**: Use to REPLACE entire file content
-- Overwrites all file content completely
-- Creates file if it doesn't exist
-- Best for: Complete rewrites, full file updates, ensuring consistency
-
 **edit_file**: Use for PARTIAL file modifications
 - Finds exact text and replaces only that portion
 - Preserves rest of file structure and content
