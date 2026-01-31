@@ -557,8 +557,8 @@ describe('HarmonyClient - Assumptions Stage', () => {
       
       // Verify the steps match the new content
       if (updatedPlan && updatedPlan.steps.length >= 2) {
-        expect(updatedPlan.steps[0].goal).toContain('Execute calc.py');
-        expect(updatedPlan.steps[1].goal).toContain('Execute calc.py');
+        expect(updatedPlan.steps[0].description).toContain('Execute calc.py');
+        expect(updatedPlan.steps[1].description).toContain('Execute calc.py');
       }
     });
 

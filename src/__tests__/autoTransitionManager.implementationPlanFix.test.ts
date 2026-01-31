@@ -26,7 +26,7 @@ Here's my implementation plan. Should I proceed to the Implementation stage to e
 
     const steps = manager.extractStepsFromText(content, undefined, complexity);
     expect(steps.length).toBe(1);
-    expect(steps[0].goal).toContain("Execute the command python calc.py add 2 3");
+    expect(steps[0].description).toContain("Execute the command python calc.py add 2 3");
   });
 
   it("should prefer plan section steps over numbered list in analysis text", () => {
@@ -49,8 +49,8 @@ This is a simple task that can be completed in one step.`;
 
     const steps = manager.extractStepsFromText(content, undefined, complexity);
     expect(steps.length).toBe(1);
-    expect(steps[0].goal).toContain("Execute the command python calc.py add 2 3");
-    expect(steps[0].goal).not.toContain("Read the file");
+    expect(steps[0].description).toContain("Execute the command python calc.py add 2 3");
+    expect(steps[0].description).not.toContain("Read the file");
   });
 
   it("should handle 'Execution plan' header variant", () => {
@@ -63,9 +63,9 @@ Step 3: Verify results`;
     // First just check step extraction works
     const steps = manager.extractStepsFromText(content, undefined, "hard");
     expect(steps.length).toBe(3);
-    expect(steps[0].goal).toContain("Run the command in terminal");
-    expect(steps[1].goal).toContain("Capture the output");
-    expect(steps[2].goal).toContain("Verify results");
+    expect(steps[0].description).toContain("Run the command in terminal");
+    expect(steps[1].description).toContain("Capture the output");
+    expect(steps[2].description).toContain("Verify results");
 
     // Then check complexity detection
     const complexity = manager.detectTaskComplexity(content, undefined, undefined, undefined);

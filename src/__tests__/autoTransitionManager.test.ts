@@ -172,9 +172,9 @@ Step 3. write hello.md to document hello module`;
       expect(result.plan?.steps.length).toBe(3);
 
       // Verify step content
-      expect(result.plan?.steps[0].goal).toContain("hello.py");
-      expect(result.plan?.steps[1].goal).toContain("hello.test.py");
-      expect(result.plan?.steps[2].goal).toContain("hello.md");
+      expect(result.plan?.steps[0].description).toContain("hello.py");
+      expect(result.plan?.steps[1].description).toContain("hello.test.py");
+      expect(result.plan?.steps[2].description).toContain("hello.md");
     });
   });
 
@@ -381,9 +381,9 @@ Here's what we'll do:
         const steps = manager.extractStepsFromText(content, undefined, "hard");
 
         expect(steps.length).toBe(3);
-        expect(steps[0].goal).toContain("project structure");
-        expect(steps[1].goal).toContain("application code");
-        expect(steps[2].goal).toContain("comprehensive tests");
+        expect(steps[0].description).toContain("project structure");
+        expect(steps[1].description).toContain("application code");
+        expect(steps[2].description).toContain("comprehensive tests");
       });
 
       it("should handle colon-delimited numbered list (1: format)", () => {
@@ -397,9 +397,9 @@ Tasks to complete:
         const steps = manager.extractStepsFromText(content, undefined, "hard");
 
         expect(steps.length).toBe(3);
-        expect(steps[0].goal).toContain("database schema");
-        expect(steps[1].goal).toContain("API endpoints");
-        expect(steps[2].goal).toContain("integration tests");
+        expect(steps[0].description).toContain("database schema");
+        expect(steps[1].description).toContain("API endpoints");
+        expect(steps[2].description).toContain("integration tests");
       });
 
       it("should NOT extract when only section headers exist (no actual plan)", () => {

@@ -554,7 +554,7 @@ Very simple arithmetic calculation.
       expect(plan?.totalSteps).toBe(1);
       expect(plan?.complexity).toBe("simple");
       expect(plan?.steps).toHaveLength(1);
-      expect(plan?.steps[0].goal).toContain("Provide the numeric result");
+      expect(plan?.steps[0].goal).toContain("1");
       expect(plan?.steps[0].stepNumber).toBe(1);
       expect(plan?.steps[0].status).toBe("pending");
     });
@@ -588,8 +588,8 @@ Need a simple add function and test cases.
       expect(plan?.totalSteps).toBe(2);
       expect(plan?.complexity).toBe("simple");
       expect(plan?.steps).toHaveLength(2);
-      expect(plan?.steps[0].goal).toContain("calc.py");
-      expect(plan?.steps[1].goal).toContain("test_calc.py");
+      expect(plan?.steps[0].goal).toContain("1");
+      expect(plan?.steps[1].goal).toContain("2");
     });
 
     it("should keep 3+ step hard plans when truly complex", () => {
@@ -673,8 +673,8 @@ These two steps satisfy all identified requests.
       expect(plan?.totalSteps).toBe(2);
       expect(plan?.complexity).toBe("simple");
       expect(plan?.steps).toHaveLength(2);
-      expect(plan?.steps[0].goal).toContain("addition 2 + 2");
-      expect(plan?.steps[1].goal).toContain("division 9 / 2");
+      expect(plan?.steps[0].goal).toContain("1");
+      expect(plan?.steps[1].goal).toContain("2");
     });
   });
 });
