@@ -789,9 +789,9 @@ describe("HarmonyClient - VerboseInfo Tests", () => {
         "Test task",
         "hard",
         [
-          { goal: "Step 1", description: "First step" },
-          { goal: "Step 2", description: "Second step" },
-          { goal: "Step 3", description: "Third step" },
+          { description: "First step" },
+          { description: "Second step" },
+          { description: "Third step" },
         ]
       );
 
@@ -818,8 +818,8 @@ describe("HarmonyClient - VerboseInfo Tests", () => {
         "Test task",
         "hard",
         [
-          { goal: "Step 1", description: "First step" },
-          { goal: "Step 2", description: "Second step" },
+          { description: "First step" },
+          { description: "Second step" },
         ]
       );
 
@@ -844,7 +844,7 @@ describe("HarmonyClient - VerboseInfo Tests", () => {
         taskId,
         "Test task",
         "hard",
-        [{ goal: "Step 1", description: "First step" }]
+        [{ description: "First step" }]
       );
 
       // Initialize context if it doesn't exist
@@ -870,9 +870,9 @@ describe("HarmonyClient - VerboseInfo Tests", () => {
         "Test task",
         "hard",
         [
-          { goal: "Step 1", description: "First step" },
-          { goal: "Step 2", description: "Second step" },
-          { goal: "Step 3", description: "Third step" },
+          { description: "First step" },
+          { description: "Second step" },
+          { description: "Third step" },
         ]
       );
 
@@ -908,8 +908,8 @@ describe("HarmonyClient - VerboseInfo Tests", () => {
         "Test task",
         "hard",
         [
-          { goal: "Step 1", description: "First step" },
-          { goal: "Step 2", description: "Second step" },
+          { description: "First step" },
+          { description: "Second step" },
         ]
       );
 
@@ -944,7 +944,7 @@ describe("HarmonyClient - VerboseInfo Tests", () => {
         taskId,
         "Single step task",
         "simple",
-        [{ goal: "Complete the task", description: "Only step" }]
+        [{ description: "Only step" }]
       );
 
       // Leave the single step as pending (not completed)
@@ -979,7 +979,7 @@ describe("HarmonyClient - VerboseInfo Tests", () => {
         taskId,
         "Single step task",
         "simple",
-        [{ goal: "Complete the task", description: "Only step" }]
+        [{ description: "Only step" }]
       );
 
       // Mark the single step as in_progress
@@ -1014,7 +1014,7 @@ describe("HarmonyClient - VerboseInfo Tests", () => {
         taskId,
         "Single step task",
         "simple",
-        [{ goal: "Complete the task", description: "Only step" }]
+        [{ description: "Only step" }]
       );
 
       // Mark the single step as completed

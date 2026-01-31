@@ -71,9 +71,9 @@ function setupStepForExecution(
       // Update the step to include tools field and ensure it's pending
       const updatedSteps = plan.steps.map((s, idx) => {
         if (idx === stepIndex) {
-          return { goal: s.goal, tools: ["create_file"] };
+          return { description: s.description, tools: ["create_file"] };
         }
-        return { goal: s.goal };
+        return { description: s.description };
       });
       progressPlanManager.updatePlanSteps(taskId, updatedSteps, false); // Don't preserve status - start fresh
 

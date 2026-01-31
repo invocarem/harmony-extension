@@ -136,8 +136,7 @@ export interface AssumptionVerboseInfo {
     createdAt: number;
     steps?: Array<{
       stepNumber: number;
-      goal: string;
-      description?: string;
+      description: string;
       status?: "pending" | "in_progress" | "completed";
       tools?: string[];
     }>;
@@ -171,14 +170,14 @@ export interface ImplementationVerboseInfo {
     completedSteps: number;
     currentStep?: {
       stepNumber: number;
-      goal: string;
+      description: string;
       status: "pending" | "in_progress" | "completed";
       startedAt?: number;
       completedAt?: number;
     };
     steps: Array<{
       stepNumber: number;
-      goal: string;
+      description: string;
       status: "pending" | "in_progress" | "completed";
       completedAt?: number;
       toolsUsed?: string[]; // Actual tools executed (not just planned)
@@ -514,7 +513,6 @@ export class VerboseInfoBuilder {
         createdAt: context.progressPlan.createdAt,
         steps: context.progressPlan.steps.map((step) => ({
           stepNumber: step.stepNumber,
-          goal: step.goal,
           description: step.description,
           status: step.status || "pending",
           tools: step.tools || [],
@@ -632,7 +630,7 @@ export class VerboseInfoBuilder {
           currentStep: currentStep
             ? {
                 stepNumber: currentStep.stepNumber,
-                goal: currentStep.goal,
+                description: currentStep.description,
                 status: currentStep.status || "pending",
                 startedAt:
                   currentStep.status === "in_progress" ? Date.now() : undefined,
@@ -650,7 +648,7 @@ export class VerboseInfoBuilder {
 
             return {
               stepNumber: step.stepNumber,
-              goal: step.goal,
+              description: step.description,
               status: step.status || "pending",
               completedAt: step.status === "completed" ? Date.now() : undefined,
               toolsUsed: allTools.length > 0 ? allTools : step.tools || [],
@@ -852,11 +850,8 @@ export class VerboseInfoFormatter {
                 ? "🔄"
                 : "⏳";
           lines.push(
-            `     ${statusIcon} Step ${step.stepNumber}: ${step.goal}`
+            `     ${statusIcon} Step ${step.stepNumber}: ${step.description}`
           );
-          if (step.description && step.description !== step.goal) {
-            lines.push(`        ${step.description}`);
-          }
           if (step.tools && step.tools.length > 0) {
             lines.push(`        Tools: ${step.tools.join(", ")}`);
           }
@@ -914,7 +909,7 @@ export class VerboseInfoFormatter {
       if (info.planProgress.currentStep) {
         lines.push(`\n   Current Step:`);
         lines.push(
-          `     #${info.planProgress.currentStep.stepNumber}: ${info.planProgress.currentStep.goal}`
+          `     #${info.planProgress.currentStep.stepNumber}: ${info.planProgress.currentStep.description}`
         );
         lines.push(`     Status: ${info.planProgress.currentStep.status}`);
         if (info.planProgress.currentStep.startedAt) {
@@ -939,7 +934,7 @@ export class VerboseInfoFormatter {
                 ? "🔄"
                 : "⏳";
           lines.push(
-            `     ${statusIcon} Step ${step.stepNumber}: ${step.goal} (${step.status})`
+            `     ${statusIcon} Step ${step.stepNumber}: ${step.description} (${step.status})`
           );
           if (step.completedAt) {
             lines.push(

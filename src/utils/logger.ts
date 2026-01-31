@@ -144,7 +144,7 @@ export function logVerboseInfo(verboseInfo: any, formatted?: string): void {
       if (verboseInfo.progressPlan.steps && verboseInfo.progressPlan.steps.length > 0) {
         console.log(`[VerboseInfo] Plan steps:`);
         verboseInfo.progressPlan.steps.forEach((step: any) => {
-          console.log(`[VerboseInfo]   Step ${step.stepNumber}: ${step.goal}`);
+          console.log(`[VerboseInfo]   Step ${step.stepNumber}: ${step.description}`);
         });
       }
     }
@@ -152,7 +152,7 @@ export function logVerboseInfo(verboseInfo: any, formatted?: string): void {
     if (verboseInfo.planProgress) {
       console.log(`[VerboseInfo] Plan progress: ${verboseInfo.planProgress.completedSteps}/${verboseInfo.planProgress.totalSteps} steps completed`);
       if (verboseInfo.planProgress.currentStep) {
-        console.log(`[VerboseInfo] Current step: Step ${verboseInfo.planProgress.currentStep.stepNumber} - ${verboseInfo.planProgress.currentStep.goal}`);
+        console.log(`[VerboseInfo] Current step: Step ${verboseInfo.planProgress.currentStep.stepNumber} - ${verboseInfo.planProgress.currentStep.description}`);
       }
     }
     if (verboseInfo.fileOperations) {

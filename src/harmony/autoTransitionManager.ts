@@ -67,8 +67,8 @@ export class AutoTransitionManager {
     content: string,
     originalPrompt?: string,
     complexity?: "simple" | "hard" | null
-  ): Array<{ goal: string; description?: string }> {
-    let steps: Array<{ goal: string; description?: string }> = [];
+  ): Array<{ description: string }> {
+    let steps: Array<{ description: string }> = [];
 
     const contentSteps = this.extractNormalizedSteps(content);
     const promptSteps = originalPrompt
@@ -97,7 +97,6 @@ export class AutoTransitionManager {
 
     if (selectedSteps.length >= requiredCount) {
       steps = selectedSteps.map((step) => ({
-        goal: `Step ${step.number}`,
         description: step.content,
       }));
       console.log(`[AutoTransitionManager] Extracted ${steps.length} steps from selectedSteps`);
@@ -121,23 +120,13 @@ export class AutoTransitionManager {
 
       if (files.length >= 3) {
         steps = files.map((file) => ({
-          goal: `Create ${file}`,
           description: `Implement ${file} based on requirements`,
         }));
       } else {
         steps = [
-          {
-            goal: "Step 1: Analyze requirements",
-            description: "Understand the task requirements",
-          },
-          {
-            goal: "Step 2: Design solution",
-            description: "Plan the implementation approach",
-          },
-          {
-            goal: "Step 3: Implement solution",
-            description: "Execute the implementation",
-          },
+          { description: "Understand the task requirements" },
+          { description: "Plan the implementation approach" },
+          { description: "Execute the implementation" },
         ];
       }
     }
@@ -146,7 +135,7 @@ export class AutoTransitionManager {
       const description = originalPrompt
         ? `Execute the task: ${originalPrompt.substring(0, 100)}${originalPrompt.length > 100 ? "..." : ""}`
         : "Execute the task implementation";
-      steps = [{ goal: "Complete the task", description }];
+      steps = [{ description }];
     }
 
     return steps;
@@ -219,7 +208,6 @@ export class AutoTransitionManager {
           ? steps
           : [
               {
-                goal: "Complete the task",
                 description: "Execute the planned steps",
               },
             ]
@@ -241,7 +229,7 @@ export class AutoTransitionManager {
   buildImplementationPrompt(plan?: ProgressPlan): string {
     let continuationPrompt = `Create the files now. Use code from conversation history if available, otherwise generate the code. Call create_file or replace_file tools to create the files.`;
     if (plan) {
-      continuationPrompt += `\n\nProgress Plan:\n${plan.steps.map((s) => `${s.stepNumber}. ${s.goal}`).join("\n")}\n\nStart implementing step 1.`;
+      continuationPrompt += `\n\nProgress Plan:\n${plan.steps.map((s) => `${s.stepNumber}. ${s.description}`).join("\n")}\n\nStart implementing step 1.`;
     }
     return continuationPrompt;
   }

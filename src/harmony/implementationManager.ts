@@ -178,7 +178,7 @@ export class ImplementationManager {
 
     if (success) {
       this.state.lastUpdated = Date.now();
-      console.log(`[ImplementationManager] Advanced to step ${currentStep.stepNumber}: ${currentStep.goal}`);
+      console.log(`[ImplementationManager] Advanced to step ${currentStep.stepNumber}: ${currentStep.description}`);
     }
 
     return success ? currentStep : undefined;
@@ -264,7 +264,7 @@ export class ImplementationManager {
       const success = this.completeStep(currentStep.stepNumber);
       if (success) {
         console.log(
-          `[ImplementationManager] Completed step ${currentStep.stepNumber} (${currentStep.goal}) after creating file(s): ${filesForCurrentStep.join(', ')}`
+          `[ImplementationManager] Completed step ${currentStep.stepNumber} (${currentStep.description}) after creating file(s): ${filesForCurrentStep.join(', ')}`
         );
         return currentStep.stepNumber;
       }
@@ -273,7 +273,7 @@ export class ImplementationManager {
       // but the step mentions importing/using a file (not creating a specific file),
       // consider it a match. This handles cases like "Import from X.py" where
       // a test file is created that imports from X.py.
-      const stepText = `${currentStep.goal} ${currentStep.description || ''}`.toLowerCase();
+      const stepText = currentStep.description.toLowerCase();
       // Match patterns like "import from calc.py", "use X.py", "from `file.py`", etc.
       // Handle backticks, quotes, and various formats. Look for "from X.py" or "import X.py" patterns
       const mentionsImport = /(?:from|import|use)\s+[`'"]?[\w\-\.]+\.(?:py|js|ts|java|go|rs)[`'"]?/i.test(stepText);
@@ -287,7 +287,7 @@ export class ImplementationManager {
         const success = this.completeStep(currentStep.stepNumber);
         if (success) {
           console.log(
-            `[ImplementationManager] Completed step ${currentStep.stepNumber} (${currentStep.goal}) after creating file: ${allCreatedFiles[0]} (fallback match: step mentions importing/using a file)`
+            `[ImplementationManager] Completed step ${currentStep.stepNumber} (${currentStep.description}) after creating file: ${allCreatedFiles[0]} (fallback match: step mentions importing/using a file)`
           );
           return currentStep.stepNumber;
         }
@@ -296,7 +296,7 @@ export class ImplementationManager {
         // Don't change step status - plan runs step by step, no jumps
         // If files don't match current step, it's a workflow issue, not something to handle gracefully
         console.log(
-          `[ImplementationManager] Created file(s) but none match current step ${currentStep.stepNumber} (${currentStep.goal}), not completing step`
+          `[ImplementationManager] Created file(s) but none match current step ${currentStep.stepNumber} (${currentStep.description}), not completing step`
         );
       }
     } else {
@@ -304,7 +304,7 @@ export class ImplementationManager {
       // Don't change step status - plan runs step by step, no jumps
       // If files don't match current step, it's a workflow issue, not something to handle gracefully
       console.log(
-        `[ImplementationManager] Created file(s) but none match current step ${currentStep.stepNumber} (${currentStep.goal}), not completing step`
+        `[ImplementationManager] Created file(s) but none match current step ${currentStep.stepNumber} (${currentStep.description}), not completing step`
       );
     }
 
@@ -362,7 +362,7 @@ export class ImplementationManager {
     }
 
     // Extract potential filenames from step goal and description
-    const stepText = `${step.goal} ${step.description || ''}`.toLowerCase();
+    const stepText = step.description.toLowerCase();
     
     // Find code contexts whose filename is mentioned in the step
     const matchedContexts = codeContexts.filter(codeContext => {
@@ -699,7 +699,6 @@ export class ImplementationManager {
     // Create JSON structure for implementation step
     const stepData = {
       stepNumber: step.stepNumber,
-      goal: step.goal,
       description: step.description,
       tools: step.tools || [],
       status: step.status,
@@ -720,7 +719,7 @@ export class ImplementationManager {
         error: f.error
       })),
       timestamp: Date.now(),
-      summary: `Implementation step ${stepNumber}: ${step.goal}${step.description ? ` - ${step.description}` : ''}`
+      summary: `Implementation step ${stepNumber}: ${step.description}`
     };
 
     const fileName = `implementation_step_${stepNumber}.json`;

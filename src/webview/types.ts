@@ -65,8 +65,7 @@ export interface ExtensionToWebviewMessage {
             createdAt: number;
             steps?: Array<{
                 stepNumber: number;
-                goal: string;
-                description?: string;
+                description: string;
                 status?: 'pending' | 'in_progress' | 'completed';
                 tools?: string[];
             }>;
@@ -79,14 +78,14 @@ export interface ExtensionToWebviewMessage {
             completedSteps: number;
             currentStep?: {
                 stepNumber: number;
-                goal: string;
+                description: string;
                 status: 'pending' | 'in_progress' | 'completed';
                 startedAt?: number;
                 completedAt?: number;
             };
             steps: Array<{
                 stepNumber: number;
-                goal: string;
+                description: string;
                 status: 'pending' | 'in_progress' | 'completed';
                 completedAt?: number;
                 toolsUsed?: string[];

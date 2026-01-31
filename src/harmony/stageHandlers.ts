@@ -102,7 +102,7 @@ class ImplementationStageHandler implements StageHandler {
     }
 
     // Extract potential filenames from step goal and description
-    const stepText = `${step.goal} ${step.description || ""}`.toLowerCase();
+    const stepText = step.description.toLowerCase();
 
     // Find code contexts whose filename is mentioned in the step
     const matchedContexts = codeContexts.filter((codeContext) => {
@@ -268,7 +268,7 @@ class ImplementationStageHandler implements StageHandler {
         const advancedStep = this.implementationManager.advanceToNextStep();
         if (advancedStep) {
           console.log(
-            `[StageHandler:Implementation] @cmd:next_step - Advanced to step ${advancedStep.stepNumber}: ${advancedStep.goal}, processing it now`
+            `[StageHandler:Implementation] @cmd:next_step - Advanced to step ${advancedStep.stepNumber}: ${advancedStep.description}, processing it now`
           );
           // Continue with normal flow - process the step (don't return early)
         }
@@ -298,7 +298,7 @@ class ImplementationStageHandler implements StageHandler {
         } else {
           // We advanced to a new step - PROCESS it (don't stop)
           console.log(
-            `[StageHandler:Implementation] @cmd:next_step - Advanced to step ${nextStep.stepNumber}: ${nextStep.goal}, processing it now`
+            `[StageHandler:Implementation] @cmd:next_step - Advanced to step ${nextStep.stepNumber}: ${nextStep.description}, processing it now`
           );
           // Continue with normal flow - process the step (don't return early)
         }
@@ -321,7 +321,7 @@ class ImplementationStageHandler implements StageHandler {
           return {
             shouldSkipLLM: true,
             response: {
-              content: `✅ Plan generated with ${plan.totalSteps} step(s). Ready to begin implementation. Use @cmd:next_step or ask to proceed with step ${currentStep.stepNumber}: "${currentStep.goal}"`,
+              content: `✅ Plan generated with ${plan.totalSteps} step(s). Ready to begin implementation. Use @cmd:next_step or ask to proceed with step ${currentStep.stepNumber}: "${currentStep.description}"`,
               verboseInfo: {
                 stage: "implementation" as const,
                 planReady: true,
@@ -341,7 +341,7 @@ class ImplementationStageHandler implements StageHandler {
           "update_file",
         ];
         const stepGoalText =
-          `${currentStep.goal} ${currentStep.description || ""}`.toLowerCase();
+          currentStep.description.toLowerCase();
         const hasFileCreationInGoal =
           /(?:create|write|make|implement|add|generate)\s+(?:file|\.py|\.js|\.ts|\.txt|\.json|\.md)/i.test(
             stepGoalText
@@ -351,7 +351,7 @@ class ImplementationStageHandler implements StageHandler {
           hasFileCreationInGoal;
 
         console.log(
-          `[StageHandler:Implementation] ProgressPlan: Current step ${currentStep.stepNumber} - goal: "${currentStep.goal}", needsFileCreation: ${needsFileCreation}, hasCodeContext: ${codeContexts.length > 0}`
+          `[StageHandler:Implementation] ProgressPlan: Current step ${currentStep.stepNumber} - "${currentStep.description}", needsFileCreation: ${needsFileCreation}, hasCodeContext: ${codeContexts.length > 0}`
         );
 
         if (needsFileCreation && codeContexts.length > 0) {
@@ -371,7 +371,7 @@ class ImplementationStageHandler implements StageHandler {
           // Always call LLM even if CodeContext exists - the step is meant to draft/present, not create files
           shouldCallLLM = true;
           console.log(
-            `[StageHandler:Implementation] ProgressPlan: Step doesn't require file creation (goal: "${currentStep.goal}"), calling LLM to draft/present code`
+            `[StageHandler:Implementation] ProgressPlan: Step doesn't require file creation ("${currentStep.description}"), calling LLM to draft/present code`
           );
         }
       } else {
@@ -563,7 +563,7 @@ class ImplementationStageHandler implements StageHandler {
         if (stepToComplete) {
           this.implementationManager.completeStep(stepToComplete.stepNumber);
           console.log(
-            `[StageHandler:Implementation] ProgressPlan: Marked step ${stepToComplete.stepNumber} (${stepToComplete.goal}) as completed after creating files from CodeContext`
+            `[StageHandler:Implementation] ProgressPlan: Marked step ${stepToComplete.stepNumber} (${stepToComplete.description}) as completed after creating files from CodeContext`
           );
         }
 
@@ -653,7 +653,7 @@ class ImplementationStageHandler implements StageHandler {
       "update_file",
     ];
     const stepGoalText =
-      `${currentStep.goal} ${currentStep.description || ""}`.toLowerCase();
+      currentStep.description.toLowerCase();
     const hasFileCreationInGoal =
       /(?:create|write|make|implement|add|generate)\s+(?:file|\.py|\.js|\.ts|\.txt|\.json|\.md)/i.test(
         stepGoalText
@@ -688,7 +688,7 @@ class ImplementationStageHandler implements StageHandler {
         ? "all tool calls succeeded"
         : "step doesn't require file creation";
       console.log(
-        `[StageHandler:Implementation] ProgressPlan: Marked step ${currentStep.stepNumber} (${currentStep.goal}) as completed after LLM response (${reason})`
+        `[StageHandler:Implementation] ProgressPlan: Marked step ${currentStep.stepNumber} (${currentStep.description}) as completed after LLM response (${reason})`
       );
 
       // After completing a step, the next step is automatically advanced to in_progress

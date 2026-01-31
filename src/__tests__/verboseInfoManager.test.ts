@@ -309,8 +309,8 @@ describe("VerboseInfoManager", () => {
 
         // Create a plan in the progress manager
         progressPlanManager.createPlan("test-task", "Test prompt", "simple", [
-          { goal: "Step 1" },
-          { goal: "Step 2" },
+          { description: "Step 1" },
+          { description: "Step 2" },
         ]);
 
         const result = manager.buildVerboseInfo("implementation", context);
@@ -617,8 +617,8 @@ describe("VerboseInfoManager", () => {
 
       // Implementation stage with plan
       progressPlanManager.createPlan("feature-task", "Create a new feature", "simple", [
-        { goal: "Create file" },
-        { goal: "Add tests" },
+        { description: "Create file" },
+        { description: "Add tests" },
       ]);
 
       context = {
@@ -749,9 +749,9 @@ describe("VerboseInfoManager", () => {
             createdAt: Date.now(),
             originalPrompt: "Test prompt",
             steps: [
-              { stepNumber: 1, goal: "Step 1", status: "pending", tools: [] },
-              { stepNumber: 2, goal: "Step 2", status: "pending", tools: [] },
-              { stepNumber: 3, goal: "Step 3", status: "pending", tools: [] },
+              { stepNumber: 1, description: "Step 1", status: "pending", tools: [] },
+              { stepNumber: 2, description: "Step 2", status: "pending", tools: [] },
+              { stepNumber: 3, description: "Step 3", status: "pending", tools: [] },
             ],
           },
         };
@@ -783,9 +783,9 @@ describe("VerboseInfoManager", () => {
       it("should return true for isComplete when all steps are completed in implementation stage", () => {
         // Create a plan with all steps completed
         progressPlanManager.createPlan("task-123", "Test task", "simple", [
-          { goal: "Step 1" },
-          { goal: "Step 2" },
-          { goal: "Step 3" },
+          { description: "Step 1" },
+          { description: "Step 2" },
+          { description: "Step 3" },
         ]);
         const plan = progressPlanManager.getPlan("task-123");
 
@@ -813,19 +813,19 @@ describe("VerboseInfoManager", () => {
             steps: [
               {
                 stepNumber: 1,
-                goal: "Step 1",
+                description: "Step 1",
                 status: "completed",
                 tools: [],
               },
               {
                 stepNumber: 2,
-                goal: "Step 2",
+                description: "Step 2",
                 status: "completed",
                 tools: [],
               },
               {
                 stepNumber: 3,
-                goal: "Step 3",
+                description: "Step 3",
                 status: "completed",
                 tools: [],
               },
@@ -842,9 +842,9 @@ describe("VerboseInfoManager", () => {
       it("should return true for isComplete when last step is completed in implementation stage", () => {
         // Create a plan where last step is completed (implicit completion)
         progressPlanManager.createPlan("task-456", "Test task", "simple", [
-          { goal: "Step 1" },
-          { goal: "Step 2" },
-          { goal: "Step 3" },
+          { description: "Step 1" },
+          { description: "Step 2" },
+          { description: "Step 3" },
         ]);
         const plan = progressPlanManager.getPlan("task-456");
 
@@ -872,19 +872,19 @@ describe("VerboseInfoManager", () => {
             steps: [
               {
                 stepNumber: 1,
-                goal: "Step 1",
+                description: "Step 1",
                 status: "completed",
                 tools: [],
               },
               {
                 stepNumber: 2,
-                goal: "Step 2",
+                description: "Step 2",
                 status: "completed",
                 tools: [],
               },
               {
                 stepNumber: 3,
-                goal: "Step 3",
+                description: "Step 3",
                 status: "completed",
                 tools: [],
               },
@@ -900,9 +900,9 @@ describe("VerboseInfoManager", () => {
 
       it("should return false for isComplete when steps are pending/in_progress in implementation stage", () => {
         progressPlanManager.createPlan("task-789", "Test task", "simple", [
-          { goal: "Step 1" },
-          { goal: "Step 2" },
-          { goal: "Step 3" },
+          { description: "Step 1" },
+          { description: "Step 2" },
+          { description: "Step 3" },
         ]);
 
         const context: ConversationContext = {
@@ -922,12 +922,12 @@ describe("VerboseInfoManager", () => {
             steps: [
               {
                 stepNumber: 1,
-                goal: "Step 1",
+                description: "Step 1",
                 status: "in_progress",
                 tools: [],
               },
-              { stepNumber: 2, goal: "Step 2", status: "pending", tools: [] },
-              { stepNumber: 3, goal: "Step 3", status: "pending", tools: [] },
+              { stepNumber: 2, description: "Step 2", status: "pending", tools: [] },
+              { stepNumber: 3, description: "Step 3", status: "pending", tools: [] },
             ],
           },
         };

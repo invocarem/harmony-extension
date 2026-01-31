@@ -253,7 +253,7 @@ Very simple arithmetic calculation.
         // Since this doesn't use "Implementation plan (one step per request)" delimiter,
         // it falls back to extracting all numbered items (section headers + plan)
         expect(steps.length).toBeGreaterThanOrEqual(1);
-        expect(steps[0].goal).toBeDefined();
+        expect(steps[0].description).toBeDefined();
       });
 
       it("should extract numbered items when complexity is simple", () => {
@@ -277,7 +277,7 @@ Need a simple add function and test cases.
 
         // For complexity="simple", returns at least 1 step (may be section header or plan step)
         expect(steps.length).toBeGreaterThanOrEqual(1);
-        expect(steps[0].goal).toBeDefined();
+        expect(steps[0].description).toBeDefined();
       });
 
       it("should extract steps when using Step N: format", () => {
@@ -302,7 +302,7 @@ Division question.
 
         // For simple complexity, returns at least 1 step
         expect(steps.length).toBeGreaterThanOrEqual(1);
-        expect(steps[0].goal).toBeDefined();
+        expect(steps[0].description).toBeDefined();
       });
 
       it("should handle mixed format: section headers + bold plan with **Step N:** markers", () => {
@@ -360,9 +360,9 @@ Unit tests and integration tests.
 
         // For hard complexity, need at least 3 steps - parser will extract section headers + plan items
         expect(steps.length).toBeGreaterThanOrEqual(3);
-        expect(steps[0].goal).toBeDefined();
-        expect(steps[1].goal).toBeDefined();
-        expect(steps[2].goal).toBeDefined();
+        expect(steps[0].description).toBeDefined();
+        expect(steps[1].description).toBeDefined();
+        expect(steps[2].description).toBeDefined();
 
         // May include section headers since parser extracts all numbered items
         const hasNumberedContent = steps.length >= 3;
@@ -425,7 +425,7 @@ Simple task.
         expect(steps.length).toBeGreaterThanOrEqual(1);
         // If no clear steps, should fall back to generic step
         if (steps.length === 1) {
-          expect(steps[0].goal).toContain("Complete the task");
+          expect(steps[0].description).toContain("Complete the task");
         }
       });
     });

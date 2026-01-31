@@ -44,8 +44,7 @@ export interface VerboseInfo {
         createdAt: number;
         steps?: Array<{
             stepNumber: number;
-            goal: string;
-            description?: string;
+            description: string;
             status?: 'pending' | 'in_progress' | 'completed';
             tools?: string[];
         }>;
@@ -58,14 +57,14 @@ export interface VerboseInfo {
         completedSteps: number;
         currentStep?: {
             stepNumber: number;
-            goal: string;
+            description: string;
             status: 'pending' | 'in_progress' | 'completed';
             startedAt?: number;
             completedAt?: number;
         };
         steps: Array<{
             stepNumber: number;
-            goal: string;
+            description: string;
             status: 'pending' | 'in_progress' | 'completed';
             completedAt?: number;
             toolsUsed?: string[];
@@ -215,10 +214,7 @@ function formatAssumptionVerboseInfo(info: VerboseInfo): string {
             lines.push(`\n   Plan Steps:`);
             info.progressPlan.steps.forEach(step => {
                 const statusIcon = step.status === 'completed' ? '✅' : step.status === 'in_progress' ? '🔄' : '⏳';
-                lines.push(`     ${statusIcon} Step ${step.stepNumber}: ${step.goal}`);
-                if (step.description && step.description !== step.goal) {
-                    lines.push(`        ${step.description}`);
-                }
+                lines.push(`     ${statusIcon} Step ${step.stepNumber}: ${step.description}`);
                 if (step.tools && step.tools.length > 0) {
                     lines.push(`        Tools: ${step.tools.join(', ')}`);
                 }
@@ -274,7 +270,7 @@ function formatImplementationVerboseInfo(info: VerboseInfo): string {
         
         if (info.planProgress.currentStep) {
             lines.push(`\n   Current Step:`);
-            lines.push(`     #${info.planProgress.currentStep.stepNumber}: ${info.planProgress.currentStep.goal}`);
+            lines.push(`     #${info.planProgress.currentStep.stepNumber}: ${info.planProgress.currentStep.description}`);
             lines.push(`     Status: ${info.planProgress.currentStep.status}`);
             if (info.planProgress.currentStep.startedAt) {
                 lines.push(`     Started: ${new Date(info.planProgress.currentStep.startedAt).toLocaleString()}`);
@@ -288,7 +284,7 @@ function formatImplementationVerboseInfo(info: VerboseInfo): string {
             lines.push(`\n   All Steps (Plan Fulfillment):`);
             info.planProgress.steps.forEach(step => {
                 const statusIcon = step.status === 'completed' ? '✅' : step.status === 'in_progress' ? '🔄' : '⏳';
-                lines.push(`     ${statusIcon} Step ${step.stepNumber}: ${step.goal} (${step.status})`);
+                lines.push(`     ${statusIcon} Step ${step.stepNumber}: ${step.description} (${step.status})`);
                 if (step.completedAt) {
                     lines.push(`        Completed: ${new Date(step.completedAt).toLocaleString()}`);
                 }

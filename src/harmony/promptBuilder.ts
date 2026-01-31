@@ -73,10 +73,7 @@ export class PromptBuilder {
         if (currentStep) {
           // Show current step to focus on
           stageInstructions += `\n\n**PROGRESS PLAN - CURRENT STEP**:\n`;
-          stageInstructions += `You are working on Step ${currentStep.stepNumber}/${plan.totalSteps}: ${currentStep.goal}\n`;
-          if (currentStep.description) {
-            stageInstructions += `Description: ${currentStep.description}\n`;
-          }
+          stageInstructions += `You are working on Step ${currentStep.stepNumber}/${plan.totalSteps}: ${currentStep.description}\n`;
           
           // Show remaining steps for context
           const remainingSteps = plan.steps.filter(s => s.status === 'pending' || s.status === 'in_progress');
@@ -84,7 +81,7 @@ export class PromptBuilder {
             stageInstructions += `\n**Remaining Steps**:\n`;
             remainingSteps.forEach(step => {
               if (step.stepNumber !== currentStep.stepNumber) {
-                stageInstructions += `- Step ${step.stepNumber}: ${step.goal}\n`;
+                stageInstructions += `- Step ${step.stepNumber}: ${step.description}\n`;
               }
             });
           }
@@ -97,7 +94,7 @@ export class PromptBuilder {
           
           // Check step goal/description for hints about what action is needed
           // Use more specific patterns to avoid false positives
-          const stepText = `${currentStep.goal} ${currentStep.description || ''}`.toLowerCase();
+          const stepText = currentStep.description.toLowerCase();
           
           // More specific execution patterns - look for command execution context
           const mentionsExecution = /\b(execute|run|command|terminal).*(?:python|npm|node|bash|sh|calc\.py|\.py\s|\.js\s|\.sh\s)/i.test(stepText) ||
@@ -126,7 +123,7 @@ export class PromptBuilder {
             actionInstruction = 'by making the appropriate tool call (use create_file/replace_file for files, exec_terminal for commands). DO NOT just describe actions - actually make the tool call';
           }
           
-          stageInstructions += `\n**FOCUS**: Complete the current step (${currentStep.goal}) ${actionInstruction}. After completing this step, you will move to the next step automatically.`;
+          stageInstructions += `\n**FOCUS**: Complete the current step: ${currentStep.description} ${actionInstruction}. After completing this step, you will move to the next step automatically.`;
         } else if (plan.completedAt) {
           stageInstructions += `\n\n**PROGRESS PLAN**: All steps completed! ✅`;
         } else {

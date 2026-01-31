@@ -80,13 +80,13 @@ describe('Logger Tests', () => {
           steps: [
             {
               stepNumber: 1,
-              goal: 'Create hello.py',
+              description: 'Create hello.py',
               status: 'completed',
               tools: ['create_file']
             },
             {
               stepNumber: 2,
-              goal: 'Add greet function',
+              description: 'Add greet function',
               status: 'in_progress',
               tools: ['replace_file']
             }
@@ -120,14 +120,14 @@ describe('Logger Tests', () => {
           completedSteps: 1,
           currentStep: {
             stepNumber: 2,
-            goal: 'Add greet function',
+            description: 'Add greet function',
             status: 'in_progress',
             startedAt: Date.now()
           },
           steps: [
             {
               stepNumber: 1,
-              goal: 'Create hello.py',
+              description: 'Create hello.py',
               status: 'completed',
               completedAt: Date.now(),
               toolsUsed: ['create_file'],
@@ -135,7 +135,7 @@ describe('Logger Tests', () => {
             },
             {
               stepNumber: 2,
-              goal: 'Add greet function',
+              description: 'Add greet function',
               status: 'in_progress',
               toolsUsed: ['replace_file']
             }

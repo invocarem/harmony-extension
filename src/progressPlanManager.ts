@@ -5,8 +5,7 @@
 
 export interface PlanStep {
   stepNumber: number;
-  goal: string;
-  description?: string;
+  description: string; // The step content/objective (e.g., "Locate and read crc16.md...")
   tools?: string[]; // Tools that might be needed for this step
   status?: 'pending' | 'in_progress' | 'completed';
 }
@@ -34,11 +33,10 @@ export class ProgressPlanManager {
     taskId: string,
     originalPrompt: string,
     complexity: 'simple' | 'hard',
-    steps: Array<{ goal: string; description?: string; tools?: string[] }>
+    steps: Array<{ description: string; tools?: string[] }>
   ): ProgressPlan {
     const planSteps: PlanStep[] = steps.map((step, index) => ({
       stepNumber: index + 1,
-      goal: step.goal,
       description: step.description,
       tools: step.tools || [],
       status: 'pending',
@@ -89,13 +87,13 @@ export class ProgressPlanManager {
   }
 
   /**
-   * Update step details (goal, description, tools) in a plan
+   * Update step details (description, tools) in a plan
    * Preserves the step's current status unless explicitly provided
    */
   updateStep(
     taskId: string,
     stepNumber: number,
-    updates: { goal?: string; description?: string; tools?: string[]; status?: PlanStep['status'] }
+    updates: { description?: string; tools?: string[]; status?: PlanStep['status'] }
   ): boolean {
     const plan = this.plans.get(taskId);
     if (!plan) {
@@ -108,9 +106,6 @@ export class ProgressPlanManager {
     }
 
     // Update provided fields
-    if (updates.goal !== undefined) {
-      step.goal = updates.goal;
-    }
     if (updates.description !== undefined) {
       step.description = updates.description;
     }
@@ -136,7 +131,7 @@ export class ProgressPlanManager {
    */
   updatePlanSteps(
     taskId: string,
-    newSteps: Array<{ goal: string; description?: string; tools?: string[] }>,
+    newSteps: Array<{ description: string; tools?: string[] }>,
     preserveStatus: boolean = true
   ): boolean {
     const plan = this.plans.get(taskId);
@@ -151,7 +146,6 @@ export class ProgressPlanManager {
       
       return {
         stepNumber,
-        goal: step.goal,
         description: step.description,
         tools: step.tools || [],
         // Preserve status if requested and step exists, otherwise default to pending

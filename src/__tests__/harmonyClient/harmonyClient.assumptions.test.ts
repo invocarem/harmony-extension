@@ -152,9 +152,9 @@ describe('HarmonyClient - Assumptions Stage', () => {
       
       // Verify steps have goals extracted from the response
       if (plan && plan.steps.length >= 3) {
-        expect(plan.steps[0].goal).toBeTruthy();
-        expect(plan.steps[1].goal).toBeTruthy();
-        expect(plan.steps[2].goal).toBeTruthy();
+        expect(plan.steps[0].description).toBeTruthy();
+        expect(plan.steps[1].description).toBeTruthy();
+        expect(plan.steps[2].description).toBeTruthy();
       }
     });
 
@@ -492,9 +492,9 @@ describe('HarmonyClient - Assumptions Stage', () => {
         'test task',
         'hard',
         [
-          { goal: 'Step 1: Analyze requirements', description: 'Understand the task requirements' },
-          { goal: 'Step 2: Design solution', description: 'Plan the implementation approach' },
-          { goal: 'Step 3: Implement solution', description: 'Execute the implementation' }
+          { description: 'Understand the task requirements' },
+          { description: 'Plan the implementation approach' },
+          { description: 'Execute the implementation' }
         ]
       );
       
@@ -577,9 +577,9 @@ describe('HarmonyClient - Assumptions Stage', () => {
         'test task',
         'hard',
         [
-          { goal: 'Step 1: Analyze requirements', description: 'Understand the task requirements' },
-          { goal: 'Step 2: Design solution', description: 'Plan the implementation approach' },
-          { goal: 'Step 3: Implement solution', description: 'Execute the implementation' }
+          { description: 'Understand the task requirements' },
+          { description: 'Plan the implementation approach' },
+          { description: 'Execute the implementation' }
         ]
       );
       
@@ -631,9 +631,9 @@ describe('HarmonyClient - Assumptions Stage', () => {
         'test task',
         'hard',
         [
-          { goal: 'Step 1', description: 'First step' },
-          { goal: 'Step 2', description: 'Second step' },
-          { goal: 'Step 3', description: 'Third step' }
+          { description: 'First step' },
+          { description: 'Second step' },
+          { description: 'Third step' }
         ]
       );
       
@@ -645,8 +645,8 @@ describe('HarmonyClient - Assumptions Stage', () => {
       
       // Update plan to 2 steps
       progressPlanManager.updatePlanSteps(taskId, [
-        { goal: 'Step 1', description: 'First step' },
-        { goal: 'Step 2', description: 'Second step' }
+        { description: 'First step' },
+        { description: 'Second step' }
       ]);
       
       const updatedPlan = progressPlanManager.getPlan(taskId);

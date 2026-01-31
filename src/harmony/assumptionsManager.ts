@@ -244,7 +244,7 @@ export class AssumptionsManager {
     // This prevents the generic 3-step fallback from overwriting a concise plan
     // IMPORTANT: Also downgrade if we got the generic "Complete the task" fallback
     const isGenericFallback =
-      steps.length > 0 && /^complete\s+the\s+task$/i.test(steps[0].goal);
+      steps.length > 0 && /^complete\s+the\s+task$/i.test(steps[0].description);
     if ((complexity === "hard" && steps.length <= 2) || isGenericFallback) {
       complexity = "simple";
       steps = this.autoTransitionManager.extractStepsFromText(

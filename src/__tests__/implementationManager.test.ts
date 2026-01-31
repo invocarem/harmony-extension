@@ -82,7 +82,7 @@ describe('ImplementationManager', () => {
         'task-123',
         'Test task',
         'simple',
-        [{ goal: 'Step 1' }]
+        [{ description: 'Step 1' }]
       );
       manager.setTaskId('task-123');
       
@@ -98,8 +98,8 @@ describe('ImplementationManager', () => {
         'Test task',
         'hard',
         [
-          { goal: 'Step 1' },
-          { goal: 'Step 2' },
+          { description: 'Step 1' },
+          { description: 'Step 2' },
         ]
       );
       manager.setTaskId('task-123');
@@ -128,8 +128,8 @@ describe('ImplementationManager', () => {
         'Test task',
         'hard',
         [
-          { goal: 'Step 1' },
-          { goal: 'Step 2' },
+          { description: 'Step 1' },
+          { description: 'Step 2' },
         ]
       );
       manager.setTaskId('task-123');
@@ -137,7 +137,7 @@ describe('ImplementationManager', () => {
       const currentStep = manager.getCurrentStep();
       expect(currentStep).toBeDefined();
       expect(currentStep?.stepNumber).toBe(1);
-      expect(currentStep?.goal).toBe('Step 1');
+      expect(currentStep?.description).toBe('Step 1');
       expect(currentStep?.status).toBe('pending');
     });
 
@@ -147,8 +147,8 @@ describe('ImplementationManager', () => {
         'Test task',
         'hard',
         [
-          { goal: 'Step 1' },
-          { goal: 'Step 2' },
+          { description: 'Step 1' },
+          { description: 'Step 2' },
         ]
       );
       manager.setTaskId('task-123');
@@ -166,7 +166,7 @@ describe('ImplementationManager', () => {
         'task-123',
         'Test task',
         'simple',
-        [{ goal: 'Step 1' }]
+        [{ description: 'Step 1' }]
       );
       manager.setTaskId('task-123');
       progressPlanManager.updateStepStatus('task-123', 1, 'completed');
@@ -195,7 +195,7 @@ describe('ImplementationManager', () => {
         'task-123',
         'Test task',
         'simple',
-        [{ goal: 'Step 1' }]
+        [{ description: 'Step 1' }]
       );
       manager.setTaskId('task-123');
       
@@ -212,7 +212,7 @@ describe('ImplementationManager', () => {
         'task-123',
         'Test task',
         'simple',
-        [{ goal: 'Step 1' }]
+        [{ description: 'Step 1' }]
       );
       manager.setTaskId('task-123');
       
@@ -227,7 +227,7 @@ describe('ImplementationManager', () => {
         'task-123',
         'Test task',
         'simple',
-        [{ goal: 'Step 1' }]
+        [{ description: 'Step 1' }]
       );
       manager.setTaskId('task-123');
       
@@ -255,8 +255,8 @@ describe('ImplementationManager', () => {
         'Test task',
         'hard',
         [
-          { goal: 'Step 1' },
-          { goal: 'Step 2' },
+          { description: 'Step 1' },
+          { description: 'Step 2' },
         ]
       );
       manager.setTaskId('task-123');
@@ -265,7 +265,7 @@ describe('ImplementationManager', () => {
       const nextStep = manager.advanceToNextStep();
       expect(nextStep).toBeDefined();
       expect(nextStep?.stepNumber).toBe(2);
-      expect(nextStep?.goal).toBe('Step 2');
+      expect(nextStep?.description).toBe('Step 2');
       
       const updatedPlan = manager.getProgressPlan();
       expect(updatedPlan?.steps[1].status).toBe('in_progress');
@@ -276,7 +276,7 @@ describe('ImplementationManager', () => {
         'task-123',
         'Test task',
         'simple',
-        [{ goal: 'Step 1' }]
+        [{ description: 'Step 1' }]
       );
       manager.setTaskId('task-123');
       progressPlanManager.updateStepStatus('task-123', 1, 'completed');
@@ -364,17 +364,15 @@ describe('ImplementationManager', () => {
     it('should return empty array when no code contexts provided', () => {
       const step = {
         stepNumber: 1,
-        goal: 'create hello.py',
-        description: 'Create a Python file',
+        description: 'create hello.py - Create a Python file',
       };
       expect(manager.filterCodeContextsForStep([], step)).toEqual([]);
     });
 
-    it('should match code context by exact filename in step goal', () => {
+    it('should match code context by exact filename in step', () => {
       const step = {
         stepNumber: 1,
-        goal: 'create hello.py',
-        description: 'Create a Python file',
+        description: 'create hello.py - Create a Python file',
       };
       const codeContext1 = new CodeContext('hello.py', ['print("Hello")']);
       const codeContext2 = new CodeContext('world.py', ['print("World")']);
@@ -387,8 +385,7 @@ describe('ImplementationManager', () => {
     it('should match code context by filename in step description', () => {
       const step = {
         stepNumber: 1,
-        goal: 'Create a file',
-        description: 'create hello.py with greeting function',
+        description: 'Create a file - create hello.py with greeting function',
       };
       const codeContext = new CodeContext('hello.py', ['def greet(): pass']);
       
@@ -400,8 +397,7 @@ describe('ImplementationManager', () => {
     it('should match test files when step mentions test', () => {
       const step = {
         stepNumber: 2,
-        goal: 'create hello.test.py to test greet',
-        description: 'Create test file',
+        description: 'create hello.test.py to test greet - Create test file',
       };
       const codeContext = new CodeContext('hello.test.py', ['import unittest']);
       
@@ -413,8 +409,7 @@ describe('ImplementationManager', () => {
     it('should match markdown files when step mentions document', () => {
       const step = {
         stepNumber: 3,
-        goal: 'write hello.md to document hello module',
-        description: 'Create documentation',
+        description: 'write hello.md to document hello module - Create documentation',
       };
       const codeContext = new CodeContext('hello.md', ['# Hello Module']);
       
@@ -426,8 +421,7 @@ describe('ImplementationManager', () => {
     it('should return single context when only one remains (fallback)', () => {
       const step = {
         stepNumber: 1,
-        goal: 'create a file',
-        description: 'Generic step',
+        description: 'create a file - Generic step',
       };
       const codeContext = new CodeContext('hello.py', ['print("Hello")']);
       codeContext.waitForCreate = true;
@@ -440,8 +434,7 @@ describe('ImplementationManager', () => {
     it('should return empty array when multiple contexts exist but none match', () => {
       const step = {
         stepNumber: 1,
-        goal: 'create test.py',
-        description: 'Create test file',
+        description: 'create test.py - Create test file',
       };
       const codeContext1 = new CodeContext('file1.py', ['code1']);
       const codeContext2 = new CodeContext('file2.py', ['code2']);
@@ -453,8 +446,7 @@ describe('ImplementationManager', () => {
     it('should match by base name when step mentions base name', () => {
       const step = {
         stepNumber: 1,
-        goal: 'create hello.py',
-        description: 'Create hello file',
+        description: 'create hello.py - Create hello file',
       };
       const codeContext = new CodeContext('hello.py', ['print("Hello")']);
       
@@ -520,8 +512,8 @@ describe('ImplementationManager', () => {
         'Test task',
         'hard',
         [
-          { goal: 'Step 1' },
-          { goal: 'Step 2' },
+          { description: 'Step 1' },
+          { description: 'Step 2' },
         ]
       );
       manager.setTaskId('task-123');
@@ -536,8 +528,8 @@ describe('ImplementationManager', () => {
         'Test task',
         'hard',
         [
-          { goal: 'Step 1' },
-          { goal: 'Step 2' },
+          { description: 'Step 1' },
+          { description: 'Step 2' },
         ]
       );
       manager.setTaskId('task-123');
@@ -598,8 +590,8 @@ describe('ImplementationManager', () => {
         'Test task',
         'hard',
         [
-          { goal: 'Step 1' },
-          { goal: 'Step 2' },
+          { description: 'Step 1' },
+          { description: 'Step 2' },
         ]
       );
       manager.setTaskId('task-123');
@@ -618,7 +610,7 @@ describe('ImplementationManager', () => {
         'task-123',
         'Test task',
         'simple',
-        [{ goal: 'Step 1' }]
+        [{ description: 'Step 1' }]
       );
       manager.setTaskId('task-123');
       
@@ -684,7 +676,7 @@ describe('ImplementationManager', () => {
         'task-123',
         'Test task',
         'simple',
-        [{ goal: 'Step 1' }]
+        [{ description: 'Step 1' }]
       );
       
       const assumptionsExport = {
@@ -815,10 +807,10 @@ describe('ImplementationManager', () => {
 
   describe('integration with ProgressPlanManager', () => {
     it('should work with multiple plans in ProgressPlanManager', () => {
-      const plan1 = progressPlanManager.createPlan('task-1', 'Task 1', 'simple', [{ goal: 'Step 1' }]);
+      const plan1 = progressPlanManager.createPlan('task-1', 'Task 1', 'simple', [{ description: 'Step 1' }]);
       const plan2 = progressPlanManager.createPlan('task-2', 'Task 2', 'hard', [
-        { goal: 'Step 1' },
-        { goal: 'Step 2' },
+        { description: 'Step 1' },
+        { description: 'Step 2' },
       ]);
       
       manager.initialize();
@@ -836,9 +828,9 @@ describe('ImplementationManager', () => {
         'Test task',
         'hard',
         [
-          { goal: 'Step 1' },
-          { goal: 'Step 2' },
-          { goal: 'Step 3' },
+          { description: 'Step 1' },
+          { description: 'Step 2' },
+          { description: 'Step 3' },
         ]
       );
       manager.initialize();
@@ -870,22 +862,19 @@ describe('ImplementationManager', () => {
         steps: [
           {
             stepNumber: 1,
-            goal: 'Step 1: create hello.py which greet function and main block',
-            description: 'create hello.py which greet function and main block',
+            description: 'Step 1: create hello.py which greet function and main block',
             status: 'in_progress',
             tools: []
           },
           {
             stepNumber: 2,
-            goal: 'Step 2: create hello.test.py to test greet',
-            description: 'create hello.test.py to test greet',
+            description: 'Step 2: create hello.test.py to test greet',
             status: 'pending',
             tools: []
           },
           {
             stepNumber: 3,
-            goal: 'Step 3: write hello.md to document hello module',
-            description: 'write hello.md to document hello module',
+            description: 'Step 3: write hello.md to document hello module',
             status: 'pending',
             tools: []
           }
@@ -896,7 +885,7 @@ describe('ImplementationManager', () => {
         plan.taskId,
         plan.originalPrompt,
         plan.complexity,
-        plan.steps.map(s => ({ goal: s.goal, description: s.description, tools: s.tools }))
+        plan.steps.map(s => ({ description: s.description, tools: s.tools }))
       );
       manager.initialize('test-task');
     });

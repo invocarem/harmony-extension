@@ -18,7 +18,7 @@ describe('AssumptionsManager - Task Complexity Verification', () => {
         'simple-task-123',
         'Create a simple hello.py file',
         'simple',
-        [{ goal: 'Complete the task', description: 'Execute the task implementation' }]
+        [{ description: 'Execute the task implementation' }]
       );
       
       manager.setTaskId('simple-task-123');
@@ -35,7 +35,7 @@ describe('AssumptionsManager - Task Complexity Verification', () => {
       // Verify steps are included in progressPlan (planSteps is redundant)
       expect(exportData.progressPlan?.steps).toBeDefined();
       expect(exportData.progressPlan?.steps).toHaveLength(1);
-      expect(exportData.progressPlan?.steps[0].goal).toBe('Complete the task');
+      expect(exportData.progressPlan?.steps[0].description).toContain('Execute the task');
       expect(exportData.progressPlan?.steps[0].stepNumber).toBe(1);
       
       // Verify summary includes plan info
@@ -51,8 +51,8 @@ describe('AssumptionsManager - Task Complexity Verification', () => {
         'Create hello.py and test it',
         'simple',
         [
-          { goal: 'Create hello.py', description: 'Create the main file' },
-          { goal: 'Test the file', description: 'Verify it works' }
+          { description: 'Create the main file' },
+          { description: 'Verify it works' }
         ]
       );
       
@@ -82,10 +82,10 @@ describe('AssumptionsManager - Task Complexity Verification', () => {
         'Create a full-stack application',
         'hard',
         [
-          { goal: 'Step 1: Setup project structure', description: 'Create directories and config files' },
-          { goal: 'Step 2: Implement backend API', description: 'Create API endpoints' },
-          { goal: 'Step 3: Implement frontend UI', description: 'Create user interface' },
-          { goal: 'Step 4: Add tests', description: 'Write unit and integration tests' }
+          { description: 'Create directories and config files' },
+          { description: 'Create API endpoints' },
+          { description: 'Create user interface' },
+          { description: 'Write unit and integration tests' }
         ]
       );
       
@@ -104,9 +104,9 @@ describe('AssumptionsManager - Task Complexity Verification', () => {
       expect(exportData.progressPlan?.steps).toBeDefined();
       expect(exportData.progressPlan?.steps).toHaveLength(4);
       expect(exportData.progressPlan?.steps[0].stepNumber).toBe(1);
-      expect(exportData.progressPlan?.steps[0].goal).toBe('Step 1: Setup project structure');
+      expect(exportData.progressPlan?.steps[0].description).toBe('Create directories and config files');
       expect(exportData.progressPlan?.steps[3].stepNumber).toBe(4);
-      expect(exportData.progressPlan?.steps[3].goal).toBe('Step 4: Add tests');
+      expect(exportData.progressPlan?.steps[3].description).toBe('Write unit and integration tests');
       
       // Verify summary includes plan info
       expect(exportData.summary).toContain('Plan created');
@@ -120,9 +120,9 @@ describe('AssumptionsManager - Task Complexity Verification', () => {
         'Create multiple files with different tools',
         'hard',
         [
-          { goal: 'Create main.py', description: 'Main application file', tools: ['create_file'] },
-          { goal: 'Create config.json', description: 'Configuration file', tools: ['create_file', 'write_file'] },
-          { goal: 'Update README.md', description: 'Documentation', tools: ['replace_file'] }
+          { description: 'Main application file', tools: ['create_file'] },
+          { description: 'Configuration file', tools: ['create_file', 'write_file'] },
+          { description: 'Documentation', tools: ['replace_file'] }
         ]
       );
       
@@ -149,7 +149,7 @@ describe('AssumptionsManager - Task Complexity Verification', () => {
         'simple-task',
         'Simple task',
         'simple',
-        [{ goal: 'Complete task' }]
+        [{ description: 'Complete task' }]
       );
       
       manager.setTaskId('simple-task');
@@ -186,9 +186,9 @@ describe('AssumptionsManager - Task Complexity Verification', () => {
         'Hard task',
         'hard',
         [
-          { goal: 'Step 1' },
-          { goal: 'Step 2' },
-          { goal: 'Step 3' }
+          { description: 'Step 1' },
+          { description: 'Step 2' },
+          { description: 'Step 3' }
         ]
       );
       
@@ -227,7 +227,7 @@ describe('AssumptionsManager - Task Complexity Verification', () => {
         'simple-task',
         'Simple task',
         'simple',
-        [{ goal: 'Complete task' }]
+        [{ description: 'Complete task' }]
       );
       
       manager.setTaskId('simple-task');
@@ -259,9 +259,9 @@ describe('AssumptionsManager - Task Complexity Verification', () => {
         'Hard task',
         'hard',
         [
-          { goal: 'Step 1', description: 'First step' },
-          { goal: 'Step 2', description: 'Second step' },
-          { goal: 'Step 3', description: 'Third step' }
+          { description: 'First step' },
+          { description: 'Second step' },
+          { description: 'Third step' }
         ]
       );
       

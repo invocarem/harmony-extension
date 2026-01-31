@@ -71,9 +71,9 @@ function setupStepForExecution(
       // Update the step to include tools field and ensure it's pending
       const updatedSteps = plan.steps.map((s, idx) => {
         if (idx === stepIndex) {
-          return { goal: s.goal, tools: ["create_file"] };
+          return { description: s.description, tools: ["create_file"] };
         }
-        return { goal: s.goal };
+        return { description: s.description };
       });
       progressPlanManager.updatePlanSteps(taskId, updatedSteps, false); // Don't preserve status - start fresh
 
@@ -221,7 +221,7 @@ describe("HarmonyClient - Implementation Stage: steps", () => {
      * Helper function to create a progressPlan and set it in context
      */
     function setupProgressPlan(
-      steps: Array<{ goal: string; description?: string }>
+      steps: Array<{ description: string  }>
     ): string {
       const progressPlanManager = client.getProgressPlanManager();
       const taskId = `test-task-${Date.now()}`;
@@ -262,9 +262,9 @@ describe("HarmonyClient - Implementation Stage: steps", () => {
       progressPlanManager.updatePlanSteps(
         taskId!,
         [
-          { goal: "Create main.py", tools: ["create_file"] },
-          { goal: "Create requirements.txt", tools: ["create_file"] },
-          { goal: "Create README.md", tools: ["create_file"] },
+          { description: "Create main.py", tools: ["create_file"] },
+          { description: "Create requirements.txt", tools: ["create_file"] },
+          { description: "Create README.md", tools: ["create_file"] },
         ],
         false
       ); // Don't preserve status - start fresh with pending
@@ -382,9 +382,9 @@ describe("HarmonyClient - Implementation Stage: steps", () => {
       progressPlanManager.updatePlanSteps(
         taskId!,
         [
-          { goal: "Step 1: Create main.py" },
-          { goal: "Step 2: Create utils.py" },
-          { goal: "Step 3: Create tests.py" },
+          { description: "Step 1: Create main.py" },
+          { description: "Step 2: Create utils.py" },
+          { description: "Step 3: Create tests.py" },
         ],
         false
       ); // Don't preserve status - start fresh
@@ -573,9 +573,9 @@ describe("HarmonyClient - Implementation Stage: steps", () => {
       progressPlanManager.updatePlanSteps(
         taskId!,
         [
-          { goal: "Step 1: Create main.py", tools: ["create_file"] },
-          { goal: "Step 2: Create utils.py", tools: ["create_file"] },
-          { goal: "Step 3: Create tests.py", tools: ["create_file"] },
+          { description: "Step 1: Create main.py", tools: ["create_file"] },
+          { description: "Step 2: Create utils.py", tools: ["create_file"] },
+          { description: "Step 3: Create tests.py", tools: ["create_file"] },
         ],
         false
       ); // Don't preserve status - start fresh with pending
@@ -756,8 +756,8 @@ describe("HarmonyClient - Implementation Stage: steps", () => {
       progressPlanManager.updatePlanSteps(
         taskId!,
         [
-          { goal: "Create file1.py", tools: ["create_file"] },
-          { goal: "Create file2.py", tools: ["create_file"] },
+          { description: "Create file1.py", tools: ["create_file"] },
+          { description: "Create file2.py", tools: ["create_file"] },
         ],
         false
       ); // Don't preserve status - start fresh with pending
@@ -914,9 +914,9 @@ describe("HarmonyClient - Implementation Stage: steps", () => {
       progressPlanManager.updatePlanSteps(
         taskId!,
         [
-          { goal: "Step 1: Create config.py", tools: ["create_file"] },
-          { goal: "Step 2: Create main.py", tools: ["create_file"] },
-          { goal: "Step 3: Create utils.py", tools: ["create_file"] },
+          { description: "Step 1: Create config.py", tools: ["create_file"] },
+          { description: "Step 2: Create main.py", tools: ["create_file"] },
+          { description: "Step 3: Create utils.py", tools: ["create_file"] },
         ],
         false
       ); // Don't preserve status - start fresh with pending

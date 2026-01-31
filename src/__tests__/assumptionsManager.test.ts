@@ -159,7 +159,7 @@ describe("AssumptionsManager", () => {
         "task-123",
         "Test task",
         "simple",
-        [{ goal: "Step 1" }]
+        [{ description: "Step 1" }]
       );
       manager.setTaskId("task-123");
 
@@ -174,7 +174,7 @@ describe("AssumptionsManager", () => {
         "task-123",
         "Test task",
         "hard",
-        [{ goal: "Step 1" }, { goal: "Step 2" }]
+        [{ description: "Step 1" }, { description: "Step 2" }]
       );
       manager.setTaskId("task-123");
 
@@ -220,8 +220,8 @@ describe("AssumptionsManager", () => {
         "Test task",
         "hard",
         [
-          { goal: "Step 1", description: "First step" },
-          { goal: "Step 2", description: "Second step" },
+          { description: "Step 1 First step" },
+          { description: "Step 2 Second step" },
         ]
       );
       manager.setTaskId("task-123");
@@ -239,8 +239,8 @@ describe("AssumptionsManager", () => {
         "Test task",
         "hard",
         [
-          { goal: "Step 1", description: "First step", tools: ["create_file"] },
-          { goal: "Step 2", description: "Second step" },
+          { description: "First step", tools: ["create_file"] },
+          { description: "Second step" },
         ]
       );
       manager.setTaskId("task-123");
@@ -250,7 +250,6 @@ describe("AssumptionsManager", () => {
       expect(exportData.progressPlan?.steps).toBeDefined();
       expect(exportData.progressPlan?.steps).toHaveLength(2);
       expect(exportData.progressPlan?.steps[0].stepNumber).toBe(1);
-      expect(exportData.progressPlan?.steps[0].goal).toBe("Step 1");
       expect(exportData.progressPlan?.steps[0].description).toBe("First step");
       expect(exportData.progressPlan?.steps[0].tools).toEqual(["create_file"]);
       expect(exportData.progressPlan?.steps[1].stepNumber).toBe(2);
@@ -267,7 +266,7 @@ describe("AssumptionsManager", () => {
         "task-123",
         "Test task",
         "simple",
-        [{ goal: "Step 1" }]
+        [{ description: "Step 1" }]
       );
       manager.setTaskId("task-123");
       manager.addAssumption("Test assumption");
@@ -304,13 +303,8 @@ describe("AssumptionsManager", () => {
       // Verify steps (planSteps is redundant, use progressPlan.steps)
       expect(exportData.progressPlan?.steps).toBeDefined();
       expect(exportData.progressPlan?.steps).toHaveLength(1);
-      expect(exportData.progressPlan?.steps[0].goal).toBe("Complete the task");
-      expect(exportData.progressPlan?.steps[0].description).toContain(
-        "Execute the task:"
-      );
-      expect(exportData.progressPlan?.steps[0].description).toContain(
-        originalPrompt
-      );
+      expect(exportData.progressPlan?.steps[0].description).toContain("Execute the task:");
+      expect(exportData.progressPlan?.steps[0].description).toContain(originalPrompt);
       expect(exportData.progressPlan?.steps[0].status).toBe("pending");
       expect(exportData.progressPlan?.steps[0].stepNumber).toBe(1);
 
@@ -342,8 +336,8 @@ describe("AssumptionsManager", () => {
         "Existing task",
         "hard",
         [
-          { goal: "Step 1", description: "First step" },
-          { goal: "Step 2", description: "Second step" },
+          { description: "Step 1 First step" },
+          { description: "Step 2 Second step" },
         ]
       );
       manager.setTaskId("existing-task-123");
@@ -365,7 +359,7 @@ describe("AssumptionsManager", () => {
         "task-123",
         "Test task",
         "hard",
-        [{ goal: "Step 1" }, { goal: "Step 2" }]
+        [{ description: "Step 1" }, { description: "Step 2" }]
       );
       manager.setTaskId("task-123");
 
@@ -452,11 +446,11 @@ describe("AssumptionsManager", () => {
         "task-1",
         "Task 1",
         "simple",
-        [{ goal: "Step 1" }]
+        [{ description: "Step 1" }]
       );
       const plan2 = progressPlanManager.createPlan("task-2", "Task 2", "hard", [
-        { goal: "Step 1" },
-        { goal: "Step 2" },
+        { description: "Step 1" },
+        { description: "Step 2" },
       ]);
 
       manager.initialize();
@@ -473,7 +467,7 @@ describe("AssumptionsManager", () => {
         "task-123",
         "Test task",
         "hard",
-        [{ goal: "Step 1" }, { goal: "Step 2" }, { goal: "Step 3" }]
+        [{ description: "Step 1" }, { description: "Step 2" }, { description: "Step 3" }]
       );
       manager.initialize();
       manager.setTaskId("task-123");
@@ -554,7 +548,7 @@ Very simple arithmetic calculation.
       expect(plan?.totalSteps).toBe(1);
       expect(plan?.complexity).toBe("simple");
       expect(plan?.steps).toHaveLength(1);
-      expect(plan?.steps[0].goal).toContain("1");
+      expect(plan?.steps[0].description).toContain("2 + 2 equals 4");
       expect(plan?.steps[0].stepNumber).toBe(1);
       expect(plan?.steps[0].status).toBe("pending");
     });
@@ -588,8 +582,8 @@ Need a simple add function and test cases.
       expect(plan?.totalSteps).toBe(2);
       expect(plan?.complexity).toBe("simple");
       expect(plan?.steps).toHaveLength(2);
-      expect(plan?.steps[0].goal).toContain("1");
-      expect(plan?.steps[1].goal).toContain("2");
+      expect(plan?.steps[0].description).toContain("Create calc.py");
+      expect(plan?.steps[1].description).toContain("Create test_calc.py");
     });
 
     it("should keep 3+ step hard plans when truly complex", () => {
@@ -673,8 +667,8 @@ These two steps satisfy all identified requests.
       expect(plan?.totalSteps).toBe(2);
       expect(plan?.complexity).toBe("simple");
       expect(plan?.steps).toHaveLength(2);
-      expect(plan?.steps[0].goal).toContain("1");
-      expect(plan?.steps[1].goal).toContain("2");
+      expect(plan?.steps[0].description).toContain("2 + 2");
+      expect(plan?.steps[1].description).toContain("9 / 2");
     });
   });
 });
