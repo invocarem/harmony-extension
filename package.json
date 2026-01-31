@@ -2,7 +2,7 @@
   "name": "harmony-extension",
   "displayName": "Harmony Extension",
   "description": "AI code assistant powered by GPT-OSS-120B with Harmony protocol",
-  "version": "1.0.28",
+  "version": "1.0.29",
   "publisher": "dashtotherock",
   "repository": {
     "type": "git",
@@ -184,7 +184,11 @@
         "harmony.clarityLevel": {
           "type": "number",
           "default": 2,
-          "enum": [0, 1, 2],
+          "enum": [
+            0,
+            1,
+            2
+          ],
           "description": "Clarity assessment level in chat stage: 0=minimal (ask only if request is genuinely unclear), 1=user friendly (do not ask about edge cases or constraints), 2=full (ask about ambiguous terms, edge cases, constraints, and scope - default)."
         }
       }
