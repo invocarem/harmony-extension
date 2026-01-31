@@ -522,12 +522,12 @@ This stage should quickly transition to the Chat stage.`,
 ✅ Review conversation history, synthesize all previous messages
 ✅ Restate user's problem in your own words to show understanding
 ✅ If the request is genuinely unclear, ask clarifying questions
-✅ Use read-only native tools to gather context about the codebase
+✅ Use read-only tools to gather context about the codebase
 ✅ Identify ALL distinct requirements in the conversation history
 ✅ If rules are available, ask: "I found applicable rule(s): [list]. Are these relevant to your task? (yes/no/which ones)"
 
 **DO NOT:**
-❌ Provide solutions, code, or implementation ideas
+❌ Ask excessive questions, or provide solutions, code, or implementation ideas
 ❌ Jump to analysis without complete understanding
 ❌ Use any file modification tools and MCP tools
 ❌ Force rules on the user - always ask if they're relevant

@@ -97,7 +97,7 @@ export class AutoTransitionManager {
 
     if (selectedSteps.length >= requiredCount) {
       steps = selectedSteps.map((step) => ({
-        goal: `Step ${step.number}: ${step.content}`,
+        goal: `Step ${step.number}`,
         description: step.content,
       }));
       console.log(`[AutoTransitionManager] Extracted ${steps.length} steps from selectedSteps`);
