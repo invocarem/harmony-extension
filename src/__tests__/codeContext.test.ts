@@ -1,6 +1,21 @@
+  describe('stepNumber property', () => {
+    it('should set stepNumber in constructor', () => {
+      const ctx = new CodeContext('test.py', ['print(1)'], true, 'v1', Date.now(), 'desc', undefined, true, 3);
+      expect(ctx.stepNumber).toBe(3);
+    });
+
+    it('should set stepNumber in fromCodeBlock', () => {
+      const codeBlock = '```python test.py\nprint(123)\n```';
+      const ctx = CodeContext.fromCodeBlock(codeBlock, undefined, 5);
+      expect(ctx).not.toBeNull();
+      expect(ctx?.stepNumber).toBe(5);
+    });
+  });
 import { CodeContext } from '../harmony/codeContext';
 
-describe('CodeContext', () => {
+
+import { CodeContext } from '../harmony/codeContext';
+
   describe('fromCodeBlock', () => {
     it('should reject "File" as filename and default to "file.txt"', () => {
       const codeBlock = '```python File\nprint("Hello")\n```';

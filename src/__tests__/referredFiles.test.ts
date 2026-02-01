@@ -74,6 +74,34 @@ describe('Referred Files Flow', () => {
     });
   });
 
+  describe('ConversationContextManager - implementation step context', () => {
+    it('should record and retrieve content before step', () => {
+      contextManager.addImplementationStepContext('foo.py', 'def feature_a(): pass', 1);
+      const content = contextManager.getContentBeforeStep('foo.py', 2);
+      expect(content).toBe('def feature_a(): pass');
+    });
+
+    it('should return null when no previous content exists', () => {
+      const content = contextManager.getContentBeforeStep('foo.py', 2);
+      expect(content).toBeNull();
+    });
+
+    it('should return latest content from highest previous step', () => {
+      contextManager.addImplementationStepContext('foo.py', 'def feature_a(): pass', 1);
+      contextManager.addImplementationStepContext('foo.py', 'def feature_a(): pass\ndef feature_b(): pass', 2);
+      const content = contextManager.getContentBeforeStep('foo.py', 3);
+      expect(content).toContain('feature_b');
+    });
+
+    it('should list files created in previous steps', () => {
+      contextManager.addImplementationStepContext('foo.py', 'code1', 1);
+      contextManager.addImplementationStepContext('bar.py', 'code2', 1);
+      const files = contextManager.getFilesCreatedInPreviousSteps(2);
+      expect(files).toContain('foo.py');
+      expect(files).toContain('bar.py');
+    });
+  });
+
   describe('ChatManager - referred files population', () => {
     it('should populate referredFiles from explicit file contexts', () => {
       // Add a query with related files
@@ -263,6 +291,36 @@ describe('Referred Files Flow', () => {
 
       expect(prompt).toContain('read_file');
       expect(prompt).toContain('IDENTIFIED FILES');
+    });
+
+    it('should pre-inject previous-step file content for step 2+', async () => {
+      // Setup: plan with step 2 current, foo.py content from step 1
+      progressPlanManager.createPlan(
+        'task-1',
+        'Create foo.py with features',
+        'hard',
+        [
+          { description: 'Generate feature A for foo.py', tools: ['create_file'] },
+          { description: 'Generate feature B for foo.py', tools: ['replace_file'] }
+        ]
+      );
+      progressPlanManager.updateStepStatus('task-1', 1, 'completed');
+      progressPlanManager.updateStepStatus('task-1', 2, 'in_progress');
+
+      contextManager.setProgressPlan(progressPlanManager.getPlan('task-1')!);
+      contextManager.addImplementationStepContext('foo.py', 'def feature_a(): pass', 1);
+
+      const prompt = await promptBuilder.buildPrompt(
+        'add feature B',
+        'implementation',
+        contextManager.getContext(),
+        false
+      );
+
+      expect(prompt).toContain('FILES CREATED IN PREVIOUS STEPS');
+      expect(prompt).toContain('preserve and add to this');
+      expect(prompt).toContain('def feature_a(): pass');
+      expect(prompt).toContain('foo.py');
     });
   });
 

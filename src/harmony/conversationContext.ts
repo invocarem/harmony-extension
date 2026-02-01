@@ -30,6 +30,9 @@ export interface ConversationContext {
   // Code contexts ready for file creation from assumptions stage
   // Map from filename to array of versions
   codeContexts?: Map<string, CodeContext[]>;
+  // Implementation stage: CodeContexts tracking what was created per step (for pre-inject in later steps)
+  // Map from filename to array of CodeContexts, each with stepNumber
+  implementationStepContexts?: Map<string, CodeContext[]>;
   // Files detected from chat stage (used in assumptions/implementation to avoid re-detection)
   referredFiles?: Array<{ file: string; description?: string }>;
   // First-principles thinking mode (disabled by default)
@@ -61,6 +64,7 @@ export class ConversationContextManager {
     // Preserve existing progressPlan if context is being re-initialized
     const existingPlan = this.context?.progressPlan;
     const existingCodeContexts = this.context?.codeContexts;
+    const existingImplementationStepContexts = this.context?.implementationStepContexts;
     
     this.context = {
       originalPrompt,
@@ -73,6 +77,8 @@ export class ConversationContextManager {
       ...(existingPlan && { progressPlan: existingPlan }),
       // Preserve codeContexts if they exist
       ...(existingCodeContexts && { codeContexts: existingCodeContexts }),
+      // Preserve implementationStepContexts for multi-step code preservation
+      ...(existingImplementationStepContexts && { implementationStepContexts: existingImplementationStepContexts }),
     };
     return this.context;
   }
@@ -392,6 +398,72 @@ export class ConversationContextManager {
     if (codeContext) {
       codeContext.waitForCreate = false;
     }
+  }
+
+  /**
+   * Record implementation-stage file creation for tracking (used for pre-inject in later steps)
+   * Stores CodeContext with stepNumber so step 2+ can access step 1's content
+   */
+  addImplementationStepContext(fileName: string, content: string, stepNumber: number): void {
+    if (!this.context) return;
+
+    if (!this.context.implementationStepContexts) {
+      this.context.implementationStepContexts = new Map<string, CodeContext[]>();
+    }
+
+    const contentLines = content.split('\n');
+    const codeContext = new CodeContext(
+      fileName,
+      contentLines,
+      false, // waitForCreate: already created
+      `step${stepNumber}`,
+      Date.now(),
+      `Created in step ${stepNumber}`,
+      undefined,
+      true,
+      stepNumber
+    );
+
+    const existing = this.context.implementationStepContexts.get(fileName) || [];
+    // Replace if same step (e.g. create then replace) - keep latest
+    const filtered = existing.filter(cc => cc.stepNumber !== stepNumber);
+    filtered.push(codeContext);
+    filtered.sort((a, b) => (a.stepNumber ?? 0) - (b.stepNumber ?? 0));
+    this.context.implementationStepContexts.set(fileName, filtered);
+    console.log(`[ConversationContext] Recorded implementation step context: ${fileName} (step ${stepNumber})`);
+  }
+
+  /**
+   * Get content of a file as it was at the end of the highest step < beforeStep
+   * Used for pre-injecting previous-step content when running step N (N > 1)
+   */
+  getContentBeforeStep(fileName: string, beforeStep: number): string | null {
+    const contexts = this.context?.implementationStepContexts?.get(fileName);
+    if (!contexts || contexts.length === 0) return null;
+
+    const previousSteps = contexts.filter(cc => (cc.stepNumber ?? 0) < beforeStep);
+    if (previousSteps.length === 0) return null;
+
+    const latest = previousSteps.reduce((max, cc) =>
+      (cc.stepNumber ?? 0) > (max.stepNumber ?? 0) ? cc : max
+    );
+    return latest.getContentAsString();
+  }
+
+  /**
+   * Get file names that were created in steps before beforeStep
+   */
+  getFilesCreatedInPreviousSteps(beforeStep: number): string[] {
+    if (!this.context?.implementationStepContexts) return [];
+
+    const files: string[] = [];
+    for (const [fileName, contexts] of this.context.implementationStepContexts) {
+      const hasPrevious = contexts.some(cc => (cc.stepNumber ?? 0) < beforeStep);
+      if (hasPrevious) {
+        files.push(fileName);
+      }
+    }
+    return files;
   }
 
   /**

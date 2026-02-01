@@ -124,6 +124,49 @@ export class PromptBuilder {
           }
           
           stageInstructions += `\n**FOCUS**: Complete the current step: ${currentStep.description} ${actionInstruction}. After completing this step, you will move to the next step automatically.`;
+
+          // Pre-inject previous-step file content for step 2+ (preserves feature A when adding feature B)
+          if (
+            currentStep.stepNumber > 1 &&
+            conversationContext.implementationStepContexts &&
+            conversationContext.implementationStepContexts.size > 0
+          ) {
+            const filesFromPreviousSteps: string[] = [];
+            for (const [fileName, contexts] of conversationContext.implementationStepContexts) {
+              const hasPrevious = contexts.some(
+                (cc) => (cc.stepNumber ?? 0) < currentStep.stepNumber
+              );
+              if (hasPrevious) filesFromPreviousSteps.push(fileName);
+            }
+
+            const stepText = currentStep.description.toLowerCase();
+            const filesToInject = filesFromPreviousSteps.filter((fileName) => {
+              const lower = fileName.toLowerCase();
+              const baseName = fileName.split("/").pop()?.toLowerCase() || lower;
+              return stepText.includes(lower) || stepText.includes(baseName);
+            });
+
+            if (filesToInject.length > 0) {
+              stageInstructions += `\n\n**FILES CREATED IN PREVIOUS STEPS - YOU MUST PRESERVE THIS CONTENT**:\n`;
+              stageInstructions += `The following file(s) were created/modified in previous steps. You MUST preserve their content and ADD your changes for this step. Output the COMPLETE file(s) including both existing and new code.\n`;
+
+              for (const fileName of filesToInject) {
+                const contexts = conversationContext.implementationStepContexts!.get(fileName);
+                if (!contexts) continue;
+                const previousSteps = contexts.filter(
+                  (cc) => (cc.stepNumber ?? 0) < currentStep.stepNumber
+                );
+                if (previousSteps.length === 0) continue;
+                const latest = previousSteps.reduce((max, cc) =>
+                  (cc.stepNumber ?? 0) > (max.stepNumber ?? 0) ? cc : max
+                );
+                const content = latest.getContentAsString();
+                if (content && content.trim().length > 0) {
+                  stageInstructions += `\n### ${fileName} (current content - preserve and add to this):\n\`\`\`\n${content}\n\`\`\`\n`;
+                }
+              }
+            }
+          }
         } else if (plan.completedAt) {
           stageInstructions += `\n\n**PROGRESS PLAN**: All steps completed! ✅`;
         } else {

@@ -148,9 +148,41 @@ export class ToolExecutionCoordinator {
     );
 
     if (fileModToolCalls.length > 0) {
+      // Get current step before processFileCreations (it may advance the step)
+      const currentStep = this.implementationManager.getCurrentStep();
+
       // Delegate to ImplementationManager
       const completedStepNumber =
         this.implementationManager.processFileCreations(executedToolCalls);
+
+      // Record implementation step contexts for pre-inject in later steps
+      const stepNumber = currentStep?.stepNumber;
+      if (stepNumber) {
+        for (const tc of fileModToolCalls) {
+          if (tc.result && !tc.result.isError) {
+            const filePath = tc.arguments?.file_path || tc.arguments?.filePath;
+            const content = tc.arguments?.content;
+            // Skip diagnostic files (implementation_step_*.json, etc.)
+            const isDiagnostic =
+              typeof filePath === "string" &&
+              (filePath.startsWith("implementation_step_") ||
+                filePath === "assumption_data.json" ||
+                filePath === "aggregated_prompt.json");
+            if (
+              filePath &&
+              typeof content === "string" &&
+              content.length > 0 &&
+              !isDiagnostic
+            ) {
+              this.contextManager.addImplementationStepContext(
+                filePath,
+                content,
+                stepNumber
+              );
+            }
+          }
+        }
+      }
 
       if (completedStepNumber) {
         const updatedPlan = this.implementationManager.getProgressPlan();

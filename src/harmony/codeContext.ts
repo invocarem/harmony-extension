@@ -12,14 +12,15 @@ export class CodeContext {
     public timestamp: number = Date.now(),  // Creation timestamp
     public description?: string,  // Description of change/reason (e.g., "generate json based on whitaker and the rule", "add field xxx")
     public previousVersion?: string,  // Reference to previous version
-    public isActive: boolean = true  // Whether this is the active version
+    public isActive: boolean = true,  // Whether this is the active version
+    public stepNumber?: number  // The step number that generated this context
   ) {}
 
   /**
    * Create a CodeContext from a code block with file path
    * Optionally parses version tags from code block header (e.g., ```typescript file.ts v2)
    */
-  static fromCodeBlock(codeBlock: string, filePath?: string): CodeContext | null {
+  static fromCodeBlock(codeBlock: string, filePath?: string, stepNumber?: number): CodeContext | null {
     // Extract code content from markdown code block
     // Pattern: ```language optional_file_path optional_version\ncode``` or ```language\ncode```
     // Version can be: v1, v2, v1.0, etc. or @v1, @v2
@@ -72,20 +73,20 @@ export class CodeContext {
           const lines = altContent.split('\n');
           const contentLines = lines.slice(1);
           fileName = fileName || firstLineWithoutVersion;
-          return new CodeContext(fileName, contentLines, true, version || 'v1');
+          return new CodeContext(fileName, contentLines, true, version || 'v1', Date.now(), undefined, undefined, true, stepNumber);
         }
       } else if (isValidFileName(firstLine.trim()) && altContent.split('\n').length > 1) {
         // First line is file path without version, rest is code
         const lines = altContent.split('\n');
         const contentLines = lines.slice(1);
         fileName = fileName || firstLine.trim();
-        return new CodeContext(fileName, contentLines, true);
+        return new CodeContext(fileName, contentLines, true, 'v1', Date.now(), undefined, undefined, true, stepNumber);
       } else {
         // All content is code
         const contentLines = altContent.split('\n');
         // Default to 'file.txt' instead of 'file' to ensure it has an extension
         fileName = fileName || 'file.txt';
-        return new CodeContext(fileName, contentLines, true);
+        return new CodeContext(fileName, contentLines, true, 'v1', Date.now(), undefined, undefined, true, stepNumber);
       }
     }
 
@@ -236,7 +237,7 @@ export class CodeContext {
     }
 
     // Create CodeContext with optional version (defaults to v1 if not specified)
-    return new CodeContext(fileName, contentLines, true, version || 'v1');
+    return new CodeContext(fileName, contentLines, true, version || 'v1', Date.now(), undefined, undefined, true, stepNumber);
   }
 
   /**

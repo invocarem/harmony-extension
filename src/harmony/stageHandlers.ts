@@ -495,6 +495,7 @@ class ImplementationStageHandler implements StageHandler {
               );
               if (contextManager) {
                 contextManager.markCodeContextCreated(filePath);
+                contextManager.addImplementationStepContext(filePath, content, stepNumber);
               }
               toolCalls.push({
                 name: "create_file",
@@ -524,6 +525,7 @@ class ImplementationStageHandler implements StageHandler {
                 );
                 if (contextManager) {
                   contextManager.markCodeContextCreated(filePath);
+                  contextManager.addImplementationStepContext(filePath, content, stepNumber);
                 }
                 toolCalls.push({
                   name: "replace_file",
