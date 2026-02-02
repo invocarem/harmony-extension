@@ -139,14 +139,13 @@ Step 3. create file3.py`;
   });
 
   describe("shouldAutoTransitionFromAssumptions - step extraction", () => {
-    it("should extract steps from originalPrompt when LLM response does not contain steps", () => {
-      const contextManager = (manager as any).progressPlanManager;
+    it("should stay in assumptions when LLM response does not contain steps (no plan from prompt)", () => {
       const originalPrompt = `help me to create a hello module
 Step 1. create hello.py which greet function and main block
 Step 2. create hello.test.py to test greet
 Step 3. write hello.md to document hello module`;
 
-      // LLM response that doesn't repeat the steps
+      // LLM response that doesn't repeat the steps – we do not extract steps from prompt
       const llmContent =
         "I will help you create the hello module with all required files.";
 
@@ -164,17 +163,9 @@ Step 3. write hello.md to document hello module`;
         mockContext as any
       );
 
-      expect(result.shouldTransition).toBe(true);
-      expect(result.plan).toBeDefined();
-      expect(result.plan?.complexity).toBe("hard");
-      // Should extract 3 steps from originalPrompt
-      expect(result.plan?.totalSteps).toBe(3);
-      expect(result.plan?.steps.length).toBe(3);
-
-      // Verify step content
-      expect(result.plan?.steps[0].description).toContain("hello.py");
-      expect(result.plan?.steps[1].description).toContain("hello.test.py");
-      expect(result.plan?.steps[2].description).toContain("hello.md");
+      // No plan or steps detected in content → do not transition, stay in assumptions
+      expect(result.shouldTransition).toBe(false);
+      expect(result.plan).toBeUndefined();
     });
   });
 

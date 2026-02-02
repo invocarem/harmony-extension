@@ -60,6 +60,16 @@ export class AutoTransitionManager {
   }
 
   /**
+   * Get steps from LLM content only (no prompt, no fallbacks).
+   * Used when we require a detected plan/steps to create or update a plan.
+   * Returns empty array when no plan or steps are detected.
+   */
+  getStepsFromContent(content: string): Array<{ description: string }> {
+    const normalized = this.extractNormalizedSteps(content || "");
+    return normalized.map((step) => ({ description: step.content }));
+  }
+
+  /**
    * Extract steps from text (content or originalPrompt)
    * Returns array of step objects with goal and description
    */
@@ -195,22 +205,22 @@ export class AutoTransitionManager {
       );
       return { shouldTransition: true };
     } else if (complexity === "hard") {
-      // Hard task: create plan first, then transition
+      // Hard task: create plan only when steps are detected from LLM output
+      const steps = this.getStepsFromContent(content);
+      if (steps.length === 0) {
+        console.log(
+          `[Harmony] Auto-transition: No plan or steps detected in content, staying in assumptions`
+        );
+        return { shouldTransition: false };
+      }
+
       const taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       const prompt = originalPrompt || conversationContext.originalPrompt;
-      const steps = this.extractStepsFromText(content, prompt, complexity);
-
       const plan = this.progressPlanManager.createPlan(
         taskId,
         prompt,
         "hard",
-        steps.length > 0
-          ? steps
-          : [
-              {
-                description: "Execute the planned steps",
-              },
-            ]
+        steps
       );
 
       conversationContext.progressPlan = plan;

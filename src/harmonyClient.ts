@@ -491,17 +491,8 @@ export class HarmonyClient {
         console.log(
           `[Harmony] Stage handler filtered out ${filterResult.blocked.length} tool call(s)`
         );
-        if (
-          currentStage === "chat" &&
-          filterResult.blocked.some((tc) => tc.name === "read_file")
-        ) {
-          const blockedFiles = filterResult.blocked
-            .filter((tc) => tc.name === "read_file")
-            .map((tc) => tc.arguments?.file_path || tc.arguments?.filePath)
-            .filter(Boolean);
-          if (blockedFiles.length > 0) {
-            content = `${content}\n\nNote: I cannot read ${blockedFiles.join(", ")} as ${blockedFiles.length === 1 ? "it doesn't exist yet" : "they don't exist yet"}. ${blockedFiles.length === 1 ? "This file" : "These files"} will be created in the implementation stage.`;
-          }
+        if (filterResult.blockedMessage) {
+          content = `${content}\n\n${filterResult.blockedMessage}`;
         }
       }
 
@@ -1499,18 +1490,11 @@ export class HarmonyClient {
           console.log(
             `[Harmony] Stage handler filtered out ${filterResult.blocked.length} tool call(s) in ${currentStage} stage: ${filterResult.blocked.map((tc) => tc.name).join(", ")}`
           );
-          // Update content to explain why tool calls were blocked
-          if (currentStage === 'chat' && filterResult.blocked.some(tc => tc.name === 'read_file')) {
-            const blockedFiles = filterResult.blocked
-              .filter(tc => tc.name === 'read_file')
-              .map(tc => tc.arguments?.file_path || tc.arguments?.filePath)
-              .filter(Boolean);
-            if (blockedFiles.length > 0) {
-              content = `${content}\n\nNote: I cannot read ${blockedFiles.join(', ')} as ${blockedFiles.length === 1 ? 'it doesn\'t exist yet' : 'they don\'t exist yet'}. ${blockedFiles.length === 1 ? 'This file' : 'These files'} will be created in the implementation stage.`;
-            }
+          if (filterResult.blockedMessage) {
+            content = `${content}\n\n${filterResult.blockedMessage}`;
           }
         }
-        
+
         toolCalls = filterResult.filtered;
       }
 

@@ -317,8 +317,8 @@ describe('Referred Files Flow', () => {
         false
       );
 
-      expect(prompt).toContain('FILES CREATED IN PREVIOUS STEPS');
-      expect(prompt).toContain('preserve and add to this');
+      expect(prompt).toContain('FILES FROM PREVIOUS STEPS');
+      expect(prompt).toContain('MUST include this full content');
       expect(prompt).toContain('def feature_a(): pass');
       expect(prompt).toContain('foo.py');
     });

@@ -35,14 +35,18 @@ export interface StageHandler {
 
   /**
    * Filter tool calls before execution (after extraction, before execution)
-   * Returns filtered tool calls and any that were blocked
+   * Returns filtered tool calls, any that were blocked, and optional message to append for the user
    */
   filterToolCalls?(
     toolCalls: MCPToolCall[],
     context: ConversationContext | null,
     conversationHistory?: readonly ChatMessage[],
     nativeToolsManager?: NativeToolsManager
-  ): Promise<{ filtered: MCPToolCall[]; blocked: MCPToolCall[] }>;
+  ): Promise<{
+    filtered: MCPToolCall[];
+    blocked: MCPToolCall[];
+    blockedMessage?: string;
+  }>;
 
   /**
    * Handle post-LLM processing (after response parsing)
@@ -617,6 +621,121 @@ class ImplementationStageHandler implements StageHandler {
     return { shouldSkipLLM: false };
   }
 
+  /**
+   * Filter tool calls in implementation stage: block replace_file/create_file
+   * for pre-existing files (not created in this session). Prevents overwriting
+   * input files like test_input.txt with command output or wrong content.
+   */
+  async filterToolCalls(
+    toolCalls: MCPToolCall[],
+    context: ConversationContext | null,
+    _conversationHistory?: readonly ChatMessage[],
+    nativeToolsManager?: NativeToolsManager
+  ): Promise<{
+    filtered: MCPToolCall[];
+    blocked: MCPToolCall[];
+    blockedMessage?: string;
+  }> {
+    const filtered: MCPToolCall[] = [];
+    const blocked: MCPToolCall[] = [];
+
+    if (!this.implementationManager) {
+      return { filtered: toolCalls, blocked: [] };
+    }
+
+    const createdFiles = this.implementationManager.getCreatedFiles();
+    const createdPaths = new Set(
+      createdFiles.map((f) => f.file).filter(Boolean)
+    );
+
+    const fileModTools = ["replace_file", "create_file"];
+
+    for (const toolCall of toolCalls) {
+      if (!fileModTools.includes(toolCall.name)) {
+        filtered.push(toolCall);
+        continue;
+      }
+
+      const filePath =
+        toolCall.arguments?.file_path || toolCall.arguments?.filePath;
+      if (!filePath) {
+        filtered.push(toolCall);
+        continue;
+      }
+
+      const pathStr = String(filePath).trim();
+
+      // replace_file: only allow for files we created in this session
+      if (toolCall.name === "replace_file") {
+        if (!createdPaths.has(pathStr)) {
+          console.log(
+            `[StageHandler:Implementation] Blocking replace_file for ${pathStr} - file was not created in this implementation session (pre-existing/input file must not be overwritten)`
+          );
+          blocked.push(toolCall);
+          continue;
+        }
+        filtered.push(toolCall);
+        continue;
+      }
+
+      // create_file: allow if we created it (update) or if file doesn't exist (new file).
+      // Block if file exists and we didn't create it (would overwrite input/pre-existing file).
+      if (toolCall.name === "create_file") {
+        if (createdPaths.has(pathStr)) {
+          filtered.push(toolCall);
+          continue;
+        }
+        const fileExists = await this.checkFileExistsImpl(pathStr);
+        if (fileExists) {
+          console.log(
+            `[StageHandler:Implementation] Blocking create_file for ${pathStr} - file already exists and was not created in this session (use a different output filename)`
+          );
+          blocked.push(toolCall);
+          continue;
+        }
+        filtered.push(toolCall);
+        continue;
+      }
+
+      filtered.push(toolCall);
+    }
+
+    const blockedPaths = blocked
+      .filter(
+        (tc) =>
+          tc.name === "replace_file" || tc.name === "create_file"
+      )
+      .map((tc) => tc.arguments?.file_path || tc.arguments?.filePath)
+      .filter(Boolean);
+    const blockedMessage =
+      blockedPaths.length > 0
+        ? `Note: I cannot overwrite ${blockedPaths.join(", ")} - ${blockedPaths.length === 1 ? "this file" : "these files"} were not created in this implementation session (pre-existing/input files must not be replaced). Use a different output filename (e.g. output.txt) for the command result.`
+        : undefined;
+
+    return { filtered, blocked, blockedMessage };
+  }
+
+  private async checkFileExistsImpl(filePath: string): Promise<boolean> {
+    try {
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      let resolvedPath: string;
+      if (path.isAbsolute(filePath)) {
+        resolvedPath = filePath;
+      } else if (workspaceFolders && workspaceFolders.length > 0) {
+        resolvedPath = path.resolve(
+          workspaceFolders[0].uri.fsPath,
+          filePath
+        );
+      } else {
+        resolvedPath = path.resolve(filePath);
+      }
+      await fs.promises.access(resolvedPath, fs.constants.F_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async handlePostProcessing(
     context: ConversationContext | null,
     content: string,
@@ -822,7 +941,11 @@ class ChatStageHandler implements StageHandler {
     context: ConversationContext | null,
     conversationHistory?: readonly ChatMessage[],
     nativeToolsManager?: NativeToolsManager
-  ): Promise<{ filtered: MCPToolCall[]; blocked: MCPToolCall[] }> {
+  ): Promise<{
+    filtered: MCPToolCall[];
+    blocked: MCPToolCall[];
+    blockedMessage?: string;
+  }> {
     const filtered: MCPToolCall[] = [];
     const blocked: MCPToolCall[] = [];
 
@@ -866,7 +989,16 @@ class ChatStageHandler implements StageHandler {
       filtered.push(toolCall);
     }
 
-    return { filtered, blocked };
+    const blockedFiles = blocked
+      .filter((tc) => tc.name === "read_file")
+      .map((tc) => tc.arguments?.file_path || tc.arguments?.filePath)
+      .filter(Boolean);
+    const blockedMessage =
+      blockedFiles.length > 0
+        ? `Note: I cannot read ${blockedFiles.join(", ")} as ${blockedFiles.length === 1 ? "it doesn't exist yet" : "they don't exist yet"}. ${blockedFiles.length === 1 ? "This file" : "These files"} will be created in the implementation stage.`
+        : undefined;
+
+    return { filtered, blocked, blockedMessage };
   }
 
   /**

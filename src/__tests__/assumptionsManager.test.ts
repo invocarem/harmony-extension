@@ -287,35 +287,17 @@ describe("AssumptionsManager", () => {
       expect(exportData.summary).not.toContain("Plan created");
     });
 
-    it("should create a default plan when exporting for transition if no plan exists and originalPrompt is provided", () => {
+    it("should NOT create a plan when exporting for transition if no plan exists and content has no steps", () => {
       manager.addAssumption("Test assumption");
       manager.addCodeSnippet("test.py", "Test file");
       const originalPrompt = "create hello.py to greet Mary";
 
+      // exportForTransition(originalPrompt) calls createOrUpdatePlan("", originalPrompt)
+      // Empty content → no steps detected → we do not create/update plan, stay in assumptions
       const exportData = manager.exportForTransition(originalPrompt);
 
-      // Verify plan was created
-      expect(exportData.progressPlan).toBeDefined();
-      expect(exportData.progressPlan?.originalPrompt).toBe(originalPrompt);
-      expect(exportData.progressPlan?.complexity).toBe("simple");
-      expect(exportData.progressPlan?.totalSteps).toBe(1);
-
-      // Verify steps (planSteps is redundant, use progressPlan.steps)
-      expect(exportData.progressPlan?.steps).toBeDefined();
-      expect(exportData.progressPlan?.steps).toHaveLength(1);
-      expect(exportData.progressPlan?.steps[0].description).toContain("Execute the task:");
-      expect(exportData.progressPlan?.steps[0].description).toContain(originalPrompt);
-      expect(exportData.progressPlan?.steps[0].status).toBe("pending");
-      expect(exportData.progressPlan?.steps[0].stepNumber).toBe(1);
-
-      // Verify taskId was set
-      expect(manager.getTaskId()).toBeDefined();
-      expect(manager.getTaskId()).toBe(exportData.progressPlan?.taskId);
-
-      // Verify summary includes plan info
-      expect(exportData.summary).toContain("Plan created");
-      expect(exportData.summary).toContain("1 step(s)");
-      expect(exportData.summary).toContain("complexity: simple");
+      expect(exportData.progressPlan).toBeUndefined();
+      expect(exportData.summary).not.toContain("Plan created");
     });
 
     it("should NOT create a plan when exporting for transition if no originalPrompt is provided", () => {

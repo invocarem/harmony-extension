@@ -53,8 +53,14 @@ export class ToolExecutionCoordinator {
     );
     logToolCalls(toolCalls.map((tc) => ({ name: tc.name })));
 
-    const executedToolCalls = await this.toolExecutor.executeToolCalls(
+    // Safeguard: merge previous-step content when replace_file would overwrite
+    const processedCalls = this.mergePreviousStepContentForReplaceFile(
       toolCalls,
+      currentStage
+    );
+
+    const executedToolCalls = await this.toolExecutor.executeToolCalls(
+      processedCalls,
       currentStage
     );
 
@@ -63,6 +69,87 @@ export class ToolExecutionCoordinator {
     );
 
     return executedToolCalls;
+  }
+
+  /**
+   * For replace_file/create_file: when the file was created in a previous step and
+   * the new content would overwrite (doesn't include previous content), merge to preserve.
+   */
+  private mergePreviousStepContentForReplaceFile(
+    toolCalls: MCPToolCall[],
+    currentStage: WorkflowStage
+  ): MCPToolCall[] {
+    if (
+      currentStage !== "implementation" ||
+      !this.contextManager ||
+      !this.implementationManager ||
+      !this.nativeToolsManager
+    ) {
+      return toolCalls;
+    }
+
+    const currentStep = this.implementationManager.getCurrentStep();
+    if (!currentStep || currentStep.stepNumber <= 1) {
+      return toolCalls;
+    }
+
+    const fileModTools = ["replace_file", "create_file"];
+    const processed = toolCalls.map((tc) => {
+      if (!fileModTools.includes(tc.name)) return tc;
+
+      const filePath =
+        tc.arguments?.file_path || tc.arguments?.filePath;
+      const newContent = tc.arguments?.content;
+      if (
+        !filePath ||
+        typeof newContent !== "string" ||
+        newContent.trim().length === 0
+      ) {
+        return tc;
+      }
+
+      // Skip diagnostic files
+      if (
+        String(filePath).startsWith("implementation_step_") ||
+        String(filePath) === "assumption_data.json" ||
+        String(filePath) === "aggregated_prompt.json"
+      ) {
+        return tc;
+      }
+
+      const previousContent = this.contextManager.getContentBeforeStep(
+        filePath,
+        currentStep.stepNumber
+      );
+      if (!previousContent || previousContent.trim().length < 20) {
+        return tc;
+      }
+
+      // Check if new content already includes previous (LLM followed instruction)
+      const prevSample = previousContent.substring(
+        0,
+        Math.min(150, previousContent.length)
+      );
+      if (newContent.includes(prevSample)) {
+        return tc; // LLM preserved it, no merge needed
+      }
+
+      // New content doesn't include previous = overwrite, merge to preserve
+      const mergedContent =
+        previousContent.trim() + "\n\n" + newContent.trim();
+      console.log(
+          `[Harmony] Merge safeguard: prepended previous-step content to ${filePath} (LLM would have overwritten)`
+        );
+      return {
+        ...tc,
+        arguments: {
+          ...tc.arguments,
+          content: mergedContent,
+        },
+      };
+    });
+
+    return processed;
   }
 
   /**

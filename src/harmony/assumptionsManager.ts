@@ -233,25 +233,20 @@ export class AssumptionsManager {
         originalPrompt
       ) || "simple";
 
-    // Extract steps using AutoTransitionManager
-    let steps = this.autoTransitionManager.extractStepsFromText(
-      content,
-      originalPrompt,
-      complexity
-    );
+    // Extract steps from LLM content only; no plan/steps → do not update, stay in assumptions
+    let steps = this.autoTransitionManager.getStepsFromContent(content);
+    if (steps.length === 0) {
+      console.log(
+        `[AssumptionsManager] No plan or steps detected in content, not updating plan`
+      );
+      return null;
+    }
 
     // If the content only yields 0-2 actionable steps, treat it as a simple task
-    // This prevents the generic 3-step fallback from overwriting a concise plan
-    // IMPORTANT: Also downgrade if we got the generic "Complete the task" fallback
     const isGenericFallback =
       steps.length > 0 && /^complete\s+the\s+task$/i.test(steps[0].description);
     if ((complexity === "hard" && steps.length <= 2) || isGenericFallback) {
       complexity = "simple";
-      steps = this.autoTransitionManager.extractStepsFromText(
-        content,
-        originalPrompt,
-        complexity
-      );
       console.log(
         `[AssumptionsManager] Detected <3 steps or generic fallback with hard complexity, reverting to simple plan (${steps.length} step(s))`
       );

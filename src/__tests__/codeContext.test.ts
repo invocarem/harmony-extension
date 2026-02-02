@@ -1,3 +1,4 @@
+import { CodeContext } from '../harmony/codeContext';
   describe('stepNumber property', () => {
     it('should set stepNumber in constructor', () => {
       const ctx = new CodeContext('test.py', ['print(1)'], true, 'v1', Date.now(), 'desc', undefined, true, 3);
@@ -11,10 +12,6 @@
       expect(ctx?.stepNumber).toBe(5);
     });
   });
-import { CodeContext } from '../harmony/codeContext';
-
-
-import { CodeContext } from '../harmony/codeContext';
 
   describe('fromCodeBlock', () => {
     it('should reject "File" as filename and default to "file.txt"', () => {
@@ -168,5 +165,4 @@ if __name__ == "__main__":
       expect(result?.content.some(line => line.includes('def main()'))).toBe(true);
     });
   });
-});
 

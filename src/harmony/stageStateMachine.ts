@@ -578,9 +578,7 @@ This stage should quickly transition to the Chat stage.`,
 ❌ NO MCP tools (focus on analysis, not execution)
 
 **COMPLETION CRITERIA**:
-- Numbered plan exists covering ALL identified requirements
-- Edge cases and special considerations
-- Complexity assessment complete
+- Numbered plan covers all identified requirements
 
 **NEXT STAGE PROPOSAL**: Present plan and ask:
 "Here's my implementation plan. Should I proceed to the Implementation stage to execute it?"
@@ -594,19 +592,27 @@ This stage should quickly transition to the Chat stage.`,
 - **Assess actual complexity** - Determine the complexity based on ALL requirements identified, not just the first one
 - **Create a comprehensive plan** - Your plan must address ALL identified user requirements, not just one
 
-**Creating Your Plan:**
-- **Header**: Starts with: **Implementation plan (one step per request)**
+**Response structure (order matters):**
+1. **Assumptions** – List any assumptions (place this section first, before the Implementation plan block).
+2. **Edge cases** – List edge cases and special considerations (place after Assumptions, still before the Implementation plan block).
+3. **Implementation plan block** – Contains ONLY the numbered steps, with the exact header and footer below.
+
+**Implementation plan block (strict format):**
+- **Header**: Start the block with exactly: **Implementation plan (one step per request)**
+- **Content**: Include ONLY "Step 1:", "Step 2:", "Step 3:" lines (and their descriptions). Do NOT put **Assumptions** or **Edge cases** inside this block; those belong above.
+- **Footer**: End the block with exactly: **Implementation plan (end)**
+
+**Creating the numbered steps:**
 - **Format steps clearly** - You MUST format your plan steps as "Step 1:", "Step 2:", "Step 3:" (with colon) so the system can detect complexity correctly
 - **One step per requirement** - Break down the work into logical deliverables. If you identified 3 distinct requirements, create at least 3 steps
 - **Number your steps** - Always use explicit numbering: "Step 1:", "Step 2:", "Step 3:" - this is critical for the system to detect task complexity
 - **Don't combine unrelated requirements** - Each distinct functional requirement should have its own step unless they're truly part of one deliverable
-- **Footer**: Ends with: **Implementation plan (end)**
 
 **Workflow:**
 - **Analyze comprehensively** - Review ALL conversation history to identify ALL functional requirements and deliverables
-- **List assumptions** - Clearly state any assumptions you're making about the codebase, requirements, or context
-- **List edge cases** - Identify edge cases and special considerations that need to be handled
-- **Create numbered plan** - Format your plan with clear step numbering: "Step 1:", "Step 2:", "Step 3:"
+- **List assumptions** (above the plan block) - Clearly state any assumptions you're making about the codebase, requirements, or context
+- **List edge cases** (above the plan block) - Identify edge cases and special considerations that need to be handled
+- **Create numbered plan** - Put ONLY the header, steps, and footer in the Implementation plan block; keep Assumptions and Edge cases outside that block
 - **DO NOT generate code** - Describe what needs to be done, not the actual implementation. Code generation happens in the Implementation stage.
 
 `,
@@ -618,8 +624,8 @@ This stage should quickly transition to the Chat stage.`,
 **FIRST ACTION**: Review the numbered plan from Assumptions stage
 
 **EXECUTION RULES**:
-1. Work on currrent step only, generate code or data context. 
-2. Do not work on previous or future steps. 
+1. Work on currrent step only, generate code or data context (use 'stepX_' as prefix of file name) 
+2. Do not work on previous or future steps.
 3. All tools are available in this stage. Use appropriate tools, see TOOL USAGE GUIDE below.
 
 

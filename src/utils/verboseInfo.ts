@@ -551,115 +551,116 @@ export class VerboseInfoBuilder {
     // For simple tasks without a plan, don't show misleading step counts
     const hasProgressPlan = !!context?.progressPlan;
 
+    // Resolve plan first so we can use plan.totalSteps for maxSteps (keeps verboseInfo in sync with
+    // "Implementation plan (one step per request)" in the prompt; context.maxSteps can be stale after updatePlanSteps)
+    const plan = context?.progressPlan
+      ? progressPlanManager.getPlan(context.progressPlan.taskId)
+      : null;
+
     const verboseInfo: ImplementationVerboseInfo = {
       stage: "implementation",
       stageTransition: context?.lastStageTransition,
       step: hasProgressPlan && context ? context.currentStep : undefined,
-      maxSteps: hasProgressPlan && context ? context.maxSteps : undefined,
+      maxSteps:
+        plan != null
+          ? plan.totalSteps
+          : hasProgressPlan && context
+            ? context.maxSteps
+            : undefined,
       // isComplete is now computed dynamically as a getter based on planProgress.steps
     };
 
     // Add plan progress with file operation linking
-    if (context?.progressPlan) {
-      const plan = progressPlanManager.getPlan(context.progressPlan.taskId);
-      if (plan) {
-        const completedSteps = plan.steps.filter(
-          (s) => s.status === "completed"
-        ).length;
-        const currentStep = plan.steps.find(
-          (s) => s.status === "in_progress" || s.status === "pending"
+    if (context?.progressPlan && plan) {
+      const completedSteps = plan.steps.filter(
+        (s) => s.status === "completed"
+      ).length;
+      const currentStep = plan.steps.find(
+        (s) => s.status === "in_progress" || s.status === "pending"
+      );
+
+      // Track which files belong to which step
+      const stepFileMap = new Map<
+        number,
+        { created: string[]; updated: string[] }
+      >();
+
+      if (fileOperations) {
+        const activeStepNumber =
+          currentStep?.stepNumber ||
+          plan.steps.find((s) => s.status === "in_progress")?.stepNumber ||
+          (plan.steps.filter((s) => s.status === "completed").length > 0
+            ? plan.steps.filter((s) => s.status === "completed").length + 1
+            : 1);
+
+        const createdFiles = (fileOperations.created || []).map(
+          (f) => f.path
+        );
+        const updatedFiles = (fileOperations.updated || []).map(
+          (f) => f.path
         );
 
-        // Track which files belong to which step
-        // For now, link files to the current active step or infer from completed steps
-        const stepFileMap = new Map<
-          number,
-          { created: string[]; updated: string[] }
-        >();
+        if (createdFiles.length > 0 || updatedFiles.length > 0) {
+          stepFileMap.set(activeStepNumber, {
+            created: createdFiles,
+            updated: updatedFiles,
+          });
+        }
+      }
 
-        // If we have file operations, try to link them to steps
-        if (fileOperations) {
-          // Get the current step number (if we're working on a specific step)
-          const activeStepNumber =
+      const stepToolsMap = new Map<number, string[]>();
+      if (toolCalls) {
+        toolCalls.forEach((tc) => {
+          const stepNum =
+            tc.relatedStep ||
             currentStep?.stepNumber ||
-            plan.steps.find((s) => s.status === "in_progress")?.stepNumber ||
             (plan.steps.filter((s) => s.status === "completed").length > 0
               ? plan.steps.filter((s) => s.status === "completed").length + 1
               : 1);
-
-          // For now, link all current file operations to the active step
-          // In a more sophisticated implementation, we could track step transitions
-          const createdFiles = (fileOperations.created || []).map(
-            (f) => f.path
-          );
-          const updatedFiles = (fileOperations.updated || []).map(
-            (f) => f.path
-          );
-
-          if (createdFiles.length > 0 || updatedFiles.length > 0) {
-            stepFileMap.set(activeStepNumber, {
-              created: createdFiles,
-              updated: updatedFiles,
-            });
+          if (!stepToolsMap.has(stepNum)) {
+            stepToolsMap.set(stepNum, []);
           }
-        }
-
-        // Collect actual executed tools per step from toolCalls
-        const stepToolsMap = new Map<number, string[]>();
-        if (toolCalls) {
-          toolCalls.forEach((tc) => {
-            const stepNum =
-              tc.relatedStep ||
-              currentStep?.stepNumber ||
-              (plan.steps.filter((s) => s.status === "completed").length > 0
-                ? plan.steps.filter((s) => s.status === "completed").length + 1
-                : 1);
-            if (!stepToolsMap.has(stepNum)) {
-              stepToolsMap.set(stepNum, []);
-            }
-            if (tc.success && !stepToolsMap.get(stepNum)!.includes(tc.name)) {
-              stepToolsMap.get(stepNum)!.push(tc.name);
-            }
-          });
-        }
-
-        verboseInfo.planProgress = {
-          taskId: plan.taskId,
-          totalSteps: plan.totalSteps,
-          completedSteps,
-          currentStep: currentStep
-            ? {
-                stepNumber: currentStep.stepNumber,
-                description: currentStep.description,
-                status: currentStep.status || "pending",
-                startedAt:
-                  currentStep.status === "in_progress" ? Date.now() : undefined,
-                completedAt:
-                  currentStep.status === "completed" ? Date.now() : undefined,
-              }
-            : undefined,
-          steps: plan.steps.map((step) => {
-            const stepFiles = stepFileMap.get(step.stepNumber);
-            const stepTools = stepToolsMap.get(step.stepNumber) || [];
-            // Combine planned tools with actually executed tools
-            const allTools = [
-              ...new Set([...(step.tools || []), ...stepTools]),
-            ];
-
-            return {
-              stepNumber: step.stepNumber,
-              description: step.description,
-              status: step.status || "pending",
-              completedAt: step.status === "completed" ? Date.now() : undefined,
-              toolsUsed: allTools.length > 0 ? allTools : step.tools || [],
-              filesCreated: stepFiles?.created || [],
-              filesUpdated: stepFiles?.updated || [],
-            };
-          }),
-          planCompleted: !!plan.completedAt,
-          planCompletedAt: plan.completedAt,
-        };
+          if (tc.success && !stepToolsMap.get(stepNum)!.includes(tc.name)) {
+            stepToolsMap.get(stepNum)!.push(tc.name);
+          }
+        });
       }
+
+      verboseInfo.planProgress = {
+        taskId: plan.taskId,
+        totalSteps: plan.totalSteps,
+        completedSteps,
+        currentStep: currentStep
+          ? {
+              stepNumber: currentStep.stepNumber,
+              description: currentStep.description,
+              status: currentStep.status || "pending",
+              startedAt:
+                currentStep.status === "in_progress" ? Date.now() : undefined,
+              completedAt:
+                currentStep.status === "completed" ? Date.now() : undefined,
+            }
+          : undefined,
+        steps: plan.steps.map((step) => {
+          const stepFiles = stepFileMap.get(step.stepNumber);
+          const stepTools = stepToolsMap.get(step.stepNumber) || [];
+          const allTools = [
+            ...new Set([...(step.tools || []), ...stepTools]),
+          ];
+
+          return {
+            stepNumber: step.stepNumber,
+            description: step.description,
+            status: step.status || "pending",
+            completedAt: step.status === "completed" ? Date.now() : undefined,
+            toolsUsed: allTools.length > 0 ? allTools : step.tools || [],
+            filesCreated: stepFiles?.created || [],
+            filesUpdated: stepFiles?.updated || [],
+          };
+        }),
+        planCompleted: !!plan.completedAt,
+        planCompletedAt: plan.completedAt,
+      };
     }
 
     // Add file operations with step linking
