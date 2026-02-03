@@ -1022,5 +1022,80 @@ describe('ImplementationManager', () => {
       expect(files[0].status).toBe('replaced');
     });
   });
+
+  describe('Step auto-advance bug regression', () => {
+    it('should NOT auto-complete step 3 when step 2 completes', () => {
+      // This test verifies the fix for: when completing step 2, step 3 should only advance to
+      // in_progress, not be marked as completed. The bug was that any subsequent file creation
+      // would trigger processFileCreations for step 3, which would complete it prematurely.
+      
+      manager.initialize('task-123');
+      
+      // Create a 3-step plan
+      const plan = progressPlanManager.createPlan(
+        'task-123',
+        'Three step task',
+        'hard',
+        [
+          { description: 'Step 1: Read requirements' },
+          { description: 'Step 2: Based on the extracted specifications, design the overall structure' },
+          { description: 'Step 3: Write the filter.awk script according to the design' }
+        ]
+      );
+      
+      // Manually start step 1
+      progressPlanManager.updateStepStatus('task-123', 1, 'in_progress');
+      
+      // Complete step 1
+      manager.completeStep(1);
+      
+      // Verify step 2 is now in_progress and step 3 is still pending
+      let step2 = progressPlanManager.getPlan('task-123')?.steps.find(s => s.stepNumber === 2);
+      let step3 = progressPlanManager.getPlan('task-123')?.steps.find(s => s.stepNumber === 3);
+      
+      expect(step2?.status).toBe('in_progress');
+      expect(step3?.status).toBe('pending');
+      
+      // Now complete step 2
+      manager.completeStep(2);
+      
+      // Verify step 2 is completed and step 3 is now in_progress
+      step2 = progressPlanManager.getPlan('task-123')?.steps.find(s => s.stepNumber === 2);
+      step3 = progressPlanManager.getPlan('task-123')?.steps.find(s => s.stepNumber === 3);
+      
+      expect(step2?.status).toBe('completed');
+      expect(step3?.status).toBe('in_progress');
+      
+      // This is the critical part: step 3 should NOT be auto-completed
+      // even if a file like step2_design.txt is created
+      // (The file creation processing should only complete step 3 when actual step 3 files are created)
+      
+      // Create a diagnostic file that might be created during step 2's post-processing
+      const toolCalls = [
+        {
+          name: 'create_file',
+          arguments: { file_path: 'step2_design.txt', content: 'Design output' },
+          result: { isError: false }
+        }
+      ];
+      
+      // Manually trigger getCurrentStep to be step 3
+      // (normally this happens in the stage handler)
+      const currentStep = manager.getCurrentStep();
+      expect(currentStep?.stepNumber).toBe(3);
+      
+      // Call processFileCreations with the diagnostic file
+      const completedStep = manager.processFileCreations(toolCalls);
+      
+      // Step 3 should NOT be completed by this diagnostic file
+      // In the bug scenario, step 3 would be marked as completed here
+      // After the fix, it should remain in_progress
+      expect(completedStep).toBeUndefined();
+      
+      // Verify step 3 is still in_progress
+      step3 = progressPlanManager.getPlan('task-123')?.steps.find(s => s.stepNumber === 3);
+      expect(step3?.status).toBe('in_progress');
+    });
+  });
 });
 

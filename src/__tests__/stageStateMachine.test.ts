@@ -127,11 +127,11 @@ describe("StageStateMachine", () => {
         "implementation"
       );
 
-      expect(allowedTools.length).toBe(allTools.length);
+      // I removed replace_file for now
+      expect(allowedTools.length).toBe(allTools.length - 1);
       const allowedNames = allowedTools.map((t) => t.name);
       expect(allowedNames).toContain("read_file");
       expect(allowedNames).toContain("create_file");
-      expect(allowedNames).toContain("replace_file");
       expect(allowedNames).toContain("delete_file");
       expect(allowedNames).toContain("custom_tool");
     });
@@ -383,6 +383,33 @@ describe("StageStateMachine", () => {
       
       // Expected: should transition to assumptions (explicit command overrides problem detection)
       // Current bug: stays in chat because hasUnansweredProblems() returns false
+      expect(nextStage).toBe("assumptions");
+    });
+
+    it('should allow explicit move_to_assumptions when history has meaningful query but no problems', async () => {
+      const mockChatManager = new ChatManager();
+      mockChatManager.initialize();
+
+      // No queries tracked in ChatManager (simulate missing state)
+      // Provide conversation history with a meaningful user request
+      const conversationHistory = [
+        { role: 'user' as const, content: 'create filter.awk based on filter.mk' },
+        { role: 'assistant' as const, content: 'I need a few clarifications before writing it.' },
+      ];
+
+      expect(mockChatManager.hasUnansweredProblems()).toBe(false);
+      expect(mockChatManager.allowMoveToAssumptions()).toBe(false);
+
+      const nextStage = await stateMachine.determineNextStage(
+        "chat",
+        "@cmd:move_to_assumptions",
+        conversationHistory,
+        undefined,
+        undefined,
+        undefined,
+        mockChatManager
+      );
+
       expect(nextStage).toBe("assumptions");
     });
 

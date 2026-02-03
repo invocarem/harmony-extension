@@ -87,13 +87,42 @@ const moveToAssumptionsFromChat: TransitionAction = async (context): Promise<Wor
   // Check if this is an explicit @cmd: command
   const isExplicitCommand = /^@cmd:move_to_assumptions/i.test(prompt);
 
+  const hasMeaningfulUserQuery = (): boolean => {
+    if (!conversationHistory || conversationHistory.length === 0) {
+      return false;
+    }
+
+    const isTrivialGreeting = (text: string): boolean =>
+      /^(hi|hello|hey|greetings?|good\s+(morning|afternoon|evening|day))$/i.test(text);
+
+    const isStageTransitionCommand = (text: string): boolean =>
+      /\b(move\s+to|go\s+to|goto|start|begin)\s+(assumptions|analysis|analyze|implementation|implement|chat|discussion|clarification)\b/i.test(text);
+
+    const isCommand = (text: string): boolean => /^@cmd:/i.test(text);
+
+    return conversationHistory.some((message) => {
+      if (message.role !== "user") {
+        return false;
+      }
+      const content = message.content?.trim() ?? "";
+      if (!content) {
+        return false;
+      }
+      if (isCommand(content) || isStageTransitionCommand(content) || isTrivialGreeting(content)) {
+        return false;
+      }
+      return true;
+    });
+  };
+
   // Validate transition: require either unanswered problems OR meaningful query
   // This prevents transition from fresh chat or trivial greetings
   if (chatManager) {
     const hasProblems = chatManager.hasUnansweredProblems();
     const allowTransition = chatManager.allowMoveToAssumptions();
+    const allowTransitionFromHistory = isExplicitCommand && hasMeaningfulUserQuery();
 
-    if (!hasProblems && !allowTransition) {
+    if (!hasProblems && !allowTransition && !allowTransitionFromHistory) {
       console.log(`[Action] move_to_assumptions: Staying in chat (no unanswered problems or meaningful queries)`);
       return "chat" as WorkflowStage; // Stay in chat
     }
@@ -598,7 +627,7 @@ This stage should quickly transition to the Chat stage.`,
 3. **Implementation plan block** – Contains ONLY the numbered steps, with the exact header and footer below.
 
 **Implementation plan block (strict format):**
-- **Header**: Start the block with exactly: **Implementation plan (one step per request)**
+- **Header**: Start the block with exactly: **Implementation plan (begin)**
 - **Content**: Include ONLY "Step 1:", "Step 2:", "Step 3:" lines (and their descriptions). Do NOT put **Assumptions** or **Edge cases** inside this block; those belong above.
 - **Footer**: End the block with exactly: **Implementation plan (end)**
 
@@ -624,7 +653,7 @@ This stage should quickly transition to the Chat stage.`,
 **FIRST ACTION**: Review the numbered plan from Assumptions stage
 
 **EXECUTION RULES**:
-1. Work on currrent step only, generate code or data context (use 'stepX_' as prefix of file name) 
+1. Work on currrent step only. Use the stepX_ prefix only for intermediate artifacts (designs, notes, scratch). If the step requires a specific filename, use that exact filename.
 2. Do not work on previous or future steps.
 3. All tools are available in this stage. Use appropriate tools, see TOOL USAGE GUIDE below.
 
@@ -666,7 +695,7 @@ Example with multiple tool calls:
 **replace_file**: Do not use this tool. Use edit_file instead.
 **create_file**: Use for NEW files only
 - Creates files with the specified content
-- Fails if file already exists (use replace_file instead)
+- Only works if file does NOT exist yet
 - Best for: Initial file creation, fresh implementations
 - For auxiliary files, use 'stepX_' prefix to avoid naming conflicts
 **edit_file**: Use for PARTIAL file modifications
@@ -683,8 +712,8 @@ Example with multiple tool calls:
 - Example: <tool_call name="tool_name" args='{"param": "value"}' />
 
 **When to use each file tool:**
-- Few lines to change in large file? → **edit_file**
-- Complete file rewrite needed? → **replace_file**  
+- Updating existing file (small changes)? → **edit_file**
+- Updating existing file (large changes)? → Multiple **edit_file** calls or read + edit sections
 - Creating new file? → **create_file**
 - Multiple small changes? → Multiple **edit_file** calls (more precise)
 
@@ -757,8 +786,8 @@ After each tool call, verify:
         ],
       },
       implementation: {
-        allowed: [], // All tools allowed
-        blocked: [],
+        allowed: [], // All tools allowed except blocked ones
+        blocked: ["replace_file"], // Block replace_file to prevent accidental overwrites
       },
     };
 

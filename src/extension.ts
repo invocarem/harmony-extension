@@ -358,8 +358,17 @@ export class HarmonyAssistant {
           if (commandResult.shouldReturn) {
             // Command was handled and we should return early (e.g., error message)
             if (commandResult.message) {
+              // Include stage information for stage transition messages
+              const currentStage = this.harmonyClient.getCurrentStage();
+              const contextManager = (this.harmonyClient as any).contextManager;
+              const context = contextManager?.getContext?.();
+              const displayStage = (currentStage === 'init' ? 'chat' : currentStage) as 'chat' | 'assumptions' | 'implementation';
               await this.webviewManager.sendMessage({
                 content: commandResult.message,
+                verboseInfo: {
+                  stage: displayStage,
+                  hasPlan: context?.hasPlan || false,
+                }
               });
             }
             return;

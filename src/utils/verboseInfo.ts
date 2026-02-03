@@ -1175,7 +1175,7 @@ export class ImplementationVerboseInfoDisplay implements ImplementationVerboseIn
   }
   /**
    * Computed getter: determines completion based on current plan step status
-   * Dynamically evaluates if all steps are completed or the last step is completed
+   * Only returns true when ALL steps are completed
    */
   get isComplete(): boolean | undefined {
     if (!this.info.planProgress) {
@@ -1187,13 +1187,7 @@ export class ImplementationVerboseInfoDisplay implements ImplementationVerboseIn
     }
     // Check if all steps are completed
     const allCompleted = steps.every((s) => s.status === "completed");
-    if (allCompleted) {
-      return true;
-    }
-    
-    // Check if the last step is completed (implicit completion)
-    const lastStep = steps[steps.length - 1];
-    return lastStep?.status === "completed";
+    return allCompleted ? true : false;
   }
   get planProgress() {
     return this.info.planProgress;

@@ -181,14 +181,14 @@ export class NativeToolsManager {
       {
         name: "find_files",
         description:
-          "Find files by name pattern. Searches for files whose name contains or matches the given pattern. Useful for finding files when you know part of the filename (e.g., 'Psalm105ATests'). Returns matching file paths.",
+          "Find files by name pattern. Searches for files whose name contains or matches the given pattern. Useful for finding files when you know part of the filename. Returns matching file paths.",
         inputSchema: {
           type: "object",
           properties: {
             name_pattern: {
               type: "string",
               description:
-                "The name pattern to search for. Can be a partial filename (e.g., 'Psalm105ATests'), full filename, or regex pattern. The search matches if the pattern appears anywhere in the filename.",
+                "The name pattern to search for. Can be a partial filename, full filename, or regex pattern. The search matches if the pattern appears anywhere in the filename.",
             },
             directory_path: {
               type: "string",

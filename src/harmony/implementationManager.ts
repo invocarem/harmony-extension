@@ -238,7 +238,14 @@ export class ImplementationManager {
       const filePath = toolCall.arguments?.file_path || toolCall.arguments?.filePath;
       if (filePath) {
         // Skip diagnostic files - they should not complete steps
-        if (filePath.startsWith('implementation_step_') || filePath === 'assumption_data.json' || filePath === 'aggregated_prompt.json') {
+        // Diagnostic files: implementation_step_*.json, assumption_data.json, aggregated_prompt.json, step*_design.txt
+        const isDiagnosticFile = 
+          filePath.startsWith('implementation_step_') || 
+          filePath === 'assumption_data.json' || 
+          filePath === 'aggregated_prompt.json' ||
+          /^step\d+_design\.txt$/i.test(filePath);
+        
+        if (isDiagnosticFile) {
           // Still record the file creation, but don't use it for step completion
           const status = toolCall.name === 'replace_file' ? 'replaced' : 'created';
           this.recordFileCreated(filePath, currentStep.stepNumber, status);

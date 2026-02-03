@@ -776,7 +776,7 @@ class ImplementationStageHandler implements StageHandler {
     const stepGoalText =
       currentStep.description.toLowerCase();
     const hasFileCreationInGoal =
-      /(?:create|write|make|implement|add|generate)\s+(?:file|\.py|\.js|\.ts|\.txt|\.json|\.md)/i.test(
+      /(?:create|write|make|implement|add|generate)\s+(?:file|\.py|\.js|\.ts|\.txt|\.json|\.md|\.awk)/i.test(
         stepGoalText
       ) || fileCreationTools.some((tool) => stepGoalText.includes(tool));
     const needsFileCreation =
@@ -788,26 +788,27 @@ class ImplementationStageHandler implements StageHandler {
       executedToolCalls?.some((tc) => fileCreationTools.includes(tc.name)) ||
       false;
 
-    // Check if all non-file-creation tool calls succeeded (if any were executed)
-    const nonFileCreationToolCalls =
-      executedToolCalls?.filter((tc) => !fileCreationTools.includes(tc.name)) ||
+    // Check if all file creation tool calls succeeded (if any were executed)
+    const fileCreationToolCalls =
+      executedToolCalls?.filter((tc) => fileCreationTools.includes(tc.name)) ||
       [];
-    const allNonFileCreationToolCallsSucceeded =
-      nonFileCreationToolCalls.length > 0 &&
-      nonFileCreationToolCalls.every((tc) => !tc.result?.isError);
+    const allFileCreationToolCallsSucceeded =
+      fileCreationToolCalls.length > 0 &&
+      fileCreationToolCalls.every((tc) => !tc.result?.isError);
 
-    // Mark step as complete if:
-    // 1. Step doesn't require file creation AND no file creation tool calls were executed (LLM response is sufficient)
-    // 2. Step has non-file-creation tool calls that all succeeded (e.g., read_file, list_files, etc.)
+    // Mark step as complete ONLY if:
+    // 1. Step doesn't require file creation AND no file creation tool calls were executed (LLM response only)
+    // 2. If step DOES require file creation, skip this - processFileCreations in toolExecutionCoordinator has already handled it
+    // NOTE: We should NOT complete based on non-file-creation tool calls (like read_file).
+    // Those are just research/analysis, not proof that the step is complete.
+    // Also, if there are file creation tool calls, processFileCreations has already been called and will handle
+    // step completion, so we should NOT double-complete the step here.
     const shouldCompleteStep =
-      (!needsFileCreation && !hasFileCreationToolCalls) ||
-      allNonFileCreationToolCallsSucceeded;
+      !needsFileCreation && !hasFileCreationInGoal && !hasFileCreationToolCalls;
 
     if (shouldCompleteStep) {
       this.implementationManager.completeStep(currentStep.stepNumber);
-      const reason = allNonFileCreationToolCallsSucceeded
-        ? "all tool calls succeeded"
-        : "step doesn't require file creation";
+      const reason = "step doesn't require file creation";
       console.log(
         `[StageHandler:Implementation] ProgressPlan: Marked step ${currentStep.stepNumber} (${currentStep.description}) as completed after LLM response (${reason})`
       );

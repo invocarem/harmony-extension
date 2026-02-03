@@ -58,7 +58,7 @@ export class StepsMarkdownParser {
     // 2️⃣  Primary delimiter – the exact strings you control
     // ---------------------------------------------------------------
     const delimiterMatch = clean.match(
-      /Implementation\s+plan\s*\(\s*one\s+step\s+per\s+request\s*\)([\s\S]*?)Implementation\s+plan\s*\(\s*end\s*\)/i
+      /Implementation\s+plan\s*\(\s*begin\s*\)([\s\S]*?)Implementation\s+plan\s*\(\s*end\s*\)/i
     );
 
     if (delimiterMatch) {
