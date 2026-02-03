@@ -581,34 +581,100 @@ export class HarmonyProcessor {
           toolCallText = xmlToolCalls[0].raw;
           console.log(`[HarmonyProcessor] Matched XML tool call pattern via XmlProcessor, length: ${toolCallText.length}`);
         } else {
-          // Fallback to pattern matching for non-XML formats
-          // First check for XML-style tool calls with regex (for backwards compatibility)
-          // Support both <tool_call> and <MCP_CALL>
-          const selfClosingPattern = /<(?:tool_call|MCP_CALL)\s+[^>]*\/\s*>/;
-          const selfClosingPatternLoose = /<(?:tool_call|MCP_CALL)[^>]*\/>/;
-          const openingTagPattern = /<(?:tool_call|MCP_CALL)\s+[^>]*>/;
-          const variantMatch = trimmed.match(/<\|?[^>]*(?:tool_call|MCP_CALL)[^>]*\/?>/);
-          const fullElementMatch = trimmed.match(/<(?:tool_call|MCP_CALL)[^>]*>[\s\S]*?<\/(?:tool_call|MCP_CALL)>/);
+          // Fallback: Try to extract incomplete tool calls using a more robust approach
+          // Look for tool_call start and try to find the end using brace matching
+          const toolCallStartMatch = trimmed.match(/<(?:tool_call|MCP_CALL)(?=\s)/);
+          if (toolCallStartMatch) {
+            const startPos = toolCallStartMatch.index!;
+            // Try to find the end using a method similar to XmlProcessor.findSelfClosingTagEnd
+            // Look for /> that's not inside quotes
+            let inSingleQuote = false;
+            let inDoubleQuote = false;
+            let escapeNext = false;
+            let pos = startPos + 1; // Start after '<'
+            
+            // Find the tag name end
+            while (pos < trimmed.length && /\s/.test(trimmed[pos])) {
+              pos++;
+            }
+            const tagNameEnd = pos;
+            while (pos < trimmed.length && /[a-zA-Z_0-9]/.test(trimmed[pos])) {
+              pos++;
+            }
+            
+            // Now look for the closing />
+            while (pos < trimmed.length) {
+              const char = trimmed[pos];
+              
+              if (escapeNext) {
+                escapeNext = false;
+                pos++;
+                continue;
+              }
+              
+              if (char === '\\') {
+                escapeNext = true;
+                pos++;
+                continue;
+              }
+              
+              if (char === "'" && !inDoubleQuote) {
+                inSingleQuote = !inSingleQuote;
+              } else if (char === '"' && !inSingleQuote) {
+                inDoubleQuote = !inDoubleQuote;
+              }
+              
+              if (!inSingleQuote && !inDoubleQuote) {
+                if (char === '/' && pos + 1 < trimmed.length && trimmed[pos + 1] === '>') {
+                  // Found closing />
+                  toolCallText = trimmed.substring(startPos, pos + 2);
+                  console.log(`[HarmonyProcessor] Matched XML tool call pattern via improved fallback, length: ${toolCallText.length}`);
+                  break;
+                }
+              }
+              
+              pos++;
+            }
+            
+            // If we didn't find a closing />, check if this looks like an incomplete tool call
+            // and use the entire remaining text (for streaming/incomplete tool calls)
+            if (!toolCallText && trimmed.substring(startPos).includes('args=')) {
+              // This looks like an incomplete tool call - use everything from start to end
+              // XmlProcessor will handle incomplete tool calls, but if it failed, we should
+              // still try to extract what we can
+              toolCallText = trimmed.substring(startPos);
+              console.log(`[HarmonyProcessor] Matched incomplete XML tool call pattern via fallback, length: ${toolCallText.length}`);
+            }
+          }
+          
+          // If still no match, try the old regex patterns as last resort (for backwards compatibility)
+          if (!toolCallText) {
+            const selfClosingPattern = /<(?:tool_call|MCP_CALL)\s+[^>]*\/\s*>/;
+            const selfClosingPatternLoose = /<(?:tool_call|MCP_CALL)[^>]*\/>/;
+            const openingTagPattern = /<(?:tool_call|MCP_CALL)\s+[^>]*>/;
+            const variantMatch = trimmed.match(/<\|?[^>]*(?:tool_call|MCP_CALL)[^>]*\/?>/);
+            const fullElementMatch = trimmed.match(/<(?:tool_call|MCP_CALL)[^>]*>[\s\S]*?<\/(?:tool_call|MCP_CALL)>/);
 
-          // Try self-closing first (most common)
-          let match = trimmed.match(selfClosingPattern);
-          if (!match) {
-            match = trimmed.match(selfClosingPatternLoose);
-          }
-          if (!match) {
-            match = trimmed.match(openingTagPattern);
-          }
-          if (!match && variantMatch) {
-            match = variantMatch;
-          }
-          if (!match && fullElementMatch) {
-            match = fullElementMatch;
-          }
+            // Try self-closing first (most common)
+            let match = trimmed.match(selfClosingPattern);
+            if (!match) {
+              match = trimmed.match(selfClosingPatternLoose);
+            }
+            if (!match) {
+              match = trimmed.match(openingTagPattern);
+            }
+            if (!match && variantMatch) {
+              match = variantMatch;
+            }
+            if (!match && fullElementMatch) {
+              match = fullElementMatch;
+            }
 
-          if (match) {
-            // It's an XML-style tool call
-            toolCallText = match[0];
-            console.log(`[HarmonyProcessor] Matched XML tool call pattern via regex, length: ${toolCallText.length}`);
+            if (match) {
+              // It's an XML-style tool call
+              toolCallText = match[0];
+              console.log(`[HarmonyProcessor] Matched XML tool call pattern via regex fallback, length: ${toolCallText.length}`);
+            }
           }
         }
 
@@ -640,7 +706,12 @@ export class HarmonyProcessor {
 
         if (toolCallText) {
           console.log(`[HarmonyProcessor] Detected tool call in final channel: ${toolCallText.substring(0, 100)}...`);
-          console.log(`[HarmonyProcessor] Full tool call text (${toolCallText.length} chars): "${toolCallText}"`);
+          // Log full tool call text, but truncate in console to avoid overwhelming logs
+          // The actual toolCallText variable contains the full, untruncated content
+          const logPreview = toolCallText.length > 500 
+            ? `${toolCallText.substring(0, 500)}... [truncated in log, full length: ${toolCallText.length} chars]`
+            : toolCallText;
+          console.log(`[HarmonyProcessor] Full tool call text (${toolCallText.length} chars): "${logPreview}"`);
           setters.rawToolCalls(toolCallText);
         } else {
           // Check if content contains file update claims with code blocks

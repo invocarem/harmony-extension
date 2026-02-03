@@ -76,7 +76,7 @@ describe('StepsMarkdownParser', () => {
     test('should extract steps using implementation plan delimiters', () => {
       const text = `Intro text before plan.
 
-**Implementation plan (one step per request)**
+**Implementation plan (begin)**
 Step 1: Gather requirements from the user
 Step 2: Draft the implementation outline
 **Implementation plan (end)**

@@ -203,14 +203,14 @@ export class ToolExecutionCoordinator {
   /**
    * Update progress plan based on executed tool calls
    */
-  updateProgressPlan(
+  async updateProgressPlan(
     executedToolCalls: Array<{
       name: string;
       arguments: Record<string, any>;
       result?: MCPToolResult;
     }>,
     currentStage: string
-  ): void {
+  ): Promise<void> {
     const context = this.contextManager.getContext();
     if (!context?.progressPlan || currentStage !== "implementation") {
       return;
@@ -238,12 +238,26 @@ export class ToolExecutionCoordinator {
       // Get current step before processFileCreations (it may advance the step)
       const currentStep = this.implementationManager.getCurrentStep();
 
+      // Track tool calls for completion summary
+      const stepNumber = currentStep?.stepNumber;
+      if (stepNumber) {
+        for (const tc of fileModToolCalls) {
+          const filePath = tc.arguments?.file_path || tc.arguments?.filePath;
+          const success = !!(tc.result && !tc.result.isError);
+          this.implementationManager.recordToolCall(
+            stepNumber,
+            tc.name,
+            filePath,
+            success
+          );
+        }
+      }
+
       // Delegate to ImplementationManager
       const completedStepNumber =
         this.implementationManager.processFileCreations(executedToolCalls);
 
       // Record implementation step contexts for pre-inject in later steps
-      const stepNumber = currentStep?.stepNumber;
       if (stepNumber) {
         for (const tc of fileModToolCalls) {
           if (tc.result && !tc.result.isError) {
@@ -272,6 +286,14 @@ export class ToolExecutionCoordinator {
       }
 
       if (completedStepNumber) {
+        // Update diagnostic file with completion summary
+        await this.implementationManager.updateImplementationStepFileOnCompletion(
+          completedStepNumber,
+          'llm_tools',
+          this.nativeToolsManager,
+          this.contextManager
+        );
+        
         const updatedPlan = this.implementationManager.getProgressPlan();
         if (updatedPlan?.completedAt) {
           console.log(

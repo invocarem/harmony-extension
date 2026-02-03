@@ -126,7 +126,7 @@ export class PromptBuilder {
           stageInstructions += `\n**FOCUS**: Complete the current step: ${currentStep.description} ${actionInstruction}. After completing this step, you will move to the next step automatically.`;
 
           // Pre-inject previous-step file content for step 2+ (preserves feature A when adding feature B)
-          if (currentStep.stepNumber > 1 && needsFileCreation) {
+          if (currentStep.stepNumber > 1) {
             const filesFromPreviousSteps: string[] = [];
             if (conversationContext.implementationStepContexts) {
               for (const [fileName, contexts] of conversationContext.implementationStepContexts) {
@@ -137,56 +137,73 @@ export class PromptBuilder {
               }
             }
 
-            // Inject ALL files from previous steps when step modifies files (relaxed matching)
-            const stepText = currentStep.description.toLowerCase();
-            const filesToInject = filesFromPreviousSteps.filter((fileName) => {
-              const lower = fileName.toLowerCase();
-              const baseName = fileName.split("/").pop()?.toLowerCase() || lower;
-              return stepText.includes(lower) || stepText.includes(baseName);
-            });
-            // Fallback: if only one file from previous steps, inject it (common: both steps touch same file)
-            const filesToInjectFinal =
-              filesToInject.length > 0
-                ? filesToInject
-                : filesFromPreviousSteps.length === 1
-                  ? filesFromPreviousSteps
-                  : [];
+            // CRITICAL: Warn about ALL files from previous steps - prevent re-creation
+            if (filesFromPreviousSteps.length > 0) {
+              stageInstructions += `\n\n**⚠️ CRITICAL - FILES ALREADY CREATED IN PREVIOUS STEPS**:\n`;
+              stageInstructions += `The following file(s) ALREADY EXIST from previous steps:\n`;
+              filesFromPreviousSteps.forEach(file => {
+                stageInstructions += `- ${file}\n`;
+              });
+              stageInstructions += `\n**DO NOT use create_file on these files** - use edit_file or replace_file instead to modify them.\n`;
+              stageInstructions += `If you need to change these files:\n`;
+              stageInstructions += `1. Use edit_file for small, localized changes\n`;
+              stageInstructions += `2. Use replace_file (with full content below) for larger changes\n`;
+              stageInstructions += `3. NEVER use create_file - the file already exists\n`;
+            }
 
-            if (filesToInjectFinal.length > 0) {
-              stageInstructions += `\n\n**CRITICAL - FILES FROM PREVIOUS STEPS**:\n`;
-              stageInstructions += `The following file(s) already exist from previous steps. Your replace_file MUST include the FULL content below AND your new additions. Outputting only your new code will OVERWRITE and LOSE the existing code.\n`;
+            // Inject file content ONLY when step requires file modification
+            if (needsFileCreation) {
+              // Inject ALL files from previous steps when step modifies files (relaxed matching)
+              const stepText = currentStep.description.toLowerCase();
+              const filesToInject = filesFromPreviousSteps.filter((fileName) => {
+                const lower = fileName.toLowerCase();
+                const baseName = fileName.split("/").pop()?.toLowerCase() || lower;
+                return stepText.includes(lower) || stepText.includes(baseName);
+              });
+              // Fallback: if only one file from previous steps, inject it (common: both steps touch same file)
+              const filesToInjectFinal =
+                filesToInject.length > 0
+                  ? filesToInject
+                  : filesFromPreviousSteps.length === 1
+                    ? filesFromPreviousSteps
+                    : [];
 
-              for (const fileName of filesToInjectFinal) {
-                let content: string | null = null;
-                if (conversationContext.implementationStepContexts) {
-                  const contexts = conversationContext.implementationStepContexts.get(fileName);
-                  if (contexts) {
-                    const previousSteps = contexts.filter(
-                      (cc) => (cc.stepNumber ?? 0) < currentStep.stepNumber
-                    );
-                    if (previousSteps.length > 0) {
-                      const latest = previousSteps.reduce((max, cc) =>
-                        (cc.stepNumber ?? 0) > (max.stepNumber ?? 0) ? cc : max
+              if (filesToInjectFinal.length > 0) {
+                stageInstructions += `\n\n**FILES FROM PREVIOUS STEPS - CONTENT FOR MODIFICATION**:\n`;
+                stageInstructions += `The following file(s) need to be modified. Use replace_file to include the FULL content below PLUS your new additions. Outputting only your new code will OVERWRITE and LOSE the existing code.\n`;
+
+                for (const fileName of filesToInjectFinal) {
+                  let content: string | null = null;
+                  if (conversationContext.implementationStepContexts) {
+                    const contexts = conversationContext.implementationStepContexts.get(fileName);
+                    if (contexts) {
+                      const previousSteps = contexts.filter(
+                        (cc) => (cc.stepNumber ?? 0) < currentStep.stepNumber
                       );
-                      content = latest.getContentAsString();
+                      if (previousSteps.length > 0) {
+                        const latest = previousSteps.reduce((max, cc) =>
+                          (cc.stepNumber ?? 0) > (max.stepNumber ?? 0) ? cc : max
+                        );
+                        content = latest.getContentAsString();
+                      }
                     }
                   }
-                }
-                // Fallback: read from disk if not in implementationStepContexts
-                if ((!content || content.trim().length === 0) && this.nativeToolsManager) {
-                  try {
-                    const readResult = await this.nativeToolsManager.callTool("read_file", {
-                      file_path: fileName,
-                    });
-                    if (!readResult?.isError && readResult?.content?.[0]?.text) {
-                      content = readResult.content[0].text;
+                  // Fallback: read from disk if not in implementationStepContexts
+                  if ((!content || content.trim().length === 0) && this.nativeToolsManager) {
+                    try {
+                      const readResult = await this.nativeToolsManager.callTool("read_file", {
+                        file_path: fileName,
+                      });
+                      if (!readResult?.isError && readResult?.content?.[0]?.text) {
+                        content = readResult.content[0].text;
+                      }
+                    } catch {
+                      // Ignore read errors
                     }
-                  } catch {
-                    // Ignore read errors
                   }
-                }
-                if (content && content.trim().length > 0) {
-                  stageInstructions += `\n### ${fileName} (MUST include this full content + your additions):\n\`\`\`\n${content}\n\`\`\`\n`;
+                  if (content && content.trim().length > 0) {
+                    stageInstructions += `\n### ${fileName} (MUST include this full content + your additions):\n\`\`\`\n${content}\n\`\`\`\n`;
+                  }
                 }
               }
             }

@@ -134,7 +134,7 @@ describe('HarmonyClient - Chat Stage', () => {
       expect(client.getCurrentStage()).toBe('chat');
     });
 
-    it('should create .harmony folder when transitioning from init to chat', async () => {
+    it('should create .harmony folder when transitioning to chat stage', async () => {
       // Create a temporary workspace folder for testing
       const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'harmony-test-'));
       
@@ -164,7 +164,7 @@ describe('HarmonyClient - Chat Stage', () => {
 
         mockHarmonyProcessor.extractToolCalls.mockReturnValueOnce([]);
 
-        // Call the server, which should trigger init -> chat transition
+        // Call the server, which should transition to chat stage
         await client.callServer('hello');
 
         // Verify .harmony folder was created

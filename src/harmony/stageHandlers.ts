@@ -571,6 +571,14 @@ class ImplementationStageHandler implements StageHandler {
           console.log(
             `[StageHandler:Implementation] ProgressPlan: Marked step ${stepToComplete.stepNumber} (${stepToComplete.description}) as completed after creating files from CodeContext`
           );
+          
+          // Update diagnostic file with completion summary
+          await this.implementationManager.updateImplementationStepFileOnCompletion(
+            stepToComplete.stepNumber,
+            'codecontext',
+            nativeToolsManager,
+            contextManager
+          );
         }
 
         const verboseInfo = {
@@ -811,6 +819,14 @@ class ImplementationStageHandler implements StageHandler {
       const reason = "step doesn't require file creation";
       console.log(
         `[StageHandler:Implementation] ProgressPlan: Marked step ${currentStep.stepNumber} (${currentStep.description}) as completed after LLM response (${reason})`
+      );
+      
+      // Update diagnostic file with completion summary
+      await this.implementationManager.updateImplementationStepFileOnCompletion(
+        currentStep.stepNumber,
+        'no_files_needed',
+        nativeToolsManager,
+        contextManager
       );
 
       // After completing a step, the next step is automatically advanced to in_progress
@@ -1118,38 +1134,6 @@ class ChatStageHandler implements StageHandler {
 }
 
 /**
- * Init stage handler (minimal - just pass-through, will transition to chat)
- */
-class InitStageHandler implements StageHandler {
-  async handlePreProcessing(
-    context: ConversationContext | null,
-    prompt: string,
-    nativeToolsManager?: NativeToolsManager,
-    contextManager?: ConversationContextManager,
-    progressPlanManager?: ProgressPlanManager,
-    trigger?: TransitionTrigger,
-    harmonyClient?: any
-  ): Promise<{ shouldSkipLLM: boolean; response?: any }> {
-    // Handle verbose_info trigger
-    if (trigger === "verbose_info" && harmonyClient) {
-      // conversationHistory is not stored in context, pass undefined and let getCurrentVerboseInfo handle it
-      const verboseInfo = harmonyClient.getCurrentVerboseInfo();
-      const formattedVerboseInfo = VerboseInfoFormatter.format(verboseInfo);
-      return {
-        shouldSkipLLM: true,
-        response: {
-          content: formattedVerboseInfo,
-          verboseInfo: verboseInfo,
-        },
-      };
-    }
-
-    // Init stage doesn't need special processing, transitions to chat immediately
-    return { shouldSkipLLM: false };
-  }
-}
-
-/**
  * Stage handler registry
  * Table-based lookup for stage handlers
  */
@@ -1161,7 +1145,6 @@ export class StageHandlerRegistry {
     chatManager?: ChatManager
   ) {
     // Register handlers
-    this.handlers.set("init", new InitStageHandler());
     this.handlers.set(
       "chat",
       new ChatStageHandler(chatManager || new ChatManager())
@@ -1177,6 +1160,6 @@ export class StageHandlerRegistry {
    * Get handler for a stage
    */
   getHandler(stage: WorkflowStage): StageHandler {
-    return this.handlers.get(stage) || new InitStageHandler();
+    return this.handlers.get(stage) || new ChatStageHandler(new ChatManager());
   }
 }

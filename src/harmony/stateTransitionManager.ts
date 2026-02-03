@@ -43,15 +43,17 @@ export class StateTransitionManager {
     conversationHistory?: readonly ChatMessage[]
   ): Promise<void> {
     if (!this.contextManager.hasContext()) {
-      this.contextManager.initialize(prompt, "init");
+      this.contextManager.initialize(prompt, "chat");
       const context = this.contextManager.getContext();
 
-      if (context && context.currentStage === "init") {
-        console.log(`[Harmony] Initializing conversation: init -> chat`);
-        this.contextManager.updateStage("chat", prompt);
+      if (context && context.currentStage === "chat") {
+        console.log(`[Harmony] Initializing conversation at chat stage`);
         
-        // Handle init to chat transition
-        await this.transitionHandler.handleInitToChatTransition();
+        // Initialize chat manager for tracking
+        const chatManager = this.chatManager;
+        if (chatManager && !chatManager.hasContent()) {
+          chatManager.initialize();
+        }
       }
 
       // Detect if we should transition further from chat
@@ -62,7 +64,7 @@ export class StateTransitionManager {
           conversationHistory,
           updatedContext
         );
-        if (detectedStage !== "chat" && detectedStage !== "init") {
+        if (detectedStage !== "chat") {
           console.log(
             `[Harmony] Stage transition detected at start: chat -> ${detectedStage}`
           );

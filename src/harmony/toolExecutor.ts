@@ -10,7 +10,7 @@ export class ToolExecutor {
   constructor(
     private mcpManager?: MCPManager,
     private nativeToolsManager?: NativeToolsManager
-  ) {}
+  ) { }
 
   /**
    * Execute tool calls
@@ -22,16 +22,16 @@ export class ToolExecutor {
     if (currentStage) {
       console.log(`[Harmony] Executing tools in ${currentStage} stage`);
     }
-    
+
     const results = [];
-    
+
     for (const toolCall of toolCalls) {
       try {
         // Check if it's a native tool first
         if (this.nativeToolsManager) {
           const nativeTools = this.nativeToolsManager.getAvailableTools();
           const isNativeTool = nativeTools.some(t => t.name === toolCall.name);
-          
+
           if (isNativeTool) {
             console.log(`[Harmony] Executing native tool "${toolCall.name}"`);
             const rawResult = await this.nativeToolsManager.callTool(
@@ -74,15 +74,52 @@ export class ToolExecutor {
               }
             }
 
+            // Auto-fallback: If edit_file fails because file doesn't exist, automatically use create_file
+            if (toolCall.name === "edit_file" && attemptedResult?.isError) {
+              const errorText = attemptedResult?.content?.[0]?.text || "";
+              const errorMessage = errorText.toLowerCase();
+              // Check for common "file not found" error patterns
+              if (
+                errorMessage.includes("enoent") ||
+                errorMessage.includes("no such file") ||
+                errorMessage.includes("cannot find") ||
+                errorMessage.includes("file not found") ||
+                errorMessage.match(/error editing file.*:.*enoent/i)
+              ) {
+                console.log(`[Harmony] File doesn't exist for edit_file, automatically creating with create_file`);
+                // Use new_text as the content for create_file
+                const createArguments = {
+                  file_path: toolCall.arguments?.file_path,
+                  content: toolCall.arguments?.new_text || "",
+                };
+
+                const createRaw = await this.nativeToolsManager.callTool(
+                  "create_file",
+                  createArguments
+                );
+
+                const createResult: MCPToolResult = {
+                  content: createRaw?.content || [],
+                  isError: createRaw?.isError || false,
+                };
+
+                results.push({
+                  name: "create_file",
+                  arguments: createArguments,
+                  result: createResult,
+                });
+              }
+            }
+
             continue;
           }
         }
-        
+
         // Try MCP tools
         if (!this.mcpManager) {
           throw new Error("MCP Manager not available");
         }
-        
+
         const serverName = this.mcpManager.findToolServer(toolCall.name);
         if (!serverName) {
           console.error(`[Harmony] [MCP] Tool "${toolCall.name}" not found in any MCP server`);
@@ -108,7 +145,7 @@ export class ToolExecutor {
           toolCall.name,
           toolCall.arguments || {}
         );
-        
+
         results.push({
           name: toolCall.name,
           arguments: toolCall.arguments || {},

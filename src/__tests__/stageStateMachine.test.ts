@@ -638,14 +638,6 @@ describe("StageStateMachine", () => {
       expect(trigger).toBe("none");
     });
 
-    it("should NOT detect prompt trigger in init stage", () => {
-      const trigger = stateMachine.detectTrigger(
-        "Hello",
-        "init"
-      );
-      expect(trigger).toBe("initialize");
-    });
-
     it("should prioritize explicit commands over prompt trigger in chat stage", () => {
       const trigger = stateMachine.detectTrigger(
         "move to assumptions",

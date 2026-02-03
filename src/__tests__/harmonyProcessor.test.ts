@@ -212,27 +212,27 @@ const y = 2;
         expect(result[1].name).toBe("tool2");
       });
 
-      // Note: This test documents a known limitation
-      // When JSON args contain '>' (like "pygame>=2.0.0"), the initial regex in XmlProcessor
-      // won't match because it uses [^>]+. However, the fix in HarmonyProcessor.saveBuffer
-      // now uses XmlProcessor.extractToolCalls() directly which has brace matching fallback
-      // that should handle this case. The brace matching works because it finds args='{' and
-      // then uses brace counting to find the matching '}', avoiding the > character issue.
-      // 
-      // If this still fails in practice, the model should use the full element format instead:
-      // <tool_call><![CDATA[{...}]]></tool_call> or <tool_call>{...}</tool_call>
-      it.skip("should extract tool call with >= in JSON content (known limitation with regex)", () => {
-        // This is skipped because the initial regex pattern [^>]+ doesn't handle > in JSON
-        // The brace matching fallback should work, but requires the regex to at least partially match
-        // In practice, saveBuffer now uses XmlProcessor directly which should help
+      // Note: This test was previously skipped due to a known limitation where regex patterns
+      // using [^>]+ would truncate at the first ">" character. The fix in HarmonyProcessor.saveBuffer
+      // now uses quote-aware parsing similar to XmlProcessor.findSelfClosingTagEnd, which properly
+      // handles ">" characters inside quoted JSON strings.
+      it("should extract tool call with >= in JSON content (fixed truncation issue)", () => {
+        // This test verifies that the fix handles ">" characters in JSON content correctly
+        // The improved fallback uses quote-aware parsing to find the closing /> properly
         const jsonArgs = JSON.stringify({
           file_path: "requirements.txt",
           content: "pygame>=2.0.0\nmatplotlib>=3.5.0"
         });
         const raw = `<tool_call name="create_file" args='${jsonArgs}' />`;
         const result = processor.extractToolCalls([raw]);
-        // Would expect this to work with brace matching, but currently doesn't due to regex limitation
-        expect(result.length).toBeGreaterThanOrEqual(0);
+
+        // Should extract correctly with full content including >= operators
+        expect(result).toHaveLength(1);
+        expect(result[0].name).toBe("create_file");
+        expect(result[0].arguments).toBeDefined();
+        expect(result[0].arguments!.file_path).toBe("requirements.txt");
+        expect(result[0].arguments!.content).toBe("pygame>=2.0.0\nmatplotlib>=3.5.0");
+        expect(result[0].arguments!.content).toContain(">=");
       });
     });
 
@@ -342,15 +342,15 @@ const y = 2;
       it("should extract read_file when file is mentioned in natural language", () => {
         // When natural language mentions a file name, extract read_file to read it
         const naturalLanguage = "The system will execute the tool and return the result. After all tools are called and results received, provide your final response. You are to update the `englishText` array in the Psalm101Tests.swift file to add a comment every 5 verses, following the 29 verses of Latin text. I'll analyze the existing structure and add appropriate comments.";
-        
+
         const result = processor.parseResponse(naturalLanguage);
-        
+
         // Should extract find_files for the mentioned filename (no directory path)
         expect(result.content).toContain("The system will execute");
         expect(result.content).toContain("Psalm101Tests.swift");
         expect(result.rawToolCalls).toBeDefined();
         expect(result.rawToolCalls!.length).toBeGreaterThan(0);
-        
+
         // Check that it extracted find_files (not read_file) since it's just a filename
         const extracted = processor.extractToolCalls(result.rawToolCalls!);
         expect(extracted.length).toBeGreaterThan(0);
@@ -362,14 +362,148 @@ const y = 2;
         // Ensure actual tool calls are still detected after the fix
         const actualToolCall = '<tool_call name="analyze_latin" args=\'{"word": "amo"}\' />';
         const result = processor.parseResponse(actualToolCall);
-        
+
         // Should detect it as a tool call
         expect(result.rawToolCalls?.length).toBeGreaterThan(0);
-        
+
         // Should extract correctly
         const extracted = processor.extractToolCalls(result.rawToolCalls || []);
         expect(extracted).toHaveLength(1);
         expect(extracted[0].name).toBe("analyze_latin");
+      });
+
+      it("should extract tool call with > characters in content without truncation", () => {
+        // Test case for the ">" truncation issue
+        // When tool calls contain ">" in the content (e.g., AWK scripts, comparison operators),
+        // the old regex fallback [^>]* would truncate at the first ">"
+        // The fix uses quote-aware parsing to find the closing /> properly
+
+        const awkScript = `#!/usr/bin/env gawk -f
+
+BEGIN {
+    in_page = 0;
+}
+
+# Detect page marker lines like "=== PAGE 000 ==="
+/^=== PAGE[[:space:]]*([0-9]+)[[:space:]]*===/ {
+    if (match($0, /=== PAGE[[:space:]]*([0-9]+)[[:space:]]*===/, arr)) {
+        cur_page = arr[1] + 0;
+        in_page = (cur_page == page);
+    }
+    next;
+}
+
+# Process only lines belonging to the selected page that contain MC=
+in_page && /MC=/ {
+    # Split the line at the pipe character "|"
+    n = split($0, parts, /\\|/);
+    if (n > 1) {
+        # left part before pipe
+        left = parts[1];
+        # remove leading up to colon
+        sub(/^[^:]*:\\s*/, "", left);
+        # trim trailing spaces
+        sub(/[ \\t\\r\\n]+$/, "", left);
+        if (length(left) > 0) print left;
+    }
+}
+END {}`;
+
+        const jsonArgs = JSON.stringify({
+          file_path: "filter.awk",
+          content: awkScript
+        });
+
+        // Test with complete tool call
+        const completeToolCall = `<tool_call name="create_file" args='${jsonArgs}' />`;
+        const result = processor.parseResponse(completeToolCall);
+
+        // Should detect it as a tool call
+        expect(result.rawToolCalls?.length).toBeGreaterThan(0);
+        expect(result.rawToolCalls![0]).toContain("filter.awk");
+        expect(result.rawToolCalls![0]).toContain("BEGIN {");
+        expect(result.rawToolCalls![0]).toContain("END {}");
+
+        // Should extract correctly with full content
+        const extracted = processor.extractToolCalls(result.rawToolCalls || []);
+        expect(extracted).toHaveLength(1);
+        expect(extracted[0].name).toBe("create_file");
+        expect(extracted[0].arguments).toBeDefined();
+        expect(extracted[0].arguments!.file_path).toBe("filter.awk");
+        expect(extracted[0].arguments!.content).toBe(awkScript);
+        expect(extracted[0].arguments!.content).toContain("in_page = (cur_page == page)");
+        expect(extracted[0].arguments!.content).toContain("END {}");
+      });
+
+      it("should extract incomplete tool call with > characters without truncation", () => {
+        // Test case for incomplete/streaming tool calls with ">" characters
+        // When a tool call is incomplete (missing closing />), it should still
+        // preserve the full content without truncating at ">" characters
+
+        const longContent = `#!/usr/bin/env gawk -f
+
+BEGIN {
+    in_page = 0;
+}
+
+# Process lines with MC=
+in_page && /MC=/ {
+    n = split($0, parts, /\\|/);
+    if (n > 1) {
+        left = parts[1];
+        sub(/^[^:]*:\\s*/, "", left);
+        if (length(left) > 0) print left;
+    }
+}`;
+
+        const jsonArgs = JSON.stringify({
+          file_path: "filter.awk",
+          content: longContent
+        });
+
+        // Simulate incomplete tool call (missing closing />)
+        const incompleteToolCall = `<tool_call name="create_file" args='${jsonArgs}'`;
+        const result = processor.parseResponse(incompleteToolCall);
+
+        // Should still detect it as a tool call (incomplete handler)
+        expect(result.rawToolCalls?.length).toBeGreaterThan(0);
+
+        // The raw tool call should contain the full content, not truncated
+        const rawToolCall = result.rawToolCalls![0];
+        expect(rawToolCall).toContain("filter.awk");
+        expect(rawToolCall).toContain("BEGIN {");
+        expect(rawToolCall).toContain("in_page = 0");
+
+        // Should be able to extract what we can from incomplete tool call
+        const extracted = processor.extractToolCalls(result.rawToolCalls || []);
+        // May or may not extract depending on how incomplete it is, but should not crash
+        expect(Array.isArray(extracted)).toBe(true);
+      });
+
+      it("should extract tool call with >= comparison operators in content", () => {
+        // Test case for ">=" operators in content (like version requirements)
+        const requirementsContent = "pygame>=2.0.0\nmatplotlib>=3.5.0\nnumpy>=1.20.0";
+
+        const jsonArgs = JSON.stringify({
+          file_path: "requirements.txt",
+          content: requirementsContent
+        });
+
+        const toolCall = `<tool_call name="create_file" args='${jsonArgs}' />`;
+        const result = processor.parseResponse(toolCall);
+
+        // Should detect it as a tool call
+        expect(result.rawToolCalls?.length).toBeGreaterThan(0);
+
+        // Should extract correctly with full content including >= operators
+        const extracted = processor.extractToolCalls(result.rawToolCalls || []);
+        expect(extracted).toHaveLength(1);
+        expect(extracted[0].name).toBe("create_file");
+        expect(extracted[0].arguments).toBeDefined();
+        expect(extracted[0].arguments!.file_path).toBe("requirements.txt");
+        expect(extracted[0].arguments!.content).toBe(requirementsContent);
+        expect(extracted[0].arguments!.content).toContain("pygame>=2.0.0");
+        expect(extracted[0].arguments!.content).toContain("matplotlib>=3.5.0");
       });
     });
   });
@@ -668,12 +802,12 @@ This is a code example.`;
       // When only a filename is mentioned (no directory path), use find_files to locate it
       const naturalLanguageResponse = "The system will execute the tool and return the result. After all tools are called and results received, provide your final response. You are to update the `englishText` array in the Psalm101Tests.swift file.";
       const result = processor.parseResponse(naturalLanguageResponse);
-      
+
       // Should extract find_files for the mentioned file
       expect(result.content).toContain("The system will execute");
       expect(result.rawToolCalls).toBeDefined();
       expect(result.rawToolCalls!.length).toBeGreaterThan(0);
-      
+
       const toolCalls = processor.extractToolCalls(result.rawToolCalls!);
       // Filename only (no directory) should use find_files
       expect(toolCalls[0].name).toBe("find_files");
@@ -795,7 +929,7 @@ I've replaced the file's contents accordingly. Let me know if you'd like any fur
 
       // After fix: should extract as a replace_file tool call
       expect(result.rawToolCalls?.length).toBeGreaterThan(0);
-      
+
       // Extract and verify the tool call
       const toolCalls = processor.extractToolCalls(result.rawToolCalls || []);
       expect(toolCalls.length).toBeGreaterThan(0);
@@ -854,7 +988,7 @@ This function takes an optional name parameter and returns a greeting string. Pe
       expect(result.content).toContain("```");
       expect(result.content).toContain("This function takes an optional");
       expect(result.content).toContain("Perfect for your use case!");
-      
+
       // Verify this is NOT truncated at the code block boundary
       const contentBefore = result.content.indexOf("```");
       const contentAfter = result.content.indexOf("Perfect for your use case!");
@@ -893,7 +1027,7 @@ You can test it by running the file directly. Let me know if you'd like any modi
       expect(result.content).toContain("I've created a simple module");
       expect(result.content).toContain("You can test it by running");
       expect(result.content).toContain("Let me know if you'd like any modifications");
-      
+
       // Verify the text after the code block comes after the closing ```
       const codeBlockEnd = result.content.lastIndexOf("```");
       const textAfter = result.content.indexOf("I've created a simple module");
@@ -1012,7 +1146,7 @@ class Psalm105ATests: XCTestCase {
 
       // Should extract as a tool call
       expect(result.rawToolCalls?.length).toBeGreaterThan(0);
-      
+
       const toolCalls = processorDisabled.extractToolCalls(result.rawToolCalls || []);
       expect(toolCalls.length).toBeGreaterThan(0);
       expect(toolCalls[0].name).toBe("create_file");
@@ -1041,7 +1175,7 @@ export function helper() {
 
       // Should extract as a tool call
       expect(result.rawToolCalls?.length).toBeGreaterThan(0);
-      
+
       const toolCalls = processor.extractToolCalls(result.rawToolCalls || []);
       expect(toolCalls.length).toBeGreaterThan(0);
       expect(toolCalls[0].name).toBe("create_file");
@@ -1080,7 +1214,7 @@ This is just a description without code.`;
       // Should extract find_files for filename without directory path
       expect(result.rawToolCalls).toBeDefined();
       expect(result.rawToolCalls!.length).toBeGreaterThan(0);
-      
+
       const toolCalls = processor.extractToolCalls(result.rawToolCalls || []);
       expect(toolCalls.length).toBeGreaterThan(0);
       // Just a filename should use find_files
@@ -1115,7 +1249,7 @@ class Psalm105ATests: XCTestCase {
 
       // Should extract as a tool call from content
       expect(result.rawToolCalls?.length).toBeGreaterThan(0);
-      
+
       const toolCalls = processor.extractToolCalls(result.rawToolCalls || []);
       expect(toolCalls.length).toBeGreaterThan(0);
       expect(toolCalls[0].name).toBe("create_file");
@@ -1124,7 +1258,7 @@ class Psalm105ATests: XCTestCase {
         expect(toolCalls[0].arguments.file_path).toBe("Tests/LatinService/Psalm105ATests.swift");
         expect(toolCalls[0].arguments.content).toContain("@testable import LatinService");
       }
-      
+
       // The full content (including code block) should be preserved for display
       // This allows the AI's explanation AND the code to be shown to the user
       expect(result.content).toContain("**File:** `Tests/LatinService/Psalm105ATests.swift`");
@@ -1153,7 +1287,7 @@ class Psalm105ATests: XCTestCase {
 
       // Should extract as a tool call
       expect(result.rawToolCalls?.length).toBeGreaterThan(0);
-      
+
       const toolCalls = processor.extractToolCalls(result.rawToolCalls || []);
       expect(toolCalls.length).toBeGreaterThan(0);
       expect(toolCalls[0].name).toBe("create_file");
@@ -1209,7 +1343,7 @@ The script works correctly.<|end|>`;
       // Should NOT extract replace_file from Tool Results section
       // Even though it mentions "replace_file" and "hello.py", these are in tool results
       expect(result.rawToolCalls).toEqual([]);
-      
+
       // Content should still contain the message text
       expect(result.content).toContain("Script executed successfully");
     });
@@ -1315,10 +1449,10 @@ Let me review this file to understand its structure.`;
         // Should extract read_file for full paths
         expect(result.rawToolCalls).toBeDefined();
         expect(result.rawToolCalls!.length).toBeGreaterThan(0);
-        
+
         const toolCalls = processor.extractToolCalls(result.rawToolCalls!);
         expect(toolCalls.length).toBeGreaterThan(0);
-        
+
         // Full path should use read_file
         const toolCall = toolCalls[0];
         expect(toolCall.name).toBe("read_file");
@@ -1336,10 +1470,10 @@ Let me find and review this file.`;
         // Should extract find_files for incomplete paths
         expect(result.rawToolCalls).toBeDefined();
         expect(result.rawToolCalls!.length).toBeGreaterThan(0);
-        
+
         const toolCalls = processor.extractToolCalls(result.rawToolCalls!);
         expect(toolCalls.length).toBeGreaterThan(0);
-        
+
         // Filename only should use find_files
         const toolCall = toolCalls[0];
         expect(toolCall.name).toBe("find_files");
@@ -1367,10 +1501,10 @@ I've added the Blessing theme as requested.<|end|>`;
         // Should extract file operations
         expect(result.rawToolCalls).toBeDefined();
         expect(result.rawToolCalls!.length).toBeGreaterThan(0);
-        
+
         const toolCalls = processor.extractToolCalls(result.rawToolCalls!);
         expect(toolCalls.length).toBeGreaterThan(0);
-        
+
         // Since content mentions "modify" and has code block, should use replace_file
         const toolCall = toolCalls[0];
         expect(toolCall.name).toBe("replace_file");
@@ -1439,11 +1573,11 @@ This new test file is ready.<|end|>`;
         // With no code block, extractFileUpdateFromContent will try to extract
         // a tool call based on file reference
         expect(result.rawToolCalls).toBeDefined();
-        
+
         if (result.rawToolCalls && result.rawToolCalls.length > 0) {
           const toolCalls = processor.extractToolCalls(result.rawToolCalls);
           expect(toolCalls.length).toBeGreaterThan(0);
-          
+
           const toolCall = toolCalls[0];
           // Tool name should be find_files (plural), not find_file (singular)
           expect(toolCall.name).toBe("find_files");
@@ -1459,11 +1593,11 @@ This new test file is ready.<|end|>`;
         const result = processor.parseResponse(response, "check src/utils/calc.py");
 
         expect(result.rawToolCalls).toBeDefined();
-        
+
         if (result.rawToolCalls && result.rawToolCalls.length > 0) {
           const toolCalls = processor.extractToolCalls(result.rawToolCalls);
           expect(toolCalls.length).toBeGreaterThan(0);
-          
+
           const toolCall = toolCalls[0];
           // Tool name should be read_file for paths with directory separators
           expect(toolCall.name).toBe("read_file");
@@ -1493,10 +1627,10 @@ This new test file is ready.<|end|>`;
 
         expect(result.rawToolCalls).toBeDefined();
         expect(result.rawToolCalls!.length).toBeGreaterThan(0);
-        
+
         const toolCalls = processor.extractToolCalls(result.rawToolCalls!);
         expect(toolCalls.length).toBeGreaterThan(0);
-        
+
         const toolCall = toolCalls[0];
         // Verify it's find_files (plural) not find_file (singular)
         expect(toolCall.name).toBe("find_files");

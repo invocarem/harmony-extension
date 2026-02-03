@@ -64,11 +64,11 @@ describe('ConfirmationManager', () => {
         expect(confirmation).toBeNull();
       });
 
-      it('should not detect confirmation in init stage', () => {
+      it('should not detect confirmation in implementation stage', () => {
         const content = 'Would you like me to proceed to assumptions stage?';
-        manager.detectAndStoreConfirmation(content, 'init', conversationHistory);
+        manager.detectAndStoreConfirmation(content, 'implementation', conversationHistory);
 
-        const confirmation = manager.getPendingConfirmation('init');
+        const confirmation = manager.getPendingConfirmation('implementation');
         expect(confirmation).toBeNull();
       });
     });

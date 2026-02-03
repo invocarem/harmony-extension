@@ -362,7 +362,7 @@ export class HarmonyAssistant {
               const currentStage = this.harmonyClient.getCurrentStage();
               const contextManager = (this.harmonyClient as any).contextManager;
               const context = contextManager?.getContext?.();
-              const displayStage = (currentStage === 'init' ? 'chat' : currentStage) as 'chat' | 'assumptions' | 'implementation';
+              const displayStage = currentStage as 'chat' | 'assumptions' | 'implementation';
               await this.webviewManager.sendMessage({
                 content: commandResult.message,
                 verboseInfo: {
@@ -552,14 +552,14 @@ export class HarmonyAssistant {
       let currentStage = this.harmonyClient.getCurrentStage();
       const initialStage = currentStage;
 
-      // Track queries in ChatManager when in chat stage or init stage (init will transition to chat)
-      // This ensures the first query is always tracked even if stage hasn't been updated yet
+      // Track queries in ChatManager when in chat stage
+      // This ensures all queries are properly tracked
       const chatManager = this.harmonyClient.getChatManager();
-      if (currentStage === "chat" || currentStage === "init" || !currentStage) {
-        // Initialize ChatManager if not already initialized (for init stage)
+      if (currentStage === "chat" || !currentStage) {
+        // Initialize ChatManager if not already initialized (for chat stage)
         // Only initialize if it doesn't already have content to avoid losing existing queries/files
         if (
-          (currentStage === "init" || !currentStage) &&
+          !currentStage &&
           !chatManager.hasContent()
         ) {
           chatManager.initialize();
@@ -572,7 +572,7 @@ export class HarmonyAssistant {
           fileExtractionResult
         );
         console.log(
-          `[ChatManager] Tracked query in ${currentStage || "init"} stage: "${cleanMessage.substring(0, 50)}..."`
+          `[ChatManager] Tracked query in ${currentStage || "chat"} stage: "${cleanMessage.substring(0, 50)}..."`
         );
       }
 
@@ -651,8 +651,7 @@ export class HarmonyAssistant {
         this.config.firstPrinciplesMode === true;
       const wasFirstPrinciplesActive = this.harmonyClient.isFirstPrinciplesMode();
       const supportsFirstPrinciples =
-        currentStage === "chat" ||
-        currentStage === "init";
+        currentStage === "chat";
       const leftChatStage =
         initialStage === "chat" && currentStage !== "chat";
 

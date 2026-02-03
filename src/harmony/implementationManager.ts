@@ -20,6 +20,17 @@ export interface ImplementationFile {
 }
 
 /**
+ * Step execution statistics for completion summary
+ */
+export interface StepExecutionStats {
+  toolCallCount: number;
+  successCount: number;
+  failedCount: number;
+  filesAffected: Set<string>;
+  startedAt: number;
+}
+
+/**
  * Implementation stage state
  */
 export interface ImplementationState {
@@ -28,6 +39,7 @@ export interface ImplementationState {
   completedSteps: number[];            // Step numbers that have been completed
   taskId?: string;                     // Reference to ProgressPlan taskId
   lastUpdated: number;
+  stepExecutionStats?: Map<number, StepExecutionStats>;  // Per-step execution tracking for completion summary
 }
 
 /**
@@ -105,6 +117,72 @@ export class ImplementationManager {
     return plan.steps.find(step => 
       step.status === 'pending' || step.status === 'in_progress'
     );
+  }
+
+  /**
+   * Initialize step execution tracking when step starts
+   */
+  startStepTracking(stepNumber: number): void {
+    if (!this.state) return;
+    
+    if (!this.state.stepExecutionStats) {
+      this.state.stepExecutionStats = new Map();
+    }
+    
+    this.state.stepExecutionStats.set(stepNumber, {
+      toolCallCount: 0,
+      successCount: 0,
+      failedCount: 0,
+      filesAffected: new Set<string>(),
+      startedAt: Date.now()
+    });
+    
+    console.log(`[ImplementationManager] Started tracking execution for step ${stepNumber}`);
+  }
+
+  /**
+   * Record a tool call for the current step
+   */
+  recordToolCall(stepNumber: number, toolName: string, filePath: string | undefined, success: boolean): void {
+    if (!this.state?.stepExecutionStats) {
+      this.state!.stepExecutionStats = new Map();
+    }
+    
+    let stats = this.state!.stepExecutionStats.get(stepNumber);
+    if (!stats) {
+      // Initialize stats if not already done (can happen if tracking wasn't started explicitly)
+      stats = {
+        toolCallCount: 0,
+        successCount: 0,
+        failedCount: 0,
+        filesAffected: new Set<string>(),
+        startedAt: Date.now()
+      };
+      this.state!.stepExecutionStats.set(stepNumber, stats);
+    }
+    
+    stats!.toolCallCount++;
+    if (success) {
+      stats.successCount++;
+    } else {
+      stats.failedCount++;
+    }
+    
+    // Track file if it's not a diagnostic file
+    if (filePath && !this.isDiagnosticFile(filePath)) {
+      stats.filesAffected.add(filePath);
+    }
+  }
+
+  /**
+   * Check if a file is a diagnostic file
+   */
+  private isDiagnosticFile(filePath: string): boolean {
+    const fileName = filePath.split('/').pop() || filePath;
+    return fileName.startsWith('implementation_step_') || 
+           fileName === 'assumption_data.json' || 
+           fileName === 'aggregated_prompt.json' ||
+           /^step\d+_design\.txt$/i.test(fileName);
   }
 
   /**
@@ -677,6 +755,141 @@ export class ImplementationManager {
    * @param nativeToolsManager - Tool manager to create the file
    * @param contextManager - Context manager to store CodeContext
    */
+  /**
+   * Update implementation step file with completion summary after step completes
+   */
+  async updateImplementationStepFileOnCompletion(
+    stepNumber: number,
+    completionMethod: 'codecontext' | 'llm_tools' | 'no_files_needed',
+    nativeToolsManager?: NativeToolsManager,
+    contextManager?: ConversationContextManager
+  ): Promise<void> {
+    if (!this.state || !this.state.taskId) {
+      return;
+    }
+
+    const plan = this.getProgressPlan();
+    if (!plan) return;
+
+    const step = plan.steps.find(s => s.stepNumber === stepNumber);
+    if (!step) return;
+
+    // Get execution stats for this step
+    const stats = this.state.stepExecutionStats?.get(stepNumber);
+    const filesForStep = this.getFilesForStep(stepNumber);
+    
+    // Build completion summary
+    const completionSummary = {
+      completedAt: step.status === 'completed' ? Date.now() : null,
+      filesAffected: stats ? Array.from(stats.filesAffected) : filesForStep.map(f => f.file),
+      toolCallCount: stats?.toolCallCount || 0,
+      successfulCalls: stats?.successCount || 0,
+      failedCalls: stats?.failedCount || 0,
+      completionMethod: completionMethod
+    };
+
+    // Get existing CodeContext to preserve codeContexts field
+    const fileName = `implementation_step_${stepNumber}.json`;
+    let existingCodeContexts: any[] = [];
+    
+    if (contextManager) {
+      const context = contextManager.getContext();
+      const versions = context?.codeContexts?.get(fileName);
+      if (versions) {
+        const activeVersion = versions.find(v => v.isActive);
+        if (activeVersion) {
+          try {
+            const content = activeVersion.getContentAsString();
+            const parsed = JSON.parse(content);
+            existingCodeContexts = parsed.codeContexts || [];
+          } catch (e) {
+            // Ignore parse errors
+          }
+        }
+      }
+    }
+
+    // Create updated JSON structure
+    const stepData = {
+      stepNumber: step.stepNumber,
+      description: step.description,
+      tools: step.tools || [],
+      status: step.status,
+      taskId: plan.taskId,
+      originalPrompt: plan.originalPrompt,
+      complexity: plan.complexity,
+      totalSteps: plan.totalSteps,
+      codeContexts: existingCodeContexts,
+      filesCreated: filesForStep.map(f => ({
+        file: f.file,
+        status: f.status,
+        createdAt: f.createdAt,
+        error: f.error
+      })),
+      completionSummary: completionSummary,
+      timestamp: Date.now(),
+      summary: `Implementation step ${stepNumber}: ${step.description}`
+    };
+
+    const stepJson = JSON.stringify(stepData, null, 2);
+    const stepLines = stepJson.split('\n');
+    const stepContext = new CodeContext(
+      fileName,
+      stepLines,
+      false,
+      'v2',
+      Date.now(),
+      `Implementation step ${stepNumber} diagnostic data with completion summary`
+    );
+
+    // Update in context manager
+    if (contextManager) {
+      contextManager.addCodeContext(stepContext);
+      console.log(`[ImplementationManager] Updated ${fileName} in CodeContext with completion summary`);
+    }
+
+    // Update the file if nativeToolsManager is provided
+    if (nativeToolsManager && contextManager) {
+      const context = contextManager.getContext();
+      if (context?.codeContexts) {
+        const versions = context.codeContexts.get(fileName);
+        if (versions) {
+          const activeVersion = versions.find(v => v.isActive);
+          if (activeVersion && !activeVersion.waitForCreate) {
+            try {
+              const content = activeVersion.getContentAsString();
+              if (content && content.trim().length > 0) {
+                try {
+                  const replaceResult = await nativeToolsManager.callTool('replace_file', {
+                    file_path: `.harmony/${fileName}`,
+                    content: content
+                  });
+                  
+                  if (replaceResult && !replaceResult.isError) {
+                    console.log(`[ImplementationManager] ✅ Updated diagnostic file ${fileName} with completion summary`);
+                  } else {
+                    // File might not exist yet, try create
+                    const createResult = await nativeToolsManager.callTool('create_file', {
+                      file_path: `.harmony/${fileName}`,
+                      content: content
+                    });
+                    if (createResult && !createResult.isError) {
+                      console.log(`[ImplementationManager] ✅ Created diagnostic file ${fileName} with completion summary`);
+                    }
+                  }
+                } catch (error: any) {
+                  console.warn(`[ImplementationManager] ⚠️ Error updating diagnostic file ${fileName}:`, error.message || error);
+                }
+              }
+            } catch (error: any) {
+              console.warn(`[ImplementationManager] ⚠️ Error updating diagnostic file ${fileName}:`, error);
+            }
+          }
+        }
+      }
+    }
+  }
+
   async generateImplementationStepFile(
     stepNumber: number,
     codeContexts: CodeContext[] = [],
@@ -725,6 +938,14 @@ export class ImplementationManager {
         createdAt: f.createdAt,
         error: f.error
       })),
+      completionSummary: {
+        completedAt: null,
+        filesAffected: [],
+        toolCallCount: 0,
+        successfulCalls: 0,
+        failedCalls: 0,
+        completionMethod: null
+      },
       timestamp: Date.now(),
       summary: `Implementation step ${stepNumber}: ${step.description}`
     };

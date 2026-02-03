@@ -4,13 +4,12 @@ import { ConfirmationManager } from "./confirmationManager";
 import { TransitionHandler } from "./transitionHandler";
 import { NativeToolsManager } from "../nativeToolManager";
 import { ChatManager } from "./chatManager"; import { AssumptionsManager } from './assumptionsManager';
-export type WorkflowStage = "init" | "chat" | "assumptions" | "implementation";
+export type WorkflowStage = "chat" | "assumptions" | "implementation";
 
 /**
  * Trigger types for state transitions
  */
 export type TransitionTrigger =
-  | "initialize"
   | "move_to_implementation"
   | "move_to_assumptions"
   | "move_to_chat"
@@ -61,19 +60,7 @@ interface TransitionRule {
  * Can perform side effects using transitionHandler
  */
 
-/**
- * Action: Initialize conversation (init -> chat)
- */
-const initializeAction: TransitionAction = async (context): Promise<WorkflowStage | null> => {
-  console.log(`[Action] initialize: init -> chat`);
 
-  // Perform side effect: initialize chat
-  if (context.transitionHandler) {
-    await context.transitionHandler.handleInitToChatTransition();
-  }
-
-  return "chat" as WorkflowStage;
-};
 
 /**
  * Action: Move to assumptions from chat
@@ -240,9 +227,6 @@ const generateOrUpdatePlanAction: TransitionAction = async (context): Promise<Wo
  * Format: [from_state, to_state, trigger, action_function, priority]
  */
 const TRANSITION_TABLE: TransitionRule[] = [
-  // Initialization (highest priority)
-  { from: "init", to: "chat", trigger: "initialize", action: initializeAction, priority: 100 },
-
   // Explicit commands (high priority)
   { from: "assumptions", to: "implementation", trigger: "move_to_implementation", action: moveToImplementation, priority: 100 },
   { from: "implementation", to: "chat", trigger: "move_to_chat", action: moveToChat, priority: 100 },
@@ -253,7 +237,6 @@ const TRANSITION_TABLE: TransitionRule[] = [
   { from: "implementation", to: "implementation", trigger: "auto", action: autoMode, priority: 100 },
 
   // All stages self-loops (generate verboseInfo, stay in stage)
-  { from: "init", to: "init", trigger: "verbose_info", action: verboseInfo, priority: 100 },
   { from: "chat", to: "chat", trigger: "verbose_info", action: verboseInfo, priority: 100 },
   { from: "assumptions", to: "assumptions", trigger: "verbose_info", action: verboseInfo, priority: 100 },
   { from: "implementation", to: "implementation", trigger: "verbose_info", action: verboseInfo, priority: 100 },
@@ -275,7 +258,6 @@ const TRANSITION_TABLE: TransitionRule[] = [
  * Valid transitions map (for quick lookup)
  */
 const VALID_TRANSITIONS: Map<WorkflowStage, Set<WorkflowStage>> = new Map([
-  ["init", new Set<WorkflowStage>(["chat"])],
   ["chat", new Set<WorkflowStage>(["assumptions"])],
   ["assumptions", new Set<WorkflowStage>(["implementation", "chat"])],
   ["implementation", new Set<WorkflowStage>(["chat", "assumptions"])],
@@ -306,11 +288,6 @@ export class StageStateMachine {
     confirmationManager?: ConfirmationManager
   ): TransitionTrigger {
     const promptLower = prompt.toLowerCase().trim();
-
-    // Init stage always transitions to chat (handled separately, but included for completeness)
-    if (currentStage === "init") {
-      return "initialize";
-    }
 
     // Check for confirmation responses (high priority - checked before explicit commands)
     if (confirmationManager) {
@@ -534,11 +511,6 @@ export class StageStateMachine {
    */
   getInstructions(stage: WorkflowStage, harmonyMode: boolean = true): string {
     const instructions: Record<WorkflowStage, string> = {
-      init: `## Current Stage: INITIALIZATION
-
-You are in the **Initialization** stage. The conversation is about to begin.
-This stage should quickly transition to the Chat stage.`,
-
       chat: `## Current Stage: CHAT/CLARIFICATION
 
 **PRIMARY GOAL:**
@@ -653,7 +625,7 @@ This stage should quickly transition to the Chat stage.`,
 **FIRST ACTION**: Review the numbered plan from Assumptions stage
 
 **EXECUTION RULES**:
-1. Work on currrent step only. Use the stepX_ prefix only for intermediate artifacts (designs, notes, scratch). If the step requires a specific filename, use that exact filename.
+1. Work on currrent step only. You must display Code or Context generated in current step.
 2. Do not work on previous or future steps.
 3. All tools are available in this stage. Use appropriate tools, see TOOL USAGE GUIDE below.
 
@@ -698,7 +670,10 @@ Example with multiple tool calls:
 - Only works if file does NOT exist yet
 - Best for: Initial file creation, fresh implementations
 - For auxiliary files, use 'stepX_' prefix to avoid naming conflicts
-**edit_file**: Use for PARTIAL file modifications
+- **CRITICAL**: If the file doesn't exist yet, ALWAYS use create_file, NOT edit_file
+**edit_file**: Use for PARTIAL file modifications of EXISTING files only
+- **CRITICAL**: Only use edit_file if the file ALREADY EXISTS
+- If file doesn't exist, use create_file instead
 - Finds exact text and replaces only that portion
 - Preserves rest of file structure and content
 - Requires: old_text with enough context (3-5 lines before/after) to ensure unique match
@@ -712,6 +687,7 @@ Example with multiple tool calls:
 - Example: <tool_call name="tool_name" args='{"param": "value"}' />
 
 **When to use each file tool:**
+- **File doesn't exist yet?** → **create_file** (NEVER use edit_file for new files)
 - Updating existing file (small changes)? → **edit_file**
 - Updating existing file (large changes)? → Multiple **edit_file** calls or read + edit sections
 - Creating new file? → **create_file**
@@ -751,10 +727,6 @@ After each tool call, verify:
       WorkflowStage,
       { allowed: string[]; blocked: string[] }
     > = {
-      init: {
-        allowed: [], // No tools available in init stage
-        blocked: [], // All tools blocked (conversation not started)
-      },
       chat: {
         allowed: [
           "read_file",
@@ -805,11 +777,6 @@ After each tool call, verify:
     if (rule.allowed.length > 0) {
       // Only allow specific tools (chat stage)
       return allTools.filter((tool) => rule.allowed.includes(tool.name));
-    }
-
-    if (stage === "init") {
-      // No tools available in init stage
-      return [];
     }
 
     if (stage === "assumptions") {

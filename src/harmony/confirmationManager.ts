@@ -51,8 +51,8 @@ export class ConfirmationManager {
     currentStage: WorkflowStage,
     conversationHistory?: readonly ChatMessage[]
   ): void {
-    if (!assistantContent || currentStage === 'init' || currentStage === 'implementation') {
-      return; // No confirmations in init or implementation stages
+    if (!assistantContent || currentStage === 'implementation') {
+      return; // No confirmations in implementation stage
     }
 
     const contentLower = assistantContent.toLowerCase();

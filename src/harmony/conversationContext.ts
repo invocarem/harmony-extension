@@ -60,7 +60,7 @@ export class ConversationContextManager {
   /**
    * Initialize a new conversation context
    */
-  initialize(originalPrompt: string, initialStage: WorkflowStage = 'init'): ConversationContext {
+  initialize(originalPrompt: string, initialStage: WorkflowStage = 'chat'): ConversationContext {
     // Preserve existing progressPlan if context is being re-initialized
     const existingPlan = this.context?.progressPlan;
     const existingCodeContexts = this.context?.codeContexts;
