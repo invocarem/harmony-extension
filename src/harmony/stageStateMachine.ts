@@ -706,6 +706,8 @@ export class StageStateMachine {
 - **One step per requirement** - Break down the work into logical deliverables. If you identified 3 distinct requirements, create at least 3 steps
 - **Number your steps** - Always use explicit numbering: "Step 1:", "Step 2:", "Step 3:" - this is critical for the system to detect task complexity
 - **Don't combine unrelated requirements** - Each distinct functional requirement should have its own step unless they're truly part of one deliverable
+- **Every step must produce a tangible file output** - If a step is analysis/read-only (e.g., "read foo.md"), include creating a summary artifact like 
+  "Create step_{N}_summary.md summarizing the findings" so implementation always creates/updates at least one file per step
 
 **Workflow:**
 - **Analyze comprehensively** - Review ALL conversation history to identify ALL functional requirements and deliverables
@@ -725,6 +727,8 @@ export class StageStateMachine {
 2. Work on current PlanStep to generate code or context. display only the code changes needed.
 3. Do not work on previous or future steps.
 4. All tools are available in this stage. Use appropriate tools, see TOOL USAGE GUIDE below.
+5. Every step MUST create or update at least one file. If the step is read-only or analysis-only, create 
+  step_{N}_summary.md documenting the results.
 
 
 ${

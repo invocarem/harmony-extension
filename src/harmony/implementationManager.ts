@@ -3,7 +3,11 @@
  * Tracks file creation, step completion, and manages implementation process
  */
 
-import { ProgressPlanManager, ProgressPlan, PlanStep } from "../progressPlanManager";
+import {
+  ProgressPlanManager,
+  ProgressPlan,
+  PlanStep,
+} from "../progressPlanManager";
 import { CodeContext } from "./codeContext";
 import { ConversationContextManager } from "./conversationContext";
 import { NativeToolsManager } from "../nativeToolManager";
@@ -15,7 +19,7 @@ export interface ImplementationFile {
   file: string;
   stepNumber: number;
   createdAt: number;
-  status: 'created' | 'replaced' | 'error';
+  status: "created" | "replaced" | "error";
   error?: string;
 }
 
@@ -34,17 +38,17 @@ export interface StepExecutionStats {
  * Implementation stage state
  */
 export interface ImplementationState {
-  referredFiles: Array<{ file: string; description?: string }>;  // Files referred to/mentioned in assumptions stage
-  createdFiles: ImplementationFile[];  // Files created during implementation
-  completedSteps: number[];            // Step numbers that have been completed
-  taskId?: string;                     // Reference to ProgressPlan taskId
+  referredFiles: Array<{ file: string; description?: string }>; // Files referred to/mentioned in assumptions stage
+  createdFiles: ImplementationFile[]; // Files created during implementation
+  completedSteps: number[]; // Step numbers that have been completed
+  taskId?: string; // Reference to ProgressPlan taskId
   lastUpdated: number;
-  stepExecutionStats?: Map<number, StepExecutionStats>;  // Per-step execution tracking for completion summary
+  stepExecutionStats?: Map<number, StepExecutionStats>; // Per-step execution tracking for completion summary
 }
 
 /**
  * Manages implementation stage state and operations
- * 
+ *
  * Responsibilities:
  * - Track files created during implementation stage
  * - Track step completion status
@@ -70,8 +74,10 @@ export class ImplementationManager {
       taskId,
       lastUpdated: Date.now(),
     };
-    console.log(`[ImplementationManager] Initialized implementation state${taskId ? ` for task: ${taskId}` : ''}`);
-    
+    console.log(
+      `[ImplementationManager] Initialized implementation state${taskId ? ` for task: ${taskId}` : ""}`
+    );
+
     // Note: Steps remain 'pending' until explicitly started (e.g., via @cmd:next_step)
     // This allows "move to implementation" to just transition without auto-executing step 1
   }
@@ -114,8 +120,8 @@ export class ImplementationManager {
       return undefined;
     }
 
-    return plan.steps.find(step => 
-      step.status === 'pending' || step.status === 'in_progress'
+    return plan.steps.find(
+      (step) => step.status === "pending" || step.status === "in_progress"
     );
   }
 
@@ -124,30 +130,37 @@ export class ImplementationManager {
    */
   startStepTracking(stepNumber: number): void {
     if (!this.state) return;
-    
+
     if (!this.state.stepExecutionStats) {
       this.state.stepExecutionStats = new Map();
     }
-    
+
     this.state.stepExecutionStats.set(stepNumber, {
       toolCallCount: 0,
       successCount: 0,
       failedCount: 0,
       filesAffected: new Set<string>(),
-      startedAt: Date.now()
+      startedAt: Date.now(),
     });
-    
-    console.log(`[ImplementationManager] Started tracking execution for step ${stepNumber}`);
+
+    console.log(
+      `[ImplementationManager] Started tracking execution for step ${stepNumber}`
+    );
   }
 
   /**
    * Record a tool call for the current step
    */
-  recordToolCall(stepNumber: number, toolName: string, filePath: string | undefined, success: boolean): void {
+  recordToolCall(
+    stepNumber: number,
+    toolName: string,
+    filePath: string | undefined,
+    success: boolean
+  ): void {
     if (!this.state?.stepExecutionStats) {
       this.state!.stepExecutionStats = new Map();
     }
-    
+
     let stats = this.state!.stepExecutionStats.get(stepNumber);
     if (!stats) {
       // Initialize stats if not already done (can happen if tracking wasn't started explicitly)
@@ -156,18 +169,18 @@ export class ImplementationManager {
         successCount: 0,
         failedCount: 0,
         filesAffected: new Set<string>(),
-        startedAt: Date.now()
+        startedAt: Date.now(),
       };
       this.state!.stepExecutionStats.set(stepNumber, stats);
     }
-    
+
     stats!.toolCallCount++;
     if (success) {
       stats.successCount++;
     } else {
       stats.failedCount++;
     }
-    
+
     // Track file if it's not a diagnostic file
     if (filePath && !this.isDiagnosticFile(filePath)) {
       stats.filesAffected.add(filePath);
@@ -178,11 +191,13 @@ export class ImplementationManager {
    * Check if a file is a diagnostic file
    */
   private isDiagnosticFile(filePath: string): boolean {
-    const fileName = filePath.split('/').pop() || filePath;
-    return fileName.startsWith('implementation_step_') || 
-           fileName === 'assumption_data.json' || 
-           fileName === 'aggregated_prompt.json' ||
-           /^step\d+_design\.txt$/i.test(fileName);
+    const fileName = filePath.split("/").pop() || filePath;
+    return (
+      fileName.startsWith("implementation_step_") ||
+      fileName === "assumption_data.json" ||
+      fileName === "aggregated_prompt.json" ||
+      /^step\d+_design\.txt$/i.test(fileName)
+    );
   }
 
   /**
@@ -190,39 +205,49 @@ export class ImplementationManager {
    */
   completeStep(stepNumber: number): boolean {
     if (!this.state || !this.state.taskId) {
-      console.warn(`[ImplementationManager] Cannot complete step ${stepNumber}: no state or taskId`);
+      console.warn(
+        `[ImplementationManager] Cannot complete step ${stepNumber}: no state or taskId`
+      );
       return false;
     }
 
     const plan = this.progressPlanManager.getPlan(this.state.taskId);
     if (!plan) {
-      console.warn(`[ImplementationManager] Cannot complete step ${stepNumber}: plan not found`);
+      console.warn(
+        `[ImplementationManager] Cannot complete step ${stepNumber}: plan not found`
+      );
       return false;
     }
 
     const success = this.progressPlanManager.updateStepStatus(
       this.state.taskId,
       stepNumber,
-      'completed'
+      "completed"
     );
 
     if (success && !this.state.completedSteps.includes(stepNumber)) {
       this.state.completedSteps.push(stepNumber);
       this.state.lastUpdated = Date.now();
-      console.log(`[ImplementationManager] Marked step ${stepNumber} as completed`);
-      
+      console.log(
+        `[ImplementationManager] Marked step ${stepNumber} as completed`
+      );
+
       // Automatically advance the next pending step to in_progress
       // This ensures the workflow is ready for the next @cmd:next_step call
       const updatedPlan = this.progressPlanManager.getPlan(this.state.taskId);
-      const nextPendingStep = updatedPlan?.steps.find(s => s.status === 'pending');
+      const nextPendingStep = updatedPlan?.steps.find(
+        (s) => s.status === "pending"
+      );
       if (nextPendingStep) {
         const advanceSuccess = this.progressPlanManager.updateStepStatus(
           this.state.taskId,
           nextPendingStep.stepNumber,
-          'in_progress'
+          "in_progress"
         );
         if (advanceSuccess) {
-          console.log(`[ImplementationManager] Automatically advanced step ${nextPendingStep.stepNumber} to in_progress`);
+          console.log(
+            `[ImplementationManager] Automatically advanced step ${nextPendingStep.stepNumber} to in_progress`
+          );
         }
       }
     }
@@ -243,7 +268,7 @@ export class ImplementationManager {
       return undefined;
     }
 
-    const currentStep = plan.steps.find(step => step.status === 'pending');
+    const currentStep = plan.steps.find((step) => step.status === "pending");
     if (!currentStep) {
       return undefined;
     }
@@ -251,12 +276,14 @@ export class ImplementationManager {
     const success = this.progressPlanManager.updateStepStatus(
       this.state.taskId,
       currentStep.stepNumber,
-      'in_progress'
+      "in_progress"
     );
 
     if (success) {
       this.state.lastUpdated = Date.now();
-      console.log(`[ImplementationManager] Advanced to step ${currentStep.stepNumber}: ${currentStep.description}`);
+      console.log(
+        `[ImplementationManager] Advanced to step ${currentStep.stepNumber}: ${currentStep.description}`
+      );
     }
 
     return success ? currentStep : undefined;
@@ -266,7 +293,13 @@ export class ImplementationManager {
    * Process file creations from tool calls and complete the current step if files match
    * Returns the step number that was completed, or undefined if no step was completed
    */
-  processFileCreations(toolCalls: Array<{ name: string; arguments: Record<string, any>; result?: any }>): number | undefined {
+  processFileCreations(
+    toolCalls: Array<{
+      name: string;
+      arguments: Record<string, any>;
+      result?: any;
+    }>
+  ): number | undefined {
     if (!this.state || !this.state.taskId) {
       return undefined;
     }
@@ -276,30 +309,54 @@ export class ImplementationManager {
       return undefined;
     }
 
-    const fileModificationTools = ['create_file', 'replace_file', 'write_file', 'update_file'];
-    const allFileModToolCalls = toolCalls.filter(tc => fileModificationTools.includes(tc.name));
-    const successfulFileMods = allFileModToolCalls.filter(tc => tc.result && !tc.result.isError);
-    
+    const fileModificationTools = [
+      "create_file",
+      "replace_file",
+      "write_file",
+      "update_file",
+    ];
+    const allFileModToolCalls = toolCalls.filter((tc) =>
+      fileModificationTools.includes(tc.name)
+    );
+    const successfulFileMods = allFileModToolCalls.filter(
+      (tc) => tc.result && !tc.result.isError
+    );
+
     // Filter out diagnostic files from successfulFileMods (they shouldn't count for step completion)
-    const nonDiagnosticSuccessfulMods = successfulFileMods.filter(tc => {
+    const nonDiagnosticSuccessfulMods = successfulFileMods.filter((tc) => {
       const filePath = tc.arguments?.file_path || tc.arguments?.filePath;
-      return filePath && !filePath.startsWith('implementation_step_') && 
-             filePath !== 'assumption_data.json' && 
-             filePath !== 'aggregated_prompt.json';
+      return (
+        filePath &&
+        !filePath.startsWith("implementation_step_") &&
+        filePath !== "assumption_data.json" &&
+        filePath !== "aggregated_prompt.json"
+      );
     });
 
     // If there were file modification tool calls but all non-diagnostic ones failed, revert step to pending
-    const nonDiagnosticFileModCalls = allFileModToolCalls.filter(tc => {
+    const nonDiagnosticFileModCalls = allFileModToolCalls.filter((tc) => {
       const filePath = tc.arguments?.file_path || tc.arguments?.filePath;
-      return filePath && !filePath.startsWith('implementation_step_') && 
-             filePath !== 'assumption_data.json' && 
-             filePath !== 'aggregated_prompt.json';
+      return (
+        filePath &&
+        !filePath.startsWith("implementation_step_") &&
+        filePath !== "assumption_data.json" &&
+        filePath !== "aggregated_prompt.json"
+      );
     });
-    
-    if (nonDiagnosticFileModCalls.length > 0 && nonDiagnosticSuccessfulMods.length === 0) {
-      if (currentStep.status === 'in_progress') {
-        this.progressPlanManager.updateStepStatus(this.state.taskId, currentStep.stepNumber, 'pending');
-        console.log(`[ImplementationManager] Reverted step ${currentStep.stepNumber} to pending due to tool call failures`);
+
+    if (
+      nonDiagnosticFileModCalls.length > 0 &&
+      nonDiagnosticSuccessfulMods.length === 0
+    ) {
+      if (currentStep.status === "in_progress") {
+        this.progressPlanManager.updateStepStatus(
+          this.state.taskId,
+          currentStep.stepNumber,
+          "pending"
+        );
+        console.log(
+          `[ImplementationManager] Reverted step ${currentStep.stepNumber} to pending due to tool call failures`
+        );
       }
       return undefined;
     }
@@ -313,31 +370,37 @@ export class ImplementationManager {
     const filesForCurrentStep: string[] = [];
     const allCreatedFiles: string[] = [];
     for (const toolCall of nonDiagnosticSuccessfulMods) {
-      const filePath = toolCall.arguments?.file_path || toolCall.arguments?.filePath;
+      const filePath =
+        toolCall.arguments?.file_path || toolCall.arguments?.filePath;
       if (filePath) {
         // Skip diagnostic files - they should not complete steps
         // Diagnostic files: implementation_step_*.json, assumption_data.json, aggregated_prompt.json, step*_design.txt
-        const isDiagnosticFile = 
-          filePath.startsWith('implementation_step_') || 
-          filePath === 'assumption_data.json' || 
-          filePath === 'aggregated_prompt.json' ||
+        const isDiagnosticFile =
+          filePath.startsWith("implementation_step_") ||
+          filePath === "assumption_data.json" ||
+          filePath === "aggregated_prompt.json" ||
           /^step\d+_design\.txt$/i.test(filePath);
-        
+
         if (isDiagnosticFile) {
           // Still record the file creation, but don't use it for step completion
-          const status = toolCall.name === 'replace_file' ? 'replaced' : 'created';
+          const status =
+            toolCall.name === "replace_file" ? "replaced" : "created";
           this.recordFileCreated(filePath, currentStep.stepNumber, status);
           continue;
         }
-        
+
         // Always record the file creation (even if it doesn't match the step)
-        const status = toolCall.name === 'replace_file' ? 'replaced' : 'created';
+        const status =
+          toolCall.name === "replace_file" ? "replaced" : "created";
         this.recordFileCreated(filePath, currentStep.stepNumber, status);
         allCreatedFiles.push(filePath);
-        
+
         // Check if file matches current step using filterCodeContextsForStep
-        const tempCodeContext = new CodeContext(filePath, ['']);
-        const matched = this.filterCodeContextsForStep([tempCodeContext], currentStep);
+        const tempCodeContext = new CodeContext(filePath, [""]);
+        const matched = this.filterCodeContextsForStep(
+          [tempCodeContext],
+          currentStep
+        );
         if (matched.length > 0) {
           filesForCurrentStep.push(filePath);
         }
@@ -349,7 +412,7 @@ export class ImplementationManager {
       const success = this.completeStep(currentStep.stepNumber);
       if (success) {
         console.log(
-          `[ImplementationManager] Completed step ${currentStep.stepNumber} (${currentStep.description}) after creating file(s): ${filesForCurrentStep.join(', ')}`
+          `[ImplementationManager] Completed step ${currentStep.stepNumber} (${currentStep.description}) after creating file(s): ${filesForCurrentStep.join(", ")}`
         );
         return currentStep.stepNumber;
       }
@@ -361,11 +424,17 @@ export class ImplementationManager {
       const stepText = currentStep.description.toLowerCase();
       // Match patterns like "import from calc.py", "use X.py", "from `file.py`", etc.
       // Handle backticks, quotes, and various formats. Look for "from X.py" or "import X.py" patterns
-      const mentionsImport = /(?:from|import|use)\s+[`'"]?[\w\-\.]+\.(?:py|js|ts|java|go|rs)[`'"]?/i.test(stepText);
+      const mentionsImport =
+        /(?:from|import|use)\s+[`'"]?[\w\-\.]+\.(?:py|js|ts|java|go|rs)[`'"]?/i.test(
+          stepText
+        );
       // Match patterns like "create file.py", "write X.py", "make file.py", etc.
       // This checks if the step explicitly names a file to create (not just import from)
-      const mentionsCreateSpecificFile = /(?:create|write|make|generate)\s+[`'"]?[\w\-\.]+\.(?:py|js|ts|java|go|rs)[`'"]?/i.test(stepText);
-      
+      const mentionsCreateSpecificFile =
+        /(?:create|write|make|generate)\s+[`'"]?[\w\-\.]+\.(?:py|js|ts|java|go|rs)[`'"]?/i.test(
+          stepText
+        );
+
       // If step mentions importing/using a file but doesn't specify which file to create,
       // and only one file was created, consider it a match
       if (mentionsImport && !mentionsCreateSpecificFile) {
@@ -377,6 +446,27 @@ export class ImplementationManager {
           return currentStep.stepNumber;
         }
       } else {
+        // If step doesn't explicitly require creating a specific file, allow a
+        // step summary artifact to complete the step (e.g., step_1_summary.md)
+        const summaryBaseNameRegex = new RegExp(
+          `^step[_-]?${currentStep.stepNumber}_summary\\.md$`,
+          "i"
+        );
+        const createdBaseName = allCreatedFiles[0].split(/[/\\]/).pop();
+        if (
+          !mentionsCreateSpecificFile &&
+          createdBaseName &&
+          summaryBaseNameRegex.test(createdBaseName)
+        ) {
+          const success = this.completeStep(currentStep.stepNumber);
+          if (success) {
+            console.log(
+              `[ImplementationManager] Completed step ${currentStep.stepNumber} (${currentStep.description}) after creating summary file: ${allCreatedFiles[0]} (fallback match: step summary artifact)`
+            );
+            return currentStep.stepNumber;
+          }
+        }
+
         // Files were created but don't match current step
         // Don't change step status - plan runs step by step, no jumps
         // If files don't match current step, it's a workflow issue, not something to handle gracefully
@@ -402,7 +492,7 @@ export class ImplementationManager {
   recordFileCreated(
     fileName: string,
     stepNumber: number,
-    status: 'created' | 'replaced' | 'error' = 'created',
+    status: "created" | "replaced" | "error" = "created",
     error?: string
   ): void {
     if (!this.state) {
@@ -412,7 +502,9 @@ export class ImplementationManager {
     if (!this.state) return;
 
     // Check if file already recorded
-    const existingIndex = this.state.createdFiles.findIndex(f => f.file === fileName && f.stepNumber === stepNumber);
+    const existingIndex = this.state.createdFiles.findIndex(
+      (f) => f.file === fileName && f.stepNumber === stepNumber
+    );
     if (existingIndex >= 0) {
       // Update existing record
       this.state.createdFiles[existingIndex] = {
@@ -434,68 +526,95 @@ export class ImplementationManager {
     }
 
     this.state.lastUpdated = Date.now();
-    console.log(`[ImplementationManager] Recorded file: ${fileName} for step ${stepNumber} (${status})`);
+    console.log(
+      `[ImplementationManager] Recorded file: ${fileName} for step ${stepNumber} (${status})`
+    );
   }
 
   /**
    * Filter code contexts to match the current step
    * Matches based on filename mentioned in step goal/description
    */
-  filterCodeContextsForStep(codeContexts: CodeContext[], step: PlanStep): CodeContext[] {
+  filterCodeContextsForStep(
+    codeContexts: CodeContext[],
+    step: PlanStep
+  ): CodeContext[] {
     if (!codeContexts || codeContexts.length === 0) {
       return [];
     }
 
     // Extract potential filenames from step goal and description
     const stepText = step.description.toLowerCase();
-    
+
     // Find code contexts whose filename is mentioned in the step
-    const matchedContexts = codeContexts.filter(codeContext => {
+    const matchedContexts = codeContexts.filter((codeContext) => {
       const fileName = codeContext.name.toLowerCase();
-      
+
       // For test files, check first and require explicit mention - don't fall through to other checks
-      if (fileName.endsWith('.test.py') || fileName.endsWith('_test.py') || fileName.includes('.test.')) {
+      if (
+        fileName.endsWith(".test.py") ||
+        fileName.endsWith("_test.py") ||
+        fileName.includes(".test.")
+      ) {
         // Test files must be explicitly mentioned in step - exact filename match only
-        const exactFileNamePattern = new RegExp(`\\b${this.escapeRegex(fileName)}\\b`, 'i');
+        const exactFileNamePattern = new RegExp(
+          `\\b${this.escapeRegex(fileName)}\\b`,
+          "i"
+        );
         const matchesExact = exactFileNamePattern.test(stepText);
-        const matchesTestKeyword = stepText.includes('test') || stepText.includes('test.') || stepText.includes('_test');
+        const matchesTestKeyword =
+          stepText.includes("test") ||
+          stepText.includes("test.") ||
+          stepText.includes("_test");
         // Only match if exact filename is mentioned OR test keyword is explicitly mentioned with base name
         if (!matchesExact && !matchesTestKeyword) {
           return false; // Test files that don't match explicitly should not match at all
         }
         return true;
       }
-      
+
       // First check: exact filename match (e.g., "hello.py" matches "create hello.py")
       // Only check for non-test files
-      const fileNamePattern = new RegExp(`\\b${this.escapeRegex(fileName)}\\b`, 'i');
+      const fileNamePattern = new RegExp(
+        `\\b${this.escapeRegex(fileName)}\\b`,
+        "i"
+      );
       if (fileNamePattern.test(stepText)) {
         return true;
       }
-      
+
       // For markdown files, require explicit mention
-      if (fileName.endsWith('.md')) {
-        return stepText.includes('document') || stepText.includes('doc') || stepText.includes('.md') || stepText.includes(fileName);
+      if (fileName.endsWith(".md")) {
+        return (
+          stepText.includes("document") ||
+          stepText.includes("doc") ||
+          stepText.includes(".md") ||
+          stepText.includes(fileName)
+        );
       }
-      
+
       // Second check: base name match with file type validation (for non-test files)
       // Extract base name (everything before the first dot)
-      const baseName = fileName.split('.')[0]; // e.g., "hello" from "hello.py"
-      
+      const baseName = fileName.split(".")[0]; // e.g., "hello" from "hello.py"
+
       // Only match if base name appears AND file type matches step description
       if (stepText.includes(baseName)) {
         // If step mentions test/document, don't match regular .py files
-        if (stepText.includes('test') || stepText.includes('document') || stepText.includes('doc')) {
+        if (
+          stepText.includes("test") ||
+          stepText.includes("document") ||
+          stepText.includes("doc")
+        ) {
           return false;
         }
         // For regular .py files, must explicitly mention .py or the exact filename
-        if (fileName.endsWith('.py')) {
-          return stepText.includes('.py') || stepText.includes(fileName);
+        if (fileName.endsWith(".py")) {
+          return stepText.includes(".py") || stepText.includes(fileName);
         }
         // For other file types, allow base name match
         return true;
       }
-      
+
       return false;
     });
 
@@ -504,19 +623,33 @@ export class ImplementationManager {
     if (matchedContexts.length > 0) {
       return matchedContexts;
     }
-    
+
     // Fallback: if only one code context remains, use it
     // BUT: Don't match test files or markdown files unless step explicitly mentions them
-    const remainingContexts = codeContexts.filter(cc => {
+    const remainingContexts = codeContexts.filter((cc) => {
       if (!cc.waitForCreate) return false;
       const fileName = cc.name.toLowerCase();
       // Don't match test files unless step mentions test
-      if (fileName.endsWith('.test.py') || fileName.endsWith('_test.py') || fileName.includes('.test.')) {
-        return stepText.includes('test') || stepText.includes('test.') || stepText.includes('_test') || stepText.includes(fileName);
+      if (
+        fileName.endsWith(".test.py") ||
+        fileName.endsWith("_test.py") ||
+        fileName.includes(".test.")
+      ) {
+        return (
+          stepText.includes("test") ||
+          stepText.includes("test.") ||
+          stepText.includes("_test") ||
+          stepText.includes(fileName)
+        );
       }
       // Don't match markdown files unless step mentions document/doc
-      if (fileName.endsWith('.md')) {
-        return stepText.includes('document') || stepText.includes('doc') || stepText.includes('.md') || stepText.includes(fileName);
+      if (fileName.endsWith(".md")) {
+        return (
+          stepText.includes("document") ||
+          stepText.includes("doc") ||
+          stepText.includes(".md") ||
+          stepText.includes(fileName)
+        );
       }
       return true;
     });
@@ -533,23 +666,41 @@ export class ImplementationManager {
    */
   private isFileTypeMatch(fileName: string, stepText: string): boolean {
     // Check test files first - must explicitly mention test
-    if (fileName.endsWith('.test.py') || fileName.endsWith('_test.py')) {
+    if (fileName.endsWith(".test.py") || fileName.endsWith("_test.py")) {
       // For test files, require explicit mention of "test" or the exact filename pattern
       // Don't match if step only mentions base name without test keyword
-      return stepText.includes('test') || stepText.includes('test.') || stepText.includes('_test') || stepText.includes(fileName);
+      return (
+        stepText.includes("test") ||
+        stepText.includes("test.") ||
+        stepText.includes("_test") ||
+        stepText.includes(fileName)
+      );
     }
     // Check markdown files - must explicitly mention document/doc/md
-    if (fileName.endsWith('.md')) {
-      return stepText.includes('document') || stepText.includes('doc') || stepText.includes('.md') || stepText.includes(fileName);
+    if (fileName.endsWith(".md")) {
+      return (
+        stepText.includes("document") ||
+        stepText.includes("doc") ||
+        stepText.includes(".md") ||
+        stepText.includes(fileName)
+      );
     }
     // For regular .py files, must NOT be a test file, and must match .py or be the main file
-    if (fileName.endsWith('.py') && !fileName.includes('.test.') && !fileName.endsWith('_test.py')) {
+    if (
+      fileName.endsWith(".py") &&
+      !fileName.includes(".test.") &&
+      !fileName.endsWith("_test.py")
+    ) {
       // If step mentions test/document, don't match regular .py
-      if (stepText.includes('test') || stepText.includes('document') || stepText.includes('doc')) {
+      if (
+        stepText.includes("test") ||
+        stepText.includes("document") ||
+        stepText.includes("doc")
+      ) {
         return false;
       }
       // Must explicitly mention .py OR the exact filename
-      return stepText.includes('.py') || stepText.includes(fileName);
+      return stepText.includes(".py") || stepText.includes(fileName);
     }
     return false;
   }
@@ -558,7 +709,7 @@ export class ImplementationManager {
    * Escape special regex characters in a string
    */
   private escapeRegex(str: string): string {
-    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   }
 
   /**
@@ -574,7 +725,7 @@ export class ImplementationManager {
    */
   getFilesForStep(stepNumber: number): ImplementationFile[] {
     if (!this.state) return [];
-    return this.state.createdFiles.filter(f => f.stepNumber === stepNumber);
+    return this.state.createdFiles.filter((f) => f.stepNumber === stepNumber);
   }
 
   /**
@@ -615,7 +766,7 @@ export class ImplementationManager {
       return false;
     }
 
-    return plan.steps.every(step => step.status === 'completed');
+    return plan.steps.every((step) => step.status === "completed");
   }
 
   /**
@@ -631,7 +782,7 @@ export class ImplementationManager {
    */
   getSummary(): string {
     if (!this.state) {
-      return 'No implementation data collected.';
+      return "No implementation data collected.";
     }
 
     const plan = this.getProgressPlan();
@@ -646,7 +797,7 @@ export class ImplementationManager {
    * Generate assumption_data.json file when transitioning from assumptions to implementation stage
    * Creates the CodeContext and generates the diagnostic file
    * Also stores the referred files from assumptions stage in ImplementationManager state
-   * 
+   *
    * @param assumptionsExport - Data exported from assumptions stage
    * @param nativeToolsManager - Tool manager to create the file
    * @param contextManager - Context manager to store CodeContext
@@ -668,7 +819,9 @@ export class ImplementationManager {
     if (this.state) {
       this.state.referredFiles = [...assumptionsExport.codeSnippets];
       this.state.lastUpdated = Date.now();
-      console.log(`[ImplementationManager] Stored ${assumptionsExport.codeSnippets.length} referred file(s) from assumptions stage`);
+      console.log(
+        `[ImplementationManager] Stored ${assumptionsExport.codeSnippets.length} referred file(s) from assumptions stage`
+      );
     }
     // Create assumption_data.json CodeContext with progressPlan
     // Note: planSteps is redundant (it's already in progressPlan.steps), so we don't include it
@@ -680,65 +833,94 @@ export class ImplementationManager {
     };
 
     const assumptionDataJson = JSON.stringify(assumptionsData, null, 2);
-    const assumptionDataLines = assumptionDataJson.split('\n');
+    const assumptionDataLines = assumptionDataJson.split("\n");
     const assumptionDataContext = new CodeContext(
-      'assumption_data.json',
+      "assumption_data.json",
       assumptionDataLines,
       false, // waitForCreate: false - just store, don't create file yet
-      'v1',
+      "v1",
       Date.now(),
-      'Assumptions and analysis data from assumptions stage'
+      "Assumptions and analysis data from assumptions stage"
     );
 
     // Store in context manager if provided
     if (contextManager) {
       contextManager.addCodeContext(assumptionDataContext);
-      console.log(`[ImplementationManager] Saved assumption_data to CodeContext (${assumptionsExport.assumptions.length} assumptions, ${assumptionsExport.codeSnippets.length} code snippets${assumptionsExport.progressPlan ? `, plan with ${assumptionsExport.progressPlan.totalSteps} step(s)` : ''})`);
+      console.log(
+        `[ImplementationManager] Saved assumption_data to CodeContext (${assumptionsExport.assumptions.length} assumptions, ${assumptionsExport.codeSnippets.length} code snippets${assumptionsExport.progressPlan ? `, plan with ${assumptionsExport.progressPlan.totalSteps} step(s)` : ""})`
+      );
     }
 
     // Generate the file if nativeToolsManager is provided
     if (nativeToolsManager && contextManager) {
       const context = contextManager.getContext();
       if (context?.codeContexts) {
-        const versions = context.codeContexts.get('assumption_data.json');
+        const versions = context.codeContexts.get("assumption_data.json");
         if (versions) {
-          const activeVersion = versions.find(v => v.isActive);
+          const activeVersion = versions.find((v) => v.isActive);
           if (activeVersion && !activeVersion.waitForCreate) {
             try {
               const content = activeVersion.getContentAsString();
               if (content && content.trim().length > 0) {
-                console.log(`[ImplementationManager] Implementation stage: Auto-generating diagnostic file: assumption_data.json`);
+                console.log(
+                  `[ImplementationManager] Implementation stage: Auto-generating diagnostic file: assumption_data.json`
+                );
                 try {
-                  const createResult = await nativeToolsManager.callTool('create_file', {
-                    file_path: '.harmony/assumption_data.json',
-                    content: content
-                  });
-                  
+                  const createResult = await nativeToolsManager.callTool(
+                    "create_file",
+                    {
+                      file_path: ".harmony/assumption_data.json",
+                      content: content,
+                    }
+                  );
+
                   if (createResult && !createResult.isError) {
-                    console.log(`[ImplementationManager] ✅ Successfully created diagnostic file: assumption_data.json`);
-                  } else if (createResult && createResult.content?.[0]?.text?.includes('already exists')) {
+                    console.log(
+                      `[ImplementationManager] ✅ Successfully created diagnostic file: assumption_data.json`
+                    );
+                  } else if (
+                    createResult &&
+                    createResult.content?.[0]?.text?.includes("already exists")
+                  ) {
                     // File exists, use replace_file
-                    const replaceResult = await nativeToolsManager.callTool('replace_file', {
-                      file_path: '.harmony/assumption_data.json',
-                      content: content
-                    });
+                    const replaceResult = await nativeToolsManager.callTool(
+                      "replace_file",
+                      {
+                        file_path: ".harmony/assumption_data.json",
+                        content: content,
+                      }
+                    );
                     if (replaceResult && !replaceResult.isError) {
-                      console.log(`[ImplementationManager] ✅ Successfully updated diagnostic file: assumption_data.json`);
+                      console.log(
+                        `[ImplementationManager] ✅ Successfully updated diagnostic file: assumption_data.json`
+                      );
                     } else {
-                      const errorMsg = replaceResult?.content?.[0]?.text || 'Unknown error';
-                      console.warn(`[ImplementationManager] ⚠️ Failed to update diagnostic file assumption_data.json: ${errorMsg}`);
+                      const errorMsg =
+                        replaceResult?.content?.[0]?.text || "Unknown error";
+                      console.warn(
+                        `[ImplementationManager] ⚠️ Failed to update diagnostic file assumption_data.json: ${errorMsg}`
+                      );
                     }
                   } else {
-                    const errorMsg = createResult?.content?.[0]?.text || 'Unknown error';
-                    console.warn(`[ImplementationManager] ⚠️ Failed to create diagnostic file assumption_data.json: ${errorMsg}`);
+                    const errorMsg =
+                      createResult?.content?.[0]?.text || "Unknown error";
+                    console.warn(
+                      `[ImplementationManager] ⚠️ Failed to create diagnostic file assumption_data.json: ${errorMsg}`
+                    );
                   }
                 } catch (error: any) {
                   // Silently ignore errors during diagnostic file creation (non-critical)
-                  console.warn(`[ImplementationManager] ⚠️ Error creating diagnostic file assumption_data.json:`, error.message || error);
+                  console.warn(
+                    `[ImplementationManager] ⚠️ Error creating diagnostic file assumption_data.json:`,
+                    error.message || error
+                  );
                 }
               }
             } catch (error: any) {
-              console.warn(`[ImplementationManager] ⚠️ Error creating diagnostic file assumption_data.json:`, error);
+              console.warn(
+                `[ImplementationManager] ⚠️ Error creating diagnostic file assumption_data.json:`,
+                error
+              );
             }
           }
         }
@@ -749,7 +931,7 @@ export class ImplementationManager {
   /**
    * Generate implementation_step_N.json file when processing a step with @cmd:next_step
    * Creates the CodeContext and generates the diagnostic file
-   * 
+   *
    * @param stepNumber - The step number being processed
    * @param codeContexts - Code contexts that match this step (if any)
    * @param nativeToolsManager - Tool manager to create the file
@@ -760,7 +942,7 @@ export class ImplementationManager {
    */
   async updateImplementationStepFileOnCompletion(
     stepNumber: number,
-    completionMethod: 'codecontext' | 'llm_tools' | 'no_files_needed',
+    completionMethod: "codecontext" | "llm_tools" | "no_files_needed",
     nativeToolsManager?: NativeToolsManager,
     contextManager?: ConversationContextManager
   ): Promise<void> {
@@ -771,32 +953,34 @@ export class ImplementationManager {
     const plan = this.getProgressPlan();
     if (!plan) return;
 
-    const step = plan.steps.find(s => s.stepNumber === stepNumber);
+    const step = plan.steps.find((s) => s.stepNumber === stepNumber);
     if (!step) return;
 
     // Get execution stats for this step
     const stats = this.state.stepExecutionStats?.get(stepNumber);
     const filesForStep = this.getFilesForStep(stepNumber);
-    
+
     // Build completion summary
     const completionSummary = {
-      completedAt: step.status === 'completed' ? Date.now() : null,
-      filesAffected: stats ? Array.from(stats.filesAffected) : filesForStep.map(f => f.file),
+      completedAt: step.status === "completed" ? Date.now() : null,
+      filesAffected: stats
+        ? Array.from(stats.filesAffected)
+        : filesForStep.map((f) => f.file),
       toolCallCount: stats?.toolCallCount || 0,
       successfulCalls: stats?.successCount || 0,
       failedCalls: stats?.failedCount || 0,
-      completionMethod: completionMethod
+      completionMethod: completionMethod,
     };
 
     // Get existing CodeContext to preserve codeContexts field
     const fileName = `implementation_step_${stepNumber}.json`;
     let existingCodeContexts: any[] = [];
-    
+
     if (contextManager) {
       const context = contextManager.getContext();
       const versions = context?.codeContexts?.get(fileName);
       if (versions) {
-        const activeVersion = versions.find(v => v.isActive);
+        const activeVersion = versions.find((v) => v.isActive);
         if (activeVersion) {
           try {
             const content = activeVersion.getContentAsString();
@@ -820,24 +1004,24 @@ export class ImplementationManager {
       complexity: plan.complexity,
       totalSteps: plan.totalSteps,
       codeContexts: existingCodeContexts,
-      filesCreated: filesForStep.map(f => ({
+      filesCreated: filesForStep.map((f) => ({
         file: f.file,
         status: f.status,
         createdAt: f.createdAt,
-        error: f.error
+        error: f.error,
       })),
       completionSummary: completionSummary,
       timestamp: Date.now(),
-      summary: `Implementation step ${stepNumber}: ${step.description}`
+      summary: `Implementation step ${stepNumber}: ${step.description}`,
     };
 
     const stepJson = JSON.stringify(stepData, null, 2);
-    const stepLines = stepJson.split('\n');
+    const stepLines = stepJson.split("\n");
     const stepContext = new CodeContext(
       fileName,
       stepLines,
       false,
-      'v2',
+      "v2",
       Date.now(),
       `Implementation step ${stepNumber} diagnostic data with completion summary`
     );
@@ -845,7 +1029,9 @@ export class ImplementationManager {
     // Update in context manager
     if (contextManager) {
       contextManager.addCodeContext(stepContext);
-      console.log(`[ImplementationManager] Updated ${fileName} in CodeContext with completion summary`);
+      console.log(
+        `[ImplementationManager] Updated ${fileName} in CodeContext with completion summary`
+      );
     }
 
     // Update the file if nativeToolsManager is provided
@@ -854,35 +1040,51 @@ export class ImplementationManager {
       if (context?.codeContexts) {
         const versions = context.codeContexts.get(fileName);
         if (versions) {
-          const activeVersion = versions.find(v => v.isActive);
+          const activeVersion = versions.find((v) => v.isActive);
           if (activeVersion && !activeVersion.waitForCreate) {
             try {
               const content = activeVersion.getContentAsString();
               if (content && content.trim().length > 0) {
                 try {
-                  const replaceResult = await nativeToolsManager.callTool('replace_file', {
-                    file_path: `.harmony/${fileName}`,
-                    content: content
-                  });
-                  
+                  const replaceResult = await nativeToolsManager.callTool(
+                    "replace_file",
+                    {
+                      file_path: `.harmony/${fileName}`,
+                      content: content,
+                    }
+                  );
+
                   if (replaceResult && !replaceResult.isError) {
-                    console.log(`[ImplementationManager] ✅ Updated diagnostic file ${fileName} with completion summary`);
+                    console.log(
+                      `[ImplementationManager] ✅ Updated diagnostic file ${fileName} with completion summary`
+                    );
                   } else {
                     // File might not exist yet, try create
-                    const createResult = await nativeToolsManager.callTool('create_file', {
-                      file_path: `.harmony/${fileName}`,
-                      content: content
-                    });
+                    const createResult = await nativeToolsManager.callTool(
+                      "create_file",
+                      {
+                        file_path: `.harmony/${fileName}`,
+                        content: content,
+                      }
+                    );
                     if (createResult && !createResult.isError) {
-                      console.log(`[ImplementationManager] ✅ Created diagnostic file ${fileName} with completion summary`);
+                      console.log(
+                        `[ImplementationManager] ✅ Created diagnostic file ${fileName} with completion summary`
+                      );
                     }
                   }
                 } catch (error: any) {
-                  console.warn(`[ImplementationManager] ⚠️ Error updating diagnostic file ${fileName}:`, error.message || error);
+                  console.warn(
+                    `[ImplementationManager] ⚠️ Error updating diagnostic file ${fileName}:`,
+                    error.message || error
+                  );
                 }
               }
             } catch (error: any) {
-              console.warn(`[ImplementationManager] ⚠️ Error updating diagnostic file ${fileName}:`, error);
+              console.warn(
+                `[ImplementationManager] ⚠️ Error updating diagnostic file ${fileName}:`,
+                error
+              );
             }
           }
         }
@@ -897,19 +1099,25 @@ export class ImplementationManager {
     contextManager?: ConversationContextManager
   ): Promise<void> {
     if (!this.state || !this.state.taskId) {
-      console.log(`[ImplementationManager] No state or taskId, skipping implementation_step_${stepNumber}.json generation`);
+      console.log(
+        `[ImplementationManager] No state or taskId, skipping implementation_step_${stepNumber}.json generation`
+      );
       return;
     }
 
     const plan = this.getProgressPlan();
     if (!plan) {
-      console.log(`[ImplementationManager] No plan found, skipping implementation_step_${stepNumber}.json generation`);
+      console.log(
+        `[ImplementationManager] No plan found, skipping implementation_step_${stepNumber}.json generation`
+      );
       return;
     }
 
-    const step = plan.steps.find(s => s.stepNumber === stepNumber);
+    const step = plan.steps.find((s) => s.stepNumber === stepNumber);
     if (!step) {
-      console.log(`[ImplementationManager] Step ${stepNumber} not found in plan, skipping implementation_step_${stepNumber}.json generation`);
+      console.log(
+        `[ImplementationManager] Step ${stepNumber} not found in plan, skipping implementation_step_${stepNumber}.json generation`
+      );
       return;
     }
 
@@ -926,17 +1134,17 @@ export class ImplementationManager {
       originalPrompt: plan.originalPrompt,
       complexity: plan.complexity,
       totalSteps: plan.totalSteps,
-      codeContexts: codeContexts.map(cc => ({
+      codeContexts: codeContexts.map((cc) => ({
         fileName: cc.name,
         description: cc.description,
         hasContent: cc.content && cc.content.length > 0,
-        waitForCreate: cc.waitForCreate
+        waitForCreate: cc.waitForCreate,
       })),
-      filesCreated: filesForStep.map(f => ({
+      filesCreated: filesForStep.map((f) => ({
         file: f.file,
         status: f.status,
         createdAt: f.createdAt,
-        error: f.error
+        error: f.error,
       })),
       completionSummary: {
         completedAt: null,
@@ -944,20 +1152,20 @@ export class ImplementationManager {
         toolCallCount: 0,
         successfulCalls: 0,
         failedCalls: 0,
-        completionMethod: null
+        completionMethod: null,
       },
       timestamp: Date.now(),
-      summary: `Implementation step ${stepNumber}: ${step.description}`
+      summary: `Implementation step ${stepNumber}: ${step.description}`,
     };
 
     const fileName = `implementation_step_${stepNumber}.json`;
     const stepJson = JSON.stringify(stepData, null, 2);
-    const stepLines = stepJson.split('\n');
+    const stepLines = stepJson.split("\n");
     const stepContext = new CodeContext(
       fileName,
       stepLines,
       false, // waitForCreate: false - just store, don't create file yet
-      'v1',
+      "v1",
       Date.now(),
       `Implementation step ${stepNumber} diagnostic data`
     );
@@ -974,43 +1182,70 @@ export class ImplementationManager {
       if (context?.codeContexts) {
         const versions = context.codeContexts.get(fileName);
         if (versions) {
-          const activeVersion = versions.find(v => v.isActive);
+          const activeVersion = versions.find((v) => v.isActive);
           if (activeVersion && !activeVersion.waitForCreate) {
             try {
               const content = activeVersion.getContentAsString();
               if (content && content.trim().length > 0) {
-                console.log(`[ImplementationManager] Implementation stage: Auto-generating diagnostic file: ${fileName}`);
+                console.log(
+                  `[ImplementationManager] Implementation stage: Auto-generating diagnostic file: ${fileName}`
+                );
                 try {
-                  const createResult = await nativeToolsManager.callTool('create_file', {
-                    file_path: `.harmony/${fileName}`,
-                    content: content
-                  });
-                  
-                  if (createResult && !createResult.isError) {
-                    console.log(`[ImplementationManager] ✅ Successfully created diagnostic file: ${fileName}`);
-                  } else if (createResult && createResult.content?.[0]?.text?.includes('already exists')) {
-                    // File exists, use replace_file
-                    const replaceResult = await nativeToolsManager.callTool('replace_file', {
+                  const createResult = await nativeToolsManager.callTool(
+                    "create_file",
+                    {
                       file_path: `.harmony/${fileName}`,
-                      content: content
-                    });
+                      content: content,
+                    }
+                  );
+
+                  if (createResult && !createResult.isError) {
+                    console.log(
+                      `[ImplementationManager] ✅ Successfully created diagnostic file: ${fileName}`
+                    );
+                  } else if (
+                    createResult &&
+                    createResult.content?.[0]?.text?.includes("already exists")
+                  ) {
+                    // File exists, use replace_file
+                    const replaceResult = await nativeToolsManager.callTool(
+                      "replace_file",
+                      {
+                        file_path: `.harmony/${fileName}`,
+                        content: content,
+                      }
+                    );
                     if (replaceResult && !replaceResult.isError) {
-                      console.log(`[ImplementationManager] ✅ Successfully updated diagnostic file: ${fileName}`);
+                      console.log(
+                        `[ImplementationManager] ✅ Successfully updated diagnostic file: ${fileName}`
+                      );
                     } else {
-                      const errorMsg = replaceResult?.content?.[0]?.text || 'Unknown error';
-                      console.warn(`[ImplementationManager] ⚠️ Failed to update diagnostic file ${fileName}: ${errorMsg}`);
+                      const errorMsg =
+                        replaceResult?.content?.[0]?.text || "Unknown error";
+                      console.warn(
+                        `[ImplementationManager] ⚠️ Failed to update diagnostic file ${fileName}: ${errorMsg}`
+                      );
                     }
                   } else {
-                    const errorMsg = createResult?.content?.[0]?.text || 'Unknown error';
-                    console.warn(`[ImplementationManager] ⚠️ Failed to create diagnostic file ${fileName}: ${errorMsg}`);
+                    const errorMsg =
+                      createResult?.content?.[0]?.text || "Unknown error";
+                    console.warn(
+                      `[ImplementationManager] ⚠️ Failed to create diagnostic file ${fileName}: ${errorMsg}`
+                    );
                   }
                 } catch (error: any) {
                   // Silently ignore errors during diagnostic file creation (non-critical)
-                  console.warn(`[ImplementationManager] ⚠️ Error creating diagnostic file ${fileName}:`, error.message || error);
+                  console.warn(
+                    `[ImplementationManager] ⚠️ Error creating diagnostic file ${fileName}:`,
+                    error.message || error
+                  );
                 }
               }
             } catch (error: any) {
-              console.warn(`[ImplementationManager] ⚠️ Error creating diagnostic file ${fileName}:`, error);
+              console.warn(
+                `[ImplementationManager] ⚠️ Error creating diagnostic file ${fileName}:`,
+                error
+              );
             }
           }
         }
@@ -1018,4 +1253,3 @@ export class ImplementationManager {
     }
   }
 }
-
