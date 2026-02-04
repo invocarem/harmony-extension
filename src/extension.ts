@@ -1054,11 +1054,10 @@ export class HarmonyAssistant {
         };
       }
 
-      // next_step, auto, and verbose_info are now handled by state machine as events
+      // step, auto, and verbose_info are now handled by state machine as events
       // They are detected by StageStateMachine.detectTrigger() and handled in stage handlers
       // Mark as handled=true to prevent adding to conversation history (these are system commands, not user requests)
-      case "next_step":
-      case "next-step":
+      case "step":
       case "auto":
       case "verbose":
       case "verbose_info":
@@ -1068,7 +1067,7 @@ export class HarmonyAssistant {
         // Return handled=true to prevent these system commands from being added to conversation history
         // This ensures the LLM doesn't misinterpret them as user requests
         // IMPORTANT: Preserve the original command by returning the full original text in modifiedMessage
-        // This allows detectTrigger() to properly detect the verbose_info/next_step/auto triggers
+        // This allows detectTrigger() to properly detect the verbose_info/step/auto triggers
         // instead of defaulting to "prompt" or "plan"
         return { 
           handled: true, 

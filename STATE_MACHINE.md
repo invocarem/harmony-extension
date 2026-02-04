@@ -176,8 +176,8 @@ Stage events are triggers that execute actions within the current stage without 
 
 #### Implementation Stage Events
 
-**`next_step` Event**:
-- **Trigger**: `@cmd:next_step`, "next step", "continue", "proceed", "advance"
+**`step` Event**:
+- **Trigger**: `@cmd:step`, "next step", "continue", "proceed", "advance"
 - **Stage**: Implementation only
 - **Action**: Executes the current pending step in the ProgressPlan
 - **Result**: Stays in implementation stage, step is processed
@@ -296,15 +296,15 @@ User: "move to implementation"
 
 2. **Step Execution Modes**:
    - **Manual Mode** (default): Steps remain "pending" until explicitly executed
-     - User must use `@cmd:next_step` or "next step" to execute each step
+   - User must use `@cmd:step` or "next step" to execute each step
      - Provides control over when each step runs
    - **Auto Mode**: Use `@cmd:auto` to automatically execute all remaining steps
      - Executes current step, then automatically continues to next step
      - Continues until all steps are completed
-   - **Natural Language**: Can also use "continue", "proceed", "advance" as `next_step` trigger
+   - **Natural Language**: Can also use "continue", "proceed", "advance" as `step` trigger
 
 3. **Sequential Execution**: 
-   - Steps are executed one at a time (via `next_step` or `auto` events)
+   - Steps are executed one at a time (via `step` or `auto` events)
    - After files are created, the step is automatically marked as "completed"
    - Next step becomes available for execution
 
@@ -358,17 +358,17 @@ User: "move to implementation"
 4. User: "move to implementation"
    → Implementation Stage: Step 1 is pending, waiting for execution
 
-5. User: "@cmd:next_step" or "next step"
+5. User: "@cmd:step" or "next step"
    → Implementation Stage: Step 1 executed ("Create calc.py")
    → LLM creates calc.py
    → Step 1 marked "completed", Step 2 becomes current
 
-6. User: "@cmd:next_step"
+6. User: "@cmd:step"
    → Implementation Stage: Step 2 executed ("Create requirements.txt")
    → LLM creates requirements.txt
    → Step 2 marked "completed", Step 3 becomes current
 
-7. User: "@cmd:next_step"
+7. User: "@cmd:step"
    → Implementation Stage: Step 3 executed ("Create README.md")
    → LLM creates README.md
    → Step 3 marked "completed"
@@ -414,9 +414,9 @@ User: "move to implementation"
     - **IS** created when user sends a message IN assumptions stage
     - This allows the LLM to analyze before committing to a plan
 11. **Step-Driven Implementation**: Implementation stage follows plan steps sequentially
-12. **Step Execution Events**: Steps are executed via `next_step` or `auto` events (state machine triggers)
+12. **Step Execution Events**: Steps are executed via `step` or `auto` events (state machine triggers)
 13. **Automatic Step Updates**: Steps marked "completed" when files are successfully created
-14. **Stage Events**: `next_step`, `auto`, and `verbose_info` are state machine events that don't cause stage transitions
+14. **Stage Events**: `step`, `auto`, and `verbose_info` are state machine events that don't cause stage transitions
 15. **VerboseInfo Event**: Can be triggered from any stage to view current state information
 16. **Assumptions Stage Flow**: Enter stage → wait for user message → analyze and create plan → ready for implementation
 
@@ -442,7 +442,7 @@ The `StageStateMachine` class enforces these rules:
 
 ### State Machine Implementation
 - `canTransition(from, to)`: Checks if a transition is valid according to the state machine rules
-- `detectTrigger(prompt, currentStage)`: Detects triggers from prompt (including events like `next_step`, `auto`, `verbose_info`, `prompt`, `plan`)
+- `detectTrigger(prompt, currentStage)`: Detects triggers from prompt (including events like `step`, `auto`, `verbose_info`, `prompt`, `plan`)
 - `determineNextStage(currentStage, prompt)`: Determines the next stage based on prompt content
   - Returns same stage for self-loop transitions (events)
   - Returns new stage for actual transitions
@@ -463,7 +463,7 @@ The `StageStateMachine` class enforces these rules:
   - Explicit: `@cmd:plan`, "create plan", "update plan", "generate plan"
   - Fallback: Any regular message (automatically triggers plan update)
 - **Implementation Stage**:
-  - `next_step`: Execute next step in plan (manual mode)
+   - `step`: Execute next step in plan (manual mode)
   - `auto`: Execute all remaining steps automatically
 - **All Stages**:
   - `verbose_info`: Display current state information (@cmd:verbose, @cmd:verbose_info)
@@ -511,7 +511,7 @@ This pattern enables:
 
 | Event | Trigger | Action | Stage Restriction |
 |-------|---------|--------|-------------------|
-| `next_step` | `@cmd:next_step`, "next step", "continue", "proceed", "advance" | Execute current pending step | Implementation only |
+| `step` | `@cmd:step`, "next step", "continue", "proceed", "advance" | Execute current pending step | Implementation only |
 | `auto` | `@cmd:auto`, "auto mode", "execute all" | Execute current step, then auto-continue until complete | Implementation only |
 
 ### All-Stage Events
@@ -530,10 +530,10 @@ This pattern enables:
 
 ### Examples
 
-**Using `next_step` event**:
+**Using `step` event**:
 ```
-User: "@cmd:next_step"
-→ State machine detects 'next_step' trigger
+User: "@cmd:step"
+→ State machine detects 'step' trigger
 → Finds self-loop: implementation → implementation
 → ImplementationStageHandler executes current step
 → Step completed, stays in implementation stage

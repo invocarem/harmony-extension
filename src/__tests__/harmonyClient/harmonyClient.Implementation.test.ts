@@ -82,7 +82,7 @@ function setupStepForExecution(
       implementationManager.clear();
       implementationManager.initialize(taskId);
 
-      // Explicitly set the first step to pending to ensure it's ready for @cmd:next_step
+      // Explicitly set the first step to pending to ensure it's ready for @cmd:step
       // This is important because updatePlanSteps might not reset status correctly
       const updatedPlan = progressPlanManager.getPlan(taskId);
       if (updatedPlan && updatedPlan.steps.length > stepIndex) {
@@ -272,7 +272,7 @@ describe("HarmonyClient - Implementation Stage", () => {
         },
       };
 
-      // Get call count before @cmd:next_step
+      // Get call count before @cmd:step
       const callsBefore = mockedAxios.post.mock.calls.length;
 
       mockedAxios.post.mockResolvedValueOnce(mockResponse);
@@ -328,7 +328,7 @@ describe("HarmonyClient - Implementation Stage", () => {
       ]);
 
       // Mock diagnostic file generation first, then tool calls
-      // implementation_step_1.json generation happens when @cmd:next_step is used
+      // implementation_step_1.json generation happens when @cmd:step is used
       mockNativeToolsManager.callTool
         .mockResolvedValueOnce({
           content: [
@@ -357,7 +357,7 @@ describe("HarmonyClient - Implementation Stage", () => {
         });
 
       const result = await client.callServer(
-        "@cmd:next_step now create test.txt with new content"
+        "@cmd:step now create test.txt with new content"
       );
 
       // Verify tool calls were executed (check actual tool execution via mocks)
@@ -421,7 +421,7 @@ describe("HarmonyClient - Implementation Stage", () => {
         },
       };
 
-      // Get call count before @cmd:next_step
+      // Get call count before @cmd:step
       const callsBefore = mockedAxios.post.mock.calls.length;
 
       mockedAxios.post.mockResolvedValueOnce(mockResponse);
@@ -463,7 +463,7 @@ describe("HarmonyClient - Implementation Stage", () => {
       ]);
 
       // Mock diagnostic file generation first, then the actual create_file
-      // implementation_step_1.json generation happens when @cmd:next_step is used
+      // implementation_step_1.json generation happens when @cmd:step is used
       mockNativeToolsManager.callTool
         .mockResolvedValueOnce({
           content: [
@@ -482,7 +482,7 @@ describe("HarmonyClient - Implementation Stage", () => {
         });
 
       const result = await client.callServer(
-        "@cmd:next_step now create newfile.txt with new content"
+        "@cmd:step now create newfile.txt with new content"
       );
 
       // Verify create_file was called (check actual tool execution via mocks)
@@ -517,7 +517,7 @@ describe("HarmonyClient - Implementation Stage", () => {
         mockNativeToolsManager
       );
 
-      // Get call count before @cmd:next_step
+      // Get call count before @cmd:step
       const callsBefore = mockedAxios.post.mock.calls.length;
 
       // First response: read_file - needs continuation hint to trigger continuation
@@ -643,7 +643,7 @@ describe("HarmonyClient - Implementation Stage", () => {
         } as any);
 
       const result = await client.callServer(
-        "@cmd:next_step update test.txt to have new content"
+        "@cmd:step update test.txt to have new content"
       );
 
       // Check if continuation happened (should be 2 additional calls: initial + continuation)
@@ -667,7 +667,7 @@ describe("HarmonyClient - Implementation Stage", () => {
         mockNativeToolsManager
       );
 
-      // Get call count before @cmd:next_step
+      // Get call count before @cmd:step
       const callsBefore = mockedAxios.post.mock.calls.length;
 
       const mockResponse = {
@@ -737,7 +737,7 @@ describe("HarmonyClient - Implementation Stage", () => {
           isError: false,
         });
 
-      const result = await client.callServer("@cmd:next_step create done.txt");
+      const result = await client.callServer("@cmd:step create done.txt");
 
       // Verify create_file was called (check actual tool execution via mocks)
       const createFileCall = mockNativeToolsManager.callTool.mock.calls.find(
@@ -767,7 +767,7 @@ describe("HarmonyClient - Implementation Stage", () => {
         mockNativeToolsManager
       );
 
-      // Get call count before @cmd:next_step
+      // Get call count before @cmd:step
       const callsBefore = mockedAxios.post.mock.calls.length;
 
       const mockResponse = {
@@ -841,7 +841,7 @@ describe("HarmonyClient - Implementation Stage", () => {
         });
 
       const result = await client.callServer(
-        "@cmd:next_step create file at invalid path"
+        "@cmd:step create file at invalid path"
       );
 
       // Verify create_file was called with error (check actual tool execution via mocks)
@@ -881,7 +881,7 @@ describe("HarmonyClient - Implementation Stage", () => {
         mockNativeToolsManager
       );
 
-      // Get call count before @cmd:next_step
+      // Get call count before @cmd:step
       const callsBefore = mockedAxios.post.mock.calls.length;
 
       const mockResponse = {
@@ -962,7 +962,7 @@ describe("HarmonyClient - Implementation Stage", () => {
           isError: false,
         });
 
-      const result = await client.callServer("@cmd:next_step create two files");
+      const result = await client.callServer("@cmd:step create two files");
 
       // Verify both create_file calls were made (check actual tool execution via mocks)
       // Note: Tools should be called even if result.toolCalls is undefined
@@ -1084,7 +1084,7 @@ describe("HarmonyClient - Implementation Stage", () => {
         });
 
       const result = await client.callServer(
-        "@cmd:next_step create files with mixed results"
+        "@cmd:step create files with mixed results"
       );
 
       // Verify both create_file calls were made (check actual tool execution via mocks)
@@ -1126,7 +1126,7 @@ describe("HarmonyClient - Implementation Stage", () => {
         mockNativeToolsManager
       );
 
-      // Get call count before @cmd:next_step
+      // Get call count before @cmd:step
       const callsBefore = mockedAxios.post.mock.calls.length;
 
       const mockResponse = {
@@ -1197,7 +1197,7 @@ describe("HarmonyClient - Implementation Stage", () => {
         });
 
       const result = await client.callServer(
-        "@cmd:next_step create empty file"
+        "@cmd:step create empty file"
       );
 
       // Verify create_file was called with empty content (check actual tool execution via mocks)
@@ -1233,7 +1233,7 @@ describe("HarmonyClient - Implementation Stage", () => {
         mockNativeToolsManager
       );
 
-      // Get call count before @cmd:next_step
+      // Get call count before @cmd:step
       const callsBefore = mockedAxios.post.mock.calls.length;
 
       // Mock empty response - may trigger continuation if empty content is detected
@@ -1296,8 +1296,8 @@ describe("HarmonyClient - Implementation Stage", () => {
         isError: false,
       });
 
-      // Use @cmd:next_step to execute the step, then verify empty content when no tool calls
-      const result = await client.callServer("@cmd:next_step do something");
+      // Use @cmd:step to execute the step, then verify empty content when no tool calls
+      const result = await client.callServer("@cmd:step do something");
 
       // Check if continuation happened
       const callsAfter = mockedAxios.post.mock.calls.length;
@@ -1354,7 +1354,7 @@ describe("HarmonyClient - Implementation Stage", () => {
         .mockReturnValueOnce([]); // From content fallback
 
       const result = await client.callServer(
-        "@cmd:next_step call invalid tool"
+        "@cmd:step call invalid tool"
       );
 
       // Should handle gracefully - no tool calls executed
@@ -1368,7 +1368,7 @@ describe("HarmonyClient - Implementation Stage", () => {
         mockNativeToolsManager
       );
 
-      // Get call count before @cmd:next_step
+      // Get call count before @cmd:step
       const callsBefore = mockedAxios.post.mock.calls.length;
 
       // Set max steps to 1 and current step to 1 (already at max)
@@ -1442,7 +1442,7 @@ describe("HarmonyClient - Implementation Stage", () => {
           isError: false,
         });
 
-      const result = await client.callServer("@cmd:next_step read file");
+      const result = await client.callServer("@cmd:step read file");
 
       // Should not continue even if continuation would be triggered
       // Note: assumptions transition + implementation transition + this call = 3 calls total
@@ -1544,7 +1544,7 @@ describe("HarmonyClient - Implementation Stage", () => {
 
       // Mock calls:
       // 1. assumption_data.json is created when transitioning to implementation (already happened in transition)
-      // 2. implementation_step_1.json generation happens when @cmd:next_step is used
+      // 2. implementation_step_1.json generation happens when @cmd:step is used
       // 3. Then the actual create_file for app.py from CodeContext
       mockNativeToolsManager.callTool
         .mockResolvedValueOnce({
@@ -1564,7 +1564,7 @@ describe("HarmonyClient - Implementation Stage", () => {
         });
 
       // Call server in implementation stage - should create file from CodeContext without LLM call
-      const result = await client.callServer("@cmd:next_step implement");
+      const result = await client.callServer("@cmd:step implement");
 
       // Verify create_file was called with content from CodeContext
       // Note: CodeContext extraction may use "file" as default filename if extraction fails

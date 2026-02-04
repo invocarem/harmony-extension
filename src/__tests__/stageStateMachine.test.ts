@@ -574,18 +574,18 @@ describe("StageStateMachine", () => {
       expect(nextStage).toBe("chat");
     });
 
-    it("should detect @cmd:next as alias for next_step and stay in implementation", async () => {
+    it("should detect @cmd:step and stay in implementation", async () => {
       const nextStage = await stateMachine.determineNextStage(
         "implementation",
-        "@cmd:next"
+        "@cmd:step"
       );
       expect(nextStage).toBe("implementation");
     });
 
-    it("should detect @cmd:next_step (original) and stay in implementation", async () => {
+    it("should detect @cmd:step (original) and stay in implementation", async () => {
       const nextStage = await stateMachine.determineNextStage(
         "implementation",
-        "@cmd:next_step"
+        "@cmd:step"
       );
       expect(nextStage).toBe("implementation");
     });

@@ -86,10 +86,9 @@ export class PromptBuilder {
             });
           }
           
-          // Determine the appropriate action based on step requirements
-          // Priority: explicit tools array > keyword analysis
+          // Every plan step requires file creation (code file, summary file, or artifact).
           const fileCreationTools = ['create_file', 'replace_file', 'write_file', 'update_file'];
-          const needsFileCreation = currentStep.tools?.some(tool => fileCreationTools.includes(tool)) || false;
+          const needsFileCreation = true;
           const needsCommandExecution = currentStep.tools?.includes('exec_terminal') || false;
           
           // Check step goal/description for hints about what action is needed

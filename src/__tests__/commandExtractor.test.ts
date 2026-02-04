@@ -49,7 +49,7 @@ describe("CommandExtractor", () => {
     });
 
     it("should extract first command when multiple commands exist", () => {
-      const message = "@cmd:move_to_assumptions @cmd:next_step";
+      const message = "@cmd:move_to_assumptions @cmd:step";
       const consoleSpy = jest.spyOn(console, "warn").mockImplementation();
 
       const result = CommandExtractor.extractCommand(message);
@@ -96,12 +96,12 @@ describe("CommandExtractor", () => {
       expect(result.cleanMessage).toBe("Hello  goodbye");
     });
 
-    it("should handle next_step command", () => {
-      const message = "@cmd:next_step";
+    it("should handle step command", () => {
+      const message = "@cmd:step";
       const result = CommandExtractor.extractCommand(message);
 
       expect(result.command).not.toBeNull();
-      expect(result.command?.command).toBe("next_step");
+      expect(result.command?.command).toBe("step");
       expect(result.cleanMessage).toBe("");
     });
 

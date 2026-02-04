@@ -14,7 +14,7 @@ export type TransitionTrigger =
   | "move_to_implementation"
   | "move_to_assumptions"
   | "move_to_chat"
-  | "next_step" // Execute one step, stay in implementation
+  | "step" // Execute one step, stay in implementation
   | "auto" // Execute one step, stay in implementation (auto mode)
   | "verbose_info" // Generate verboseInfo, stay in current stage (works from any stage)
   | "prompt" // Regular user prompt (stage-specific behavior)
@@ -196,7 +196,7 @@ const moveToChat: TransitionAction = (context) => {
  * Action: Next step (stay in implementation)
  */
 const nextStep: TransitionAction = (context) => {
-  console.log(`[Action] next_step: staying in implementation`);
+  console.log(`[Action] step: staying in implementation`);
   return "implementation";
 };
 
@@ -288,7 +288,7 @@ const TRANSITION_TABLE: TransitionRule[] = [
   {
     from: "implementation",
     to: "implementation",
-    trigger: "next_step",
+    trigger: "step",
     action: nextStep,
     priority: 100,
   },
@@ -449,15 +449,15 @@ export class StageStateMachine {
       }
     }
 
-    // Detect next_step and auto commands (only in implementation stage)
+    // Detect step and auto commands (only in implementation stage)
     if (currentStage === "implementation") {
-      // Check for @cmd:next_step or natural language equivalents
+      // Check for @cmd:step or natural language equivalents
       if (
-        /@cmd:next(?:[_-]?step)?|next\s+step|continue|proceed|advance/i.test(
+        /@cmd:(?:step|next[_-]?step)|next\s+step|continue|proceed|advance/i.test(
           promptLower
         )
       ) {
-        return "next_step";
+        return "step";
       }
 
       // Check for @cmd:auto or natural language equivalents
@@ -551,7 +551,7 @@ export class StageStateMachine {
     }
 
     // For self-loop transitions (same stage), return the current stage
-    // This indicates an event occurred (next_step, auto, verbose_info) without stage change
+    // This indicates an event occurred (step, auto, verbose_info) without stage change
     if (currentStage === targetStage) {
       console.log(
         `[StageStateMachine] ✅ Event detected: ${currentStage} (trigger: ${trigger}) - staying in same stage`

@@ -155,8 +155,8 @@ if (buttonNextStep) {
         if (buttonNextStep.classList.contains('disabled')) {
             return;
         }
-        // Send @cmd:next_step command
-        const message = '@cmd:next_step';
+        // Send @cmd:step command
+        const message = '@cmd:step';
         addMessage(message, true, undefined, undefined);
         addTypingIndicator();
         vscode.postMessage({

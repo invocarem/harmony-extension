@@ -40,7 +40,10 @@ export class CommandExtractor {
     
     const firstMatch = matches[0];
     const fullMatch = firstMatch[0];  // e.g., "@cmd:move_to_implementation"
-    const commandName = firstMatch[1].toLowerCase().trim();  // e.g., "move_to_implementation"
+    let commandName = firstMatch[1].toLowerCase().trim();  // e.g., "move_to_implementation"
+    if (/^next[_-]?step$/.test(commandName)) {
+      commandName = "step";
+    }
     const position = firstMatch.index || 0;
     
     // Check if there's non-whitespace text before the command

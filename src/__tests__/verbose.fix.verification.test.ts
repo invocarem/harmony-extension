@@ -69,8 +69,8 @@ describe("@cmd:verbose fix verification", () => {
       expect(expected.modifiedMessage).toBe("@cmd:verbose-info");
     });
 
-    it("should preserve next_step command", () => {
-      const command = "next_step";
+    it("should preserve step command", () => {
+      const command = "step";
       const remainingMessage = "";
       
       const expected = {
@@ -79,7 +79,7 @@ describe("@cmd:verbose fix verification", () => {
         modifiedMessage: remainingMessage ? `@cmd:${command} ${remainingMessage}`.trim() : `@cmd:${command}`
       };
       
-      expect(expected.modifiedMessage).toBe("@cmd:next_step");
+      expect(expected.modifiedMessage).toBe("@cmd:step");
     });
 
     it("should preserve auto command", () => {
@@ -95,8 +95,8 @@ describe("@cmd:verbose fix verification", () => {
       expect(expected.modifiedMessage).toBe("@cmd:auto");
     });
 
-    it("should preserve next-step (hyphenated variant)", () => {
-      const command = "next-step";
+    it("should preserve step command (hyphenated variant normalized)", () => {
+      const command = "step";
       const remainingMessage = "";
       
       const expected = {
@@ -105,7 +105,7 @@ describe("@cmd:verbose fix verification", () => {
         modifiedMessage: remainingMessage ? `@cmd:${command} ${remainingMessage}`.trim() : `@cmd:${command}`
       };
       
-      expect(expected.modifiedMessage).toBe("@cmd:next-step");
+      expect(expected.modifiedMessage).toBe("@cmd:step");
     });
   });
 

@@ -450,7 +450,7 @@ describe("HarmonyClient - Stage Control", () => {
 
       // The test verifies that file modification tools are allowed in implementation stage
       // We've already verified the stage transition worked. The actual tool call execution
-      // would happen when @cmd:next_step processes a step that needs file creation.
+      // would happen when @cmd:step processes a step that needs file creation.
       // For this test, we just verify the stage is correct and tools would be available.
     });
 
@@ -702,9 +702,9 @@ describe("HarmonyClient - Stage Control", () => {
     it("should trigger continuation with code snippets when implementation stage has empty content", async () => {
       // Setup: Simulate a scenario where we're in implementation stage with empty content
       // This happens when the model doesn't generate tool calls or content
-      // Expected flow: assumptions stage (code snippets) -> user says "move to implementation" -> implementation stage -> @cmd:next_step -> empty content -> continuation
+      // Expected flow: assumptions stage (code snippets) -> user says "move to implementation" -> implementation stage -> @cmd:step -> empty content -> continuation
       // Note: With new behavior, transitioning to implementation doesn't automatically execute steps.
-      // User must use @cmd:next_step to trigger execution, which is when we test continuation logic.
+      // User must use @cmd:step to trigger execution, which is when we test continuation logic.
       //
       // IMPORTANT: This test verifies the continuation logic when CodeContext doesn't exist.
       // If CodeContext exists, the stage handler will skip the LLM call and create files directly,
@@ -757,7 +757,7 @@ describe("HarmonyClient - Stage Control", () => {
       );
       expect(client.getCurrentStage()).toBe("implementation");
 
-      // Mock the initial API call for @cmd:next_step - returns empty content
+      // Mock the initial API call for @cmd:step - returns empty content
       const mockEmptyResponse = createMockResponse("");
 
       const emptyParseResult: HarmonyParseResult = {
@@ -789,10 +789,10 @@ describe("HarmonyClient - Stage Control", () => {
         },
       ];
 
-      // Set up mocks for @cmd:next_step call and its continuation
-      // The @cmd:next_step makes 1 API call (empty), then triggers continuation which makes another call
+      // Set up mocks for @cmd:step call and its continuation
+      // The @cmd:step makes 1 API call (empty), then triggers continuation which makes another call
       mockedAxios.post
-        .mockResolvedValueOnce(mockEmptyResponse) // Initial call for @cmd:next_step (implementation stage)
+        .mockResolvedValueOnce(mockEmptyResponse) // Initial call for @cmd:step (implementation stage)
         .mockResolvedValueOnce(mockContinuationResponse); // Continuation call triggered by empty content
 
       mockHarmonyProcessor.parseResponse
@@ -810,17 +810,17 @@ describe("HarmonyClient - Stage Control", () => {
       // Mock tool calls for both assumption_data.json (already created) and hello.py (to be created)
       mockNativeToolsManager.callTool.mockResolvedValue(mockToolResult);
 
-      // Get the current call count before the @cmd:next_step call
+      // Get the current call count before the @cmd:step call
       const callsBeforeNextStep = mockedAxios.post.mock.calls.length;
 
-      // Now call with "@cmd:next_step" to trigger execution in implementation stage
+      // Now call with "@cmd:step" to trigger execution in implementation stage
       // This will make an API call that returns empty content,
       // and the fix should detect empty content, extract code snippets from history, and trigger continuation
       // NOTE: If CodeContext exists, the stage handler will skip the LLM call and create files directly.
       // In that case, this test verifies that the stage handler works correctly with CodeContext.
       // If CodeContext doesn't exist, the LLM call is made, and continuation logic is tested.
       const result = await client.callServer(
-        "@cmd:next_step",
+        "@cmd:step",
         undefined,
         undefined,
         false,

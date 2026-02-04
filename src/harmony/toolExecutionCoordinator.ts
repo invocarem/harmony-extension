@@ -301,14 +301,14 @@ export class ToolExecutionCoordinator {
           );
         } else {
           // Do NOT automatically advance to next step
-          // Keep next step pending until user explicitly calls @cmd:next_step
+          // Keep next step pending until user explicitly calls @cmd:step
           // This allows users to control step execution sequentially
           const nextPendingStep = updatedPlan?.steps.find(
             (s) => s.status === "pending"
           );
           if (nextPendingStep) {
             console.log(
-              `[Harmony] Step completed. Next step ${nextPendingStep.stepNumber} is pending (waiting for @cmd:next_step to execute)`
+              `[Harmony] Step completed. Next step ${nextPendingStep.stepNumber} is pending (waiting for @cmd:step to execute)`
             );
           }
         }

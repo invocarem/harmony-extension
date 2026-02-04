@@ -82,7 +82,7 @@ function setupStepForExecution(
       implementationManager.clear();
       implementationManager.initialize(taskId);
 
-      // Explicitly set the first step to pending to ensure it's ready for @cmd:next_step
+      // Explicitly set the first step to pending to ensure it's ready for @cmd:step
       // This is important because updatePlanSteps might not reset status correctly
       const updatedPlan = progressPlanManager.getPlan(taskId);
       if (updatedPlan && updatedPlan.steps.length > stepIndex) {
@@ -312,10 +312,10 @@ describe("HarmonyClient - Implementation Stage: steps", () => {
         } as any,
       ]);
 
-      // Get call count before @cmd:next_step
+      // Get call count before @cmd:step
       const callsBefore = mockedAxios.post.mock.calls.length;
 
-      // Mock step file generation for step 1 (generated when @cmd:next_step is used and step is pending)
+      // Mock step file generation for step 1 (generated when @cmd:step is used and step is pending)
       // Then mock the actual create_file call, then step file generation for step 2 (when step 1 completes)
       mockNativeToolsManager.callTool
         .mockResolvedValueOnce({
@@ -341,7 +341,7 @@ describe("HarmonyClient - Implementation Stage: steps", () => {
           isError: false,
         });
 
-      await client.callServer("@cmd:next_step create main.py");
+      await client.callServer("@cmd:step create main.py");
 
       // Verify create_file was called for main.py (check actual tool execution via mocks)
       const createFileCall = mockNativeToolsManager.callTool.mock.calls.find(
@@ -478,7 +478,7 @@ describe("HarmonyClient - Implementation Stage: steps", () => {
         }
       );
 
-      await client.callServer("@cmd:next_step create main.py");
+      await client.callServer("@cmd:step create main.py");
 
       // Verify create_file was called for main.py
       const mainPyCall = mockNativeToolsManager.callTool.mock.calls.find(
@@ -527,8 +527,8 @@ describe("HarmonyClient - Implementation Stage: steps", () => {
       // Mock extractToolCalls to handle both validToolCalls and content fallback paths
       mockExtractToolCalls(mockHarmonyProcessor, [toolCall2]);
 
-      // Step 2 is already in_progress (automatically advanced), so just call next_step
-      await client.callServer("@cmd:next_step create utils.py");
+      // Step 2 is already in_progress (automatically advanced), so just call step
+      await client.callServer("@cmd:step create utils.py");
 
       // Verify create_file was called for utils.py
       const utilsPyCall = mockNativeToolsManager.callTool.mock.calls.find(
@@ -629,7 +629,7 @@ describe("HarmonyClient - Implementation Stage: steps", () => {
       mockHarmonyProcessor.extractToolCalls
         .mockReturnValueOnce([toolCall1]) // First call with validToolCalls
         .mockReturnValueOnce([]); // Fallback call with content
-      // Mock step file generation for step 1 (when @cmd:next_step is used), then create_file, then step 2 file
+      // Mock step file generation for step 1 (when @cmd:step is used), then create_file, then step 2 file
       mockNativeToolsManager.callTool
         .mockResolvedValueOnce({
           content: [
@@ -654,7 +654,7 @@ describe("HarmonyClient - Implementation Stage: steps", () => {
           isError: false,
         });
 
-      await client.callServer("@cmd:next_step create main.py");
+      await client.callServer("@cmd:step create main.py");
 
       // Verify create_file was called for main.py (check actual tool execution via mocks)
       const mainPyCall = mockNativeToolsManager.callTool.mock.calls.find(
@@ -717,7 +717,7 @@ describe("HarmonyClient - Implementation Stage: steps", () => {
           isError: false,
         });
 
-      await client.callServer("@cmd:next_step create utils.py");
+      await client.callServer("@cmd:step create utils.py");
 
       // Verify create_file was called for utils.py (check actual tool execution via mocks)
       const utilsPyCall = mockNativeToolsManager.callTool.mock.calls.find(
@@ -836,7 +836,7 @@ describe("HarmonyClient - Implementation Stage: steps", () => {
           isError: false,
         });
 
-      await client.callServer("@cmd:next_step create file1.py");
+      await client.callServer("@cmd:step create file1.py");
 
       // Second file creation - completes step 2
       const response2 = {
@@ -870,7 +870,7 @@ describe("HarmonyClient - Implementation Stage: steps", () => {
         isError: false,
       });
 
-      await client.callServer("@cmd:next_step create file2.py");
+      await client.callServer("@cmd:step create file2.py");
 
       // Verify both files were created (check actual tool execution via mocks)
       const file1Call = mockNativeToolsManager.callTool.mock.calls.find(

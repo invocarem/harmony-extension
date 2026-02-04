@@ -75,9 +75,9 @@ describe("Command Filtering - System Commands vs User Requests", () => {
   });
 
   describe("Other system commands", () => {
-    it("should extract @cmd:next_step", () => {
-      const result = CommandExtractor.extractCommand("@cmd:next_step");
-      expect(result.command?.command).toBe("next_step");
+    it("should extract @cmd:step", () => {
+      const result = CommandExtractor.extractCommand("@cmd:step");
+      expect(result.command?.command).toBe("step");
       expect(result.cleanMessage).toBe("");
     });
 
@@ -109,8 +109,7 @@ describe("Command Filtering - System Commands vs User Requests", () => {
       // to prevent them from being added to conversation history
       
       const verboseCommands = [
-        "next_step",
-        "next-step",
+        "step",
         "auto",
         "verbose",
         "verbose_info",

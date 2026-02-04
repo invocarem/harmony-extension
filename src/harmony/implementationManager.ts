@@ -78,7 +78,7 @@ export class ImplementationManager {
       `[ImplementationManager] Initialized implementation state${taskId ? ` for task: ${taskId}` : ""}`
     );
 
-    // Note: Steps remain 'pending' until explicitly started (e.g., via @cmd:next_step)
+    // Note: Steps remain 'pending' until explicitly started (e.g., via @cmd:step)
     // This allows "move to implementation" to just transition without auto-executing step 1
   }
 
@@ -233,7 +233,7 @@ export class ImplementationManager {
       );
 
       // Automatically advance the next pending step to in_progress
-      // This ensures the workflow is ready for the next @cmd:next_step call
+      // This ensures the workflow is ready for the next @cmd:step call
       const updatedPlan = this.progressPlanManager.getPlan(this.state.taskId);
       const nextPendingStep = updatedPlan?.steps.find(
         (s) => s.status === "pending"
@@ -929,7 +929,7 @@ export class ImplementationManager {
   }
 
   /**
-   * Generate implementation_step_N.json file when processing a step with @cmd:next_step
+  * Generate implementation_step_N.json file when processing a step with @cmd:step
    * Creates the CodeContext and generates the diagnostic file
    *
    * @param stepNumber - The step number being processed

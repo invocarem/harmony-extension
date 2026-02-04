@@ -224,11 +224,11 @@ class ImplementationStageHandler implements StageHandler {
     // Do NOT use the context's progressPlan as it may be stale
     const plan = this.implementationManager.getProgressPlan() || contextPlan;
 
-    // Check for next_step or auto trigger (detected by state machine)
+    // Check for step or auto trigger (detected by state machine)
     // Also support legacy empty prompt detection for backward compatibility
     const promptTrimmed = prompt.trim();
     const isNextStepRequest =
-      trigger === "next_step" ||
+      trigger === "step" ||
       trigger === "auto" ||
       promptTrimmed.length === 0 ||
       /^\s*(next\s+step|continue|proceed|advance)\s*$/i.test(promptTrimmed);
@@ -237,7 +237,7 @@ class ImplementationStageHandler implements StageHandler {
     let shouldUseCodeContext = false;
     let shouldCallLLM = false;
 
-    // Handle next_step command if detected - delegate to ImplementationManager
+    // Handle step command if detected - delegate to ImplementationManager
     if (isNextStepRequest && plan) {
       const currentStep = this.implementationManager.getCurrentStep();
 
@@ -258,12 +258,12 @@ class ImplementationStageHandler implements StageHandler {
         }
         // Continue with normal flow
         console.log(
-          `[StageHandler:Implementation] @cmd:next_step - No current step found`
+          `[StageHandler:Implementation] @cmd:step - No current step found`
         );
       } else if (currentStep.status === "in_progress") {
         // Second call: step is already in_progress (from previous advance) - process it
         console.log(
-          `[StageHandler:Implementation] @cmd:next_step - Step ${currentStep.stepNumber} is in_progress, processing it now`
+          `[StageHandler:Implementation] @cmd:step - Step ${currentStep.stepNumber} is in_progress, processing it now`
         );
         // Continue with normal flow - don't return early, let it process the step
       } else if (currentStep.status === "pending") {
@@ -272,14 +272,14 @@ class ImplementationStageHandler implements StageHandler {
         const advancedStep = this.implementationManager.advanceToNextStep();
         if (advancedStep) {
           console.log(
-            `[StageHandler:Implementation] @cmd:next_step - Advanced to step ${advancedStep.stepNumber}: ${advancedStep.description}, processing it now`
+            `[StageHandler:Implementation] @cmd:step - Advanced to step ${advancedStep.stepNumber}: ${advancedStep.description}, processing it now`
           );
           // Continue with normal flow - process the step (don't return early)
         }
       } else if (currentStep.status === "completed") {
         // Current step is completed - advance to next step and PROCESS it
         console.log(
-          `[StageHandler:Implementation] @cmd:next_step - Step ${currentStep.stepNumber} already completed, advancing to next step`
+          `[StageHandler:Implementation] @cmd:step - Step ${currentStep.stepNumber} already completed, advancing to next step`
         );
 
         // Try to advance to next step
@@ -302,7 +302,7 @@ class ImplementationStageHandler implements StageHandler {
         } else {
           // We advanced to a new step - PROCESS it (don't stop)
           console.log(
-            `[StageHandler:Implementation] @cmd:next_step - Advanced to step ${nextStep.stepNumber}: ${nextStep.description}, processing it now`
+            `[StageHandler:Implementation] @cmd:step - Advanced to step ${nextStep.stepNumber}: ${nextStep.description}, processing it now`
           );
           // Continue with normal flow - process the step (don't return early)
         }
@@ -316,7 +316,7 @@ class ImplementationStageHandler implements StageHandler {
       const currentStep = this.implementationManager.getCurrentStep();
 
       if (currentStep) {
-        // If step is still pending and not explicitly requested (via @cmd:next_step),
+        // If step is still pending and not explicitly requested (via @cmd:step),
         // skip execution and just show the plan is ready
         if (currentStep.status === "pending" && !isNextStepRequest) {
           console.log(
@@ -325,7 +325,7 @@ class ImplementationStageHandler implements StageHandler {
           return {
             shouldSkipLLM: true,
             response: {
-              content: `✅ Plan generated with ${plan.totalSteps} step(s). Ready to begin implementation. Use @cmd:next_step or ask to proceed with step ${currentStep.stepNumber}: "${currentStep.description}"`,
+              content: `✅ Plan generated with ${plan.totalSteps} step(s). Ready to begin implementation. Use @cmd:step or ask to proceed with step ${currentStep.stepNumber}: "${currentStep.description}"`,
               verboseInfo: {
                 stage: "implementation" as const,
                 planReady: true,
@@ -336,22 +336,9 @@ class ImplementationStageHandler implements StageHandler {
           };
         }
 
-        // Check if step needs file creation tools
-        // Check both the tools field and the step goal text for file creation keywords
-        const fileCreationTools = [
-          "create_file",
-          "replace_file",
-          "write_file",
-          "update_file",
-        ];
-        const stepGoalText = currentStep.description.toLowerCase();
-        const hasFileCreationInGoal =
-          /(?:create|write|make|implement|add|generate)\s+(?:file|\.py|\.js|\.ts|\.txt|\.json|\.md)/i.test(
-            stepGoalText
-          ) || fileCreationTools.some((tool) => stepGoalText.includes(tool));
-        const needsFileCreation =
-          currentStep.tools?.some((tool) => fileCreationTools.includes(tool)) ||
-          hasFileCreationInGoal;
+        // Every plan step requires file creation: create/update a file (code, summary, or artifact).
+        // Analyze steps still produce a summary file; implementation steps produce code files.
+        const needsFileCreation = true;
 
         console.log(
           `[StageHandler:Implementation] ProgressPlan: Current step ${currentStep.stepNumber} - "${currentStep.description}", needsFileCreation: ${needsFileCreation}, hasCodeContext: ${codeContexts.length > 0}`
@@ -370,11 +357,10 @@ class ImplementationStageHandler implements StageHandler {
             `[StageHandler:Implementation] ProgressPlan: Step requires file creation but no CodeContext, calling LLM to generate tool calls`
           );
         } else {
-          // Step doesn't explicitly need file creation (e.g., "draft", "present", "verify")
-          // Always call LLM even if CodeContext exists - the step is meant to draft/present, not create files
+          // Fallback: call LLM (should not happen when needsFileCreation is always true)
           shouldCallLLM = true;
           console.log(
-            `[StageHandler:Implementation] ProgressPlan: Step doesn't require file creation ("${currentStep.description}"), calling LLM to draft/present code`
+            `[StageHandler:Implementation] ProgressPlan: Calling LLM for step "${currentStep.description}"`
           );
         }
       } else {
@@ -427,7 +413,7 @@ class ImplementationStageHandler implements StageHandler {
         `[StageHandler:Implementation] Filtered ${codeContexts.length} code context(s) to ${filteredCodeContexts.length} matching step ${currentStepForFilter.stepNumber}`
       );
 
-      // Generate diagnostic file for this step only when explicitly requested via next_step/auto trigger
+      // Generate diagnostic file for this step only when explicitly requested via step/auto trigger
       // Note: Step files for subsequent steps are generated in harmonyClient.ts when advancing
       const stepFileName = `implementation_step_${currentStepForFilter.stepNumber}.json`;
       const stepFileExists =
@@ -436,7 +422,7 @@ class ImplementationStageHandler implements StageHandler {
           ?.some((cc) => cc.name === stepFileName) || false;
 
       if (
-        (trigger === "next_step" || trigger === "auto" || isNextStepRequest) &&
+        (trigger === "step" || trigger === "auto" || isNextStepRequest) &&
         !stepFileExists
       ) {
         await this.implementationManager.generateImplementationStepFile(
@@ -774,73 +760,8 @@ class ImplementationStageHandler implements StageHandler {
       return;
     }
 
-    // Check if step requires file creation tools
-    // Check both the tools field and the step goal text for file creation keywords
-    const fileCreationTools = [
-      "create_file",
-      "replace_file",
-      "write_file",
-      "update_file",
-    ];
-    const stepGoalText = currentStep.description.toLowerCase();
-    const hasFileCreationInGoal =
-      /(?:create|write|make|implement|add|generate)\s+[`'"]*[\w-]+\.(?:py|js|ts|txt|json|md|awk|[a-z]{1,4})/i.test(
-        stepGoalText
-      ) || fileCreationTools.some((tool) => stepGoalText.includes(tool));
-    const needsFileCreation =
-      currentStep.tools?.some((tool) => fileCreationTools.includes(tool)) ||
-      false;
-
-    // Check if any file creation tool calls were executed
-    const hasFileCreationToolCalls =
-      executedToolCalls?.some((tc) => fileCreationTools.includes(tc.name)) ||
-      false;
-
-    // Check if all file creation tool calls succeeded (if any were executed)
-    const fileCreationToolCalls =
-      executedToolCalls?.filter((tc) => fileCreationTools.includes(tc.name)) ||
-      [];
-    const allFileCreationToolCallsSucceeded =
-      fileCreationToolCalls.length > 0 &&
-      fileCreationToolCalls.every((tc) => !tc.result?.isError);
-
-    // Mark step as complete ONLY if:
-    // 1. Step doesn't require file creation AND no file creation tool calls were executed (LLM response only)
-    // 2. If step DOES require file creation, skip this - processFileCreations in toolExecutionCoordinator has already handled it
-    // NOTE: We should NOT complete based on non-file-creation tool calls (like read_file).
-    // Those are just research/analysis, not proof that the step is complete.
-    // Also, if there are file creation tool calls, processFileCreations has already been called and will handle
-    // step completion, so we should NOT double-complete the step here.
-    const shouldCompleteStep =
-      !needsFileCreation && !hasFileCreationInGoal && !hasFileCreationToolCalls;
-
-    if (shouldCompleteStep) {
-      this.implementationManager.completeStep(currentStep.stepNumber);
-      const reason = "step doesn't require file creation";
-      console.log(
-        `[StageHandler:Implementation] ProgressPlan: Marked step ${currentStep.stepNumber} (${currentStep.description}) as completed after LLM response (${reason})`
-      );
-
-      // Update diagnostic file with completion summary
-      await this.implementationManager.updateImplementationStepFileOnCompletion(
-        currentStep.stepNumber,
-        "no_files_needed",
-        nativeToolsManager,
-        contextManager
-      );
-
-      // After completing a step, the next step is automatically advanced to in_progress
-      // User can call @cmd:next_step to execute the next step
-      const plan = this.implementationManager.getProgressPlan();
-      const nextInProgressStep = plan?.steps.find(
-        (s) => s.status === "in_progress"
-      );
-      if (nextInProgressStep) {
-        console.log(
-          `[StageHandler:Implementation] Step ${currentStep.stepNumber} completed. Next step ${nextInProgressStep.stepNumber} is now in_progress (ready for @cmd:next_step to execute)`
-        );
-      }
-    }
+    // Every plan step requires file creation (create_file/replace_file). Step completion
+    // happens only in toolExecutionCoordinator after a file-creation tool runs.
   }
 }
 
