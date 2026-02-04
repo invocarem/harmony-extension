@@ -344,8 +344,7 @@ class ImplementationStageHandler implements StageHandler {
           "write_file",
           "update_file",
         ];
-        const stepGoalText =
-          currentStep.description.toLowerCase();
+        const stepGoalText = currentStep.description.toLowerCase();
         const hasFileCreationInGoal =
           /(?:create|write|make|implement|add|generate)\s+(?:file|\.py|\.js|\.ts|\.txt|\.json|\.md)/i.test(
             stepGoalText
@@ -499,7 +498,11 @@ class ImplementationStageHandler implements StageHandler {
               );
               if (contextManager) {
                 contextManager.markCodeContextCreated(filePath);
-                contextManager.addImplementationStepContext(filePath, content, stepNumber);
+                contextManager.addImplementationStepContext(
+                  filePath,
+                  content,
+                  stepNumber
+                );
               }
               toolCalls.push({
                 name: "create_file",
@@ -529,7 +532,11 @@ class ImplementationStageHandler implements StageHandler {
                 );
                 if (contextManager) {
                   contextManager.markCodeContextCreated(filePath);
-                  contextManager.addImplementationStepContext(filePath, content, stepNumber);
+                  contextManager.addImplementationStepContext(
+                    filePath,
+                    content,
+                    stepNumber
+                  );
                 }
                 toolCalls.push({
                   name: "replace_file",
@@ -571,11 +578,11 @@ class ImplementationStageHandler implements StageHandler {
           console.log(
             `[StageHandler:Implementation] ProgressPlan: Marked step ${stepToComplete.stepNumber} (${stepToComplete.description}) as completed after creating files from CodeContext`
           );
-          
+
           // Update diagnostic file with completion summary
           await this.implementationManager.updateImplementationStepFileOnCompletion(
             stepToComplete.stepNumber,
-            'codecontext',
+            "codecontext",
             nativeToolsManager,
             contextManager
           );
@@ -709,10 +716,7 @@ class ImplementationStageHandler implements StageHandler {
     }
 
     const blockedPaths = blocked
-      .filter(
-        (tc) =>
-          tc.name === "replace_file" || tc.name === "create_file"
-      )
+      .filter((tc) => tc.name === "replace_file" || tc.name === "create_file")
       .map((tc) => tc.arguments?.file_path || tc.arguments?.filePath)
       .filter(Boolean);
     const blockedMessage =
@@ -730,10 +734,7 @@ class ImplementationStageHandler implements StageHandler {
       if (path.isAbsolute(filePath)) {
         resolvedPath = filePath;
       } else if (workspaceFolders && workspaceFolders.length > 0) {
-        resolvedPath = path.resolve(
-          workspaceFolders[0].uri.fsPath,
-          filePath
-        );
+        resolvedPath = path.resolve(workspaceFolders[0].uri.fsPath, filePath);
       } else {
         resolvedPath = path.resolve(filePath);
       }
@@ -781,10 +782,9 @@ class ImplementationStageHandler implements StageHandler {
       "write_file",
       "update_file",
     ];
-    const stepGoalText =
-      currentStep.description.toLowerCase();
+    const stepGoalText = currentStep.description.toLowerCase();
     const hasFileCreationInGoal =
-      /(?:create|write|make|implement|add|generate)\s+(?:file|\.py|\.js|\.ts|\.txt|\.json|\.md|\.awk)/i.test(
+      /(?:create|write|make|implement|add|generate)\s+[`'"]*[\w-]+\.(?:py|js|ts|txt|json|md|awk|[a-z]{1,4})/i.test(
         stepGoalText
       ) || fileCreationTools.some((tool) => stepGoalText.includes(tool));
     const needsFileCreation =
@@ -820,11 +820,11 @@ class ImplementationStageHandler implements StageHandler {
       console.log(
         `[StageHandler:Implementation] ProgressPlan: Marked step ${currentStep.stepNumber} (${currentStep.description}) as completed after LLM response (${reason})`
       );
-      
+
       // Update diagnostic file with completion summary
       await this.implementationManager.updateImplementationStepFileOnCompletion(
         currentStep.stepNumber,
-        'no_files_needed',
+        "no_files_needed",
         nativeToolsManager,
         contextManager
       );

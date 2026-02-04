@@ -3,7 +3,8 @@ import { MCPToolResult } from "../mcpClient";
 import { ConfirmationManager } from "./confirmationManager";
 import { TransitionHandler } from "./transitionHandler";
 import { NativeToolsManager } from "../nativeToolManager";
-import { ChatManager } from "./chatManager"; import { AssumptionsManager } from './assumptionsManager';
+import { ChatManager } from "./chatManager";
+import { AssumptionsManager } from "./assumptionsManager";
 export type WorkflowStage = "chat" | "assumptions" | "implementation";
 
 /**
@@ -39,7 +40,9 @@ export interface TransitionContext {
  * Returns: target stage to transition to, current stage to stay, or null to abort transition
  * Can be async to perform side effects
  */
-export type TransitionAction = (context: TransitionContext) => Promise<WorkflowStage | null> | WorkflowStage | null;
+export type TransitionAction = (
+  context: TransitionContext
+) => Promise<WorkflowStage | null> | WorkflowStage | null;
 
 /**
  * Transition table entry
@@ -60,16 +63,23 @@ interface TransitionRule {
  * Can perform side effects using transitionHandler
  */
 
-
-
 /**
  * Action: Move to assumptions from chat
  * For explicit @cmd:move_to_assumptions - always transition (user's direct intent)
  * For natural language - check if there are unanswered problems
  * Side effect: Save aggregated prompts
  */
-const moveToAssumptionsFromChat: TransitionAction = async (context): Promise<WorkflowStage | null> => {
-  const { prompt, currentStage, conversationHistory, transitionHandler, nativeToolsManager, chatManager } = context;
+const moveToAssumptionsFromChat: TransitionAction = async (
+  context
+): Promise<WorkflowStage | null> => {
+  const {
+    prompt,
+    currentStage,
+    conversationHistory,
+    transitionHandler,
+    nativeToolsManager,
+    chatManager,
+  } = context;
 
   // Check if this is an explicit @cmd: command
   const isExplicitCommand = /^@cmd:move_to_assumptions/i.test(prompt);
@@ -80,10 +90,14 @@ const moveToAssumptionsFromChat: TransitionAction = async (context): Promise<Wor
     }
 
     const isTrivialGreeting = (text: string): boolean =>
-      /^(hi|hello|hey|greetings?|good\s+(morning|afternoon|evening|day))$/i.test(text);
+      /^(hi|hello|hey|greetings?|good\s+(morning|afternoon|evening|day))$/i.test(
+        text
+      );
 
     const isStageTransitionCommand = (text: string): boolean =>
-      /\b(move\s+to|go\s+to|goto|start|begin)\s+(assumptions|analysis|analyze|implementation|implement|chat|discussion|clarification)\b/i.test(text);
+      /\b(move\s+to|go\s+to|goto|start|begin)\s+(assumptions|analysis|analyze|implementation|implement|chat|discussion|clarification)\b/i.test(
+        text
+      );
 
     const isCommand = (text: string): boolean => /^@cmd:/i.test(text);
 
@@ -95,7 +109,11 @@ const moveToAssumptionsFromChat: TransitionAction = async (context): Promise<Wor
       if (!content) {
         return false;
       }
-      if (isCommand(content) || isStageTransitionCommand(content) || isTrivialGreeting(content)) {
+      if (
+        isCommand(content) ||
+        isStageTransitionCommand(content) ||
+        isTrivialGreeting(content)
+      ) {
         return false;
       }
       return true;
@@ -107,15 +125,20 @@ const moveToAssumptionsFromChat: TransitionAction = async (context): Promise<Wor
   if (chatManager) {
     const hasProblems = chatManager.hasUnansweredProblems();
     const allowTransition = chatManager.allowMoveToAssumptions();
-    const allowTransitionFromHistory = isExplicitCommand && hasMeaningfulUserQuery();
+    const allowTransitionFromHistory =
+      isExplicitCommand && hasMeaningfulUserQuery();
 
     if (!hasProblems && !allowTransition && !allowTransitionFromHistory) {
-      console.log(`[Action] move_to_assumptions: Staying in chat (no unanswered problems or meaningful queries)`);
+      console.log(
+        `[Action] move_to_assumptions: Staying in chat (no unanswered problems or meaningful queries)`
+      );
       return "chat" as WorkflowStage; // Stay in chat
     }
   }
 
-  console.log(`[Action] move_to_assumptions: chat -> assumptions${isExplicitCommand ? ' (explicit command)' : ''}`);
+  console.log(
+    `[Action] move_to_assumptions: chat -> assumptions${isExplicitCommand ? " (explicit command)" : ""}`
+  );
 
   // Perform side effect: save aggregated prompts
   if (transitionHandler) {
@@ -129,19 +152,22 @@ const moveToAssumptionsFromChat: TransitionAction = async (context): Promise<Wor
   return "assumptions" as WorkflowStage;
 };
 
-
-
 /**
  * Action: Move to implementation from assumptions
  * Side effect: Save assumptions data
  */
-const moveToImplementation: TransitionAction = async (context): Promise<WorkflowStage | null> => {
-  const { prompt, transitionHandler, nativeToolsManager, assumptionsManager } = context;
+const moveToImplementation: TransitionAction = async (
+  context
+): Promise<WorkflowStage | null> => {
+  const { prompt, transitionHandler, nativeToolsManager, assumptionsManager } =
+    context;
 
   // Validate transition: require plan to be created or updated
   // This prevents premature transition before assumptions analysis is complete
   if (assumptionsManager && !assumptionsManager.allowMoveToImplementation()) {
-    console.log(`[Action] move_to_implementation: Staying in assumptions (no plan created yet)`);
+    console.log(
+      `[Action] move_to_implementation: Staying in assumptions (no plan created yet)`
+    );
     return "assumptions" as WorkflowStage; // Stay in assumptions
   }
 
@@ -194,8 +220,12 @@ const verboseInfo: TransitionAction = (context) => {
  * Action: Restate user's problem (stay in chat stage)
  * Used when user provides a regular prompt in chat stage
  */
-const restateAction: TransitionAction = async (context): Promise<WorkflowStage> => {
-  console.log(`[Action] restate: staying in chat - will restate user's problem and clarify`);
+const restateAction: TransitionAction = async (
+  context
+): Promise<WorkflowStage> => {
+  console.log(
+    `[Action] restate: staying in chat - will restate user's problem and clarify`
+  );
 
   // Perform side effect: ensure ChatManager is ready
   if (context.transitionHandler) {
@@ -209,8 +239,12 @@ const restateAction: TransitionAction = async (context): Promise<WorkflowStage> 
  * Action: Generate or update plan (stay in assumptions stage)
  * Used when user provides a regular prompt in assumptions stage
  */
-const generateOrUpdatePlanAction: TransitionAction = async (context): Promise<WorkflowStage> => {
-  console.log(`[Action] generate_or_update_plan: staying in assumptions - will generate/update plan`);
+const generateOrUpdatePlanAction: TransitionAction = async (
+  context
+): Promise<WorkflowStage> => {
+  console.log(
+    `[Action] generate_or_update_plan: staying in assumptions - will generate/update plan`
+  );
 
   // Perform side effect: ensure AssumptionsManager is ready
   if (context.transitionHandler) {
@@ -228,22 +262,82 @@ const generateOrUpdatePlanAction: TransitionAction = async (context): Promise<Wo
  */
 const TRANSITION_TABLE: TransitionRule[] = [
   // Explicit commands (high priority)
-  { from: "assumptions", to: "implementation", trigger: "move_to_implementation", action: moveToImplementation, priority: 100 },
-  { from: "implementation", to: "chat", trigger: "move_to_chat", action: moveToChat, priority: 100 },
-  { from: "chat", to: "assumptions", trigger: "move_to_assumptions", action: moveToAssumptionsFromChat, priority: 100 },
+  {
+    from: "assumptions",
+    to: "implementation",
+    trigger: "move_to_implementation",
+    action: moveToImplementation,
+    priority: 100,
+  },
+  {
+    from: "implementation",
+    to: "chat",
+    trigger: "move_to_chat",
+    action: moveToChat,
+    priority: 100,
+  },
+  {
+    from: "chat",
+    to: "assumptions",
+    trigger: "move_to_assumptions",
+    action: moveToAssumptionsFromChat,
+    priority: 100,
+  },
 
   // Implementation stage self-loops (execute step, stay in stage)
-  { from: "implementation", to: "implementation", trigger: "next_step", action: nextStep, priority: 100 },
-  { from: "implementation", to: "implementation", trigger: "auto", action: autoMode, priority: 100 },
+  {
+    from: "implementation",
+    to: "implementation",
+    trigger: "next_step",
+    action: nextStep,
+    priority: 100,
+  },
+  {
+    from: "implementation",
+    to: "implementation",
+    trigger: "auto",
+    action: autoMode,
+    priority: 100,
+  },
 
   // All stages self-loops (generate verboseInfo, stay in stage)
-  { from: "chat", to: "chat", trigger: "verbose_info", action: verboseInfo, priority: 100 },
-  { from: "assumptions", to: "assumptions", trigger: "verbose_info", action: verboseInfo, priority: 100 },
-  { from: "implementation", to: "implementation", trigger: "verbose_info", action: verboseInfo, priority: 100 },
+  {
+    from: "chat",
+    to: "chat",
+    trigger: "verbose_info",
+    action: verboseInfo,
+    priority: 100,
+  },
+  {
+    from: "assumptions",
+    to: "assumptions",
+    trigger: "verbose_info",
+    action: verboseInfo,
+    priority: 100,
+  },
+  {
+    from: "implementation",
+    to: "implementation",
+    trigger: "verbose_info",
+    action: verboseInfo,
+    priority: 100,
+  },
 
   // Regular prompt handling (stage-specific default behavior)
-  { from: "chat", to: "chat", trigger: "prompt", action: restateAction, priority: 10 },
-  { from: "assumptions", to: "assumptions", trigger: "plan", action: generateOrUpdatePlanAction, priority: 10 },
+  {
+    from: "chat",
+    to: "chat",
+    trigger: "prompt",
+    action: restateAction,
+    priority: 10,
+  },
+  {
+    from: "assumptions",
+    to: "assumptions",
+    trigger: "plan",
+    action: generateOrUpdatePlanAction,
+    priority: 10,
+  },
 
   // Chat -> Assumptions transitions (DISABLED: Auto-transition removed, requires explicit "move to assumptions")
   // { from: 'chat', to: 'assumptions', trigger: 'code_keywords', action: ..., priority: 50 },
@@ -346,7 +440,11 @@ export class StageStateMachine {
 
     // Detect plan command (assumptions stage only)
     if (currentStage === "assumptions") {
-      if (/@cmd:plan|create\s+(?:a\s+)?plan|update\s+(?:the\s+)?plan|generate\s+(?:a\s+)?plan/i.test(promptLower)) {
+      if (
+        /@cmd:plan|create\s+(?:a\s+)?plan|update\s+(?:the\s+)?plan|generate\s+(?:a\s+)?plan/i.test(
+          promptLower
+        )
+      ) {
         return "plan";
       }
     }
@@ -620,17 +718,18 @@ export class StageStateMachine {
 
       implementation: `## Current Stage: IMPLEMENTATION/EXECUTION
 
-**PRIMARY GOAL**: Execute the numbered plan from Analysis stage
-
-**FIRST ACTION**: Review the numbered plan from Assumptions stage
+**PRIMARY GOAL**: Execute the implementation plan from Analysis stage
 
 **EXECUTION RULES**:
-1. Work on currrent step only. You must display Code or Context generated in current step.
-2. Do not work on previous or future steps.
-3. All tools are available in this stage. Use appropriate tools, see TOOL USAGE GUIDE below.
+1. Restate current PlanStep description. 
+2. Work on current PlanStep to generate code or context. display only the code changes needed.
+3. Do not work on previous or future steps.
+4. All tools are available in this stage. Use appropriate tools, see TOOL USAGE GUIDE below.
 
 
-${harmonyMode ? `**RESPONSE FORMAT** (CRITICAL):
+${
+  harmonyMode
+    ? `**RESPONSE FORMAT** (CRITICAL):
 Use analysis channel for reasoning, final channel for tool calls. **ALWAYS close each channel with \`<|end|>\` before starting a new channel or ending your response.**
 
 Example with reasoning and tool call:
@@ -649,7 +748,8 @@ Example with just a tool call (no reasoning needed):
 <|end|>
 \`\`\`
 
-**REMEMBER**: Every \`<|channel|>\` you open MUST be closed with \`<|end|>\` - no exceptions!` : `**RESPONSE FORMAT**:
+**REMEMBER**: Every \`<|channel|>\` you open MUST be closed with \`<|end|>\` - no exceptions!`
+    : `**RESPONSE FORMAT**:
 Use standard tool call format for tool invocations.
 
 Example:
@@ -661,7 +761,8 @@ Example with multiple tool calls:
 \`\`\`
 <tool_call name="create_file" args='{"file_path": "app.py", "content": "print(\"hello\")"}' />
 <tool_call name="read_file" args='{"file_path": "config.json"}' />
-\`\`\``}
+\`\`\``
+}
 
 **TOOL USAGE GUIDE**:
 **replace_file**: Do not use this tool. Use edit_file instead.
