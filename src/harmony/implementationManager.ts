@@ -855,9 +855,11 @@ export class ImplementationManager {
     if (nativeToolsManager && contextManager) {
       const context = contextManager.getContext();
       if (context?.codeContexts) {
-        const versions = context.codeContexts.get("assumption_data.json");
+        const versions = context.codeContexts.get("assumption_data.json") as
+          | CodeContext[]
+          | undefined;
         if (versions) {
-          const activeVersion = versions.find((v) => v.isActive);
+          const activeVersion = versions.find((v: CodeContext) => v.isActive);
           if (activeVersion && !activeVersion.waitForCreate) {
             try {
               const content = activeVersion.getContentAsString();
@@ -929,7 +931,7 @@ export class ImplementationManager {
   }
 
   /**
-  * Generate implementation_step_N.json file when processing a step with @cmd:step
+   * Generate implementation_step_N.json file when processing a step with @cmd:step
    * Creates the CodeContext and generates the diagnostic file
    *
    * @param stepNumber - The step number being processed
@@ -978,9 +980,11 @@ export class ImplementationManager {
 
     if (contextManager) {
       const context = contextManager.getContext();
-      const versions = context?.codeContexts?.get(fileName);
+      const versions = context?.codeContexts?.get(fileName) as
+        | CodeContext[]
+        | undefined;
       if (versions) {
-        const activeVersion = versions.find((v) => v.isActive);
+        const activeVersion = versions.find((v: CodeContext) => v.isActive);
         if (activeVersion) {
           try {
             const content = activeVersion.getContentAsString();
@@ -1038,9 +1042,11 @@ export class ImplementationManager {
     if (nativeToolsManager && contextManager) {
       const context = contextManager.getContext();
       if (context?.codeContexts) {
-        const versions = context.codeContexts.get(fileName);
+        const versions = context.codeContexts.get(fileName) as
+          | CodeContext[]
+          | undefined;
         if (versions) {
-          const activeVersion = versions.find((v) => v.isActive);
+          const activeVersion = versions.find((v: CodeContext) => v.isActive);
           if (activeVersion && !activeVersion.waitForCreate) {
             try {
               const content = activeVersion.getContentAsString();
@@ -1089,6 +1095,104 @@ export class ImplementationManager {
           }
         }
       }
+    }
+
+    // Also update textual step log file (step_<N>_log.txt) with status and context
+    try {
+      const logFileName = `step_${stepNumber}_log.txt`;
+      const logLines: string[] = [];
+      logLines.push(`Step ${stepNumber} - ${step.description}`);
+      logLines.push(`Status: ${step.status}`);
+      logLines.push(`Timestamp: ${new Date().toISOString()}`);
+      logLines.push(``);
+      logLines.push(`Summary:`);
+      logLines.push(
+        `- completionMethod: ${completionSummary.completionMethod}`
+      );
+      logLines.push(`- toolCallCount: ${completionSummary.toolCallCount}`);
+      logLines.push(`- successfulCalls: ${completionSummary.successfulCalls}`);
+      logLines.push(`- failedCalls: ${completionSummary.failedCalls}`);
+      logLines.push(``);
+      if (filesForStep.length > 0) {
+        logLines.push(`Files created for this step:`);
+        for (const f of filesForStep) {
+          logLines.push(`- ${f.file} (${f.status})`);
+        }
+        logLines.push(``);
+      }
+
+      // Include codeContexts content if available (from existingCodeContexts)
+      if (existingCodeContexts && existingCodeContexts.length > 0) {
+        logLines.push(`Code/context snapshots:`);
+        for (const cc of existingCodeContexts) {
+          try {
+            const content =
+              typeof cc.getContentAsString === "function"
+                ? cc.getContentAsString()
+                : (cc.content || []).join("\n");
+            logLines.push(`--- ${cc.fileName || cc.name || "context"} ---`);
+            logLines.push(content || "<no content>");
+            logLines.push(``);
+          } catch (e) {
+            // ignore
+          }
+        }
+      }
+
+      const logContext = new CodeContext(
+        logFileName,
+        logLines,
+        false,
+        "v1",
+        Date.now(),
+        `Textual log for implementation step ${stepNumber}`
+      );
+
+      if (contextManager) {
+        contextManager.addCodeContext(logContext);
+        console.log(
+          `[ImplementationManager] Updated ${logFileName} in CodeContext with completion summary`
+        );
+      }
+
+      if (nativeToolsManager && contextManager) {
+        try {
+          const content = logLines.join("\n");
+          const replaceResult = await nativeToolsManager.callTool(
+            "replace_file",
+            {
+              file_path: `.harmony/${logFileName}`,
+              content,
+            }
+          );
+          if (replaceResult && !replaceResult.isError) {
+            console.log(
+              `[ImplementationManager] ✅ Updated textual log file ${logFileName}`
+            );
+          } else {
+            // Try create
+            const createResult = await nativeToolsManager.callTool(
+              "create_file",
+              {
+                file_path: `.harmony/${logFileName}`,
+                content,
+              }
+            );
+            if (createResult && !createResult.isError) {
+              console.log(
+                `[ImplementationManager] ✅ Created textual log file ${logFileName}`
+              );
+            }
+          }
+        } catch (e: any) {
+          console.warn(
+            `[ImplementationManager] ⚠️ Error writing textual log file ${logFileName}:`,
+            e?.message || e
+          );
+        }
+      }
+    } catch (e: any) {
+      // Non-critical - continue
     }
   }
 
@@ -1174,6 +1278,90 @@ export class ImplementationManager {
     if (contextManager) {
       contextManager.addCodeContext(stepContext);
       console.log(`[ImplementationManager] Saved ${fileName} to CodeContext`);
+    }
+
+    // Also create a simple textual log for this step (step_<N>_log.txt)
+    try {
+      const logFileName = `step_${stepNumber}_log.txt`;
+      const logLines: string[] = [];
+      logLines.push(`Step ${stepNumber}: ${step.description}`);
+      logLines.push(`Status: ${step.status}`);
+      logLines.push(`Timestamp: ${new Date().toISOString()}`);
+      logLines.push(``);
+      if (codeContexts && codeContexts.length > 0) {
+        logLines.push(`Code/context included:`);
+        for (const cc of codeContexts) {
+          try {
+            const content =
+              typeof cc.getContentAsString === "function"
+                ? cc.getContentAsString()
+                : (cc.content || []).join("\n");
+            logLines.push(`--- ${cc.name} ---`);
+            logLines.push(content || "<no content>");
+            logLines.push(``);
+          } catch (e) {
+            // ignore errors retrieving content
+          }
+        }
+      }
+
+      const logContext = new CodeContext(
+        logFileName,
+        logLines,
+        false,
+        "v1",
+        Date.now(),
+        `Textual log for implementation step ${stepNumber}`
+      );
+
+      if (contextManager) {
+        contextManager.addCodeContext(logContext);
+        console.log(
+          `[ImplementationManager] Saved ${logFileName} to CodeContext`
+        );
+      }
+
+      // Generate the file if nativeToolsManager is provided
+      if (nativeToolsManager && contextManager) {
+        try {
+          const content = logLines.join("\n");
+          const createResult = await nativeToolsManager.callTool(
+            "create_file",
+            {
+              file_path: `.harmony/${logFileName}`,
+              content,
+            }
+          );
+          if (createResult && !createResult.isError) {
+            console.log(
+              `[ImplementationManager] ✅ Successfully created textual log file: ${logFileName}`
+            );
+          } else if (
+            createResult &&
+            createResult.content?.[0]?.text?.includes("already exists")
+          ) {
+            const replaceResult = await nativeToolsManager.callTool(
+              "replace_file",
+              {
+                file_path: `.harmony/${logFileName}`,
+                content,
+              }
+            );
+            if (replaceResult && !replaceResult.isError) {
+              console.log(
+                `[ImplementationManager] ✅ Successfully updated textual log file: ${logFileName}`
+              );
+            }
+          }
+        } catch (e: any) {
+          console.warn(
+            `[ImplementationManager] ⚠️ Error creating textual log file ${logFileName}:`,
+            e?.message || e
+          );
+        }
+      }
+    } catch (e) {
+      // non-critical
     }
 
     // Generate the file if nativeToolsManager is provided

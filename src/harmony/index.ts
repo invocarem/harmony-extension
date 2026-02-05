@@ -32,7 +32,6 @@ export type {
 } from "./implementationManager";
 export { ConfirmationManager } from "./confirmationManager";
 export type { PendingConfirmation } from "./confirmationManager";
-export { StateTransitionManager } from "./stateTransitionManager";
 export { TransitionHandler } from "./transitionHandler";
 export { ResponseProcessor } from "./responseProcessor";
 export { ToolExecutionCoordinator } from "./toolExecutionCoordinator";

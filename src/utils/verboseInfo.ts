@@ -410,11 +410,17 @@ export class VerboseInfoBuilder {
       originalQuery
     );
 
+    // For chat stage, progress counts (step/maxSteps) are misleading unless there is
+    // an actual progress plan attached to the context. Only include progress when
+    // a progress plan exists to avoid showing "Progress: Step 1/5" during simple
+    // chat/clarification interactions.
+    const hasProgressPlan = !!context?.progressPlan;
+
     const verboseInfo: ChatVerboseInfo = {
       stage: "chat",
       stageTransition: context?.lastStageTransition,
-      step: context ? context.currentStep : undefined,
-      maxSteps: context ? context.maxSteps : undefined,
+      step: hasProgressPlan && context ? context.currentStep : undefined,
+      maxSteps: hasProgressPlan && context ? context.maxSteps : undefined,
       // isComplete is not meaningful for chat stage - no real plan exists yet
       // The real plan is only created when moving to implementation stage
     };
@@ -593,12 +599,8 @@ export class VerboseInfoBuilder {
             ? plan.steps.filter((s) => s.status === "completed").length + 1
             : 1);
 
-        const createdFiles = (fileOperations.created || []).map(
-          (f) => f.path
-        );
-        const updatedFiles = (fileOperations.updated || []).map(
-          (f) => f.path
-        );
+        const createdFiles = (fileOperations.created || []).map((f) => f.path);
+        const updatedFiles = (fileOperations.updated || []).map((f) => f.path);
 
         if (createdFiles.length > 0 || updatedFiles.length > 0) {
           stepFileMap.set(activeStepNumber, {
@@ -644,9 +646,7 @@ export class VerboseInfoBuilder {
         steps: plan.steps.map((step) => {
           const stepFiles = stepFileMap.get(step.stepNumber);
           const stepTools = stepToolsMap.get(step.stepNumber) || [];
-          const allTools = [
-            ...new Set([...(step.tools || []), ...stepTools]),
-          ];
+          const allTools = [...new Set([...(step.tools || []), ...stepTools])];
 
           return {
             stepNumber: step.stepNumber,

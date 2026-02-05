@@ -29,110 +29,173 @@ export class PromptBuilder {
     isContinuation: boolean,
     conversationHistory?: readonly ChatMessage[],
     templateName?: string,
-    applyTemplate?: (templateName: string, context: any, history?: readonly ChatMessage[]) => Promise<string>,
+    applyTemplate?: (
+      templateName: string,
+      context: any,
+      history?: readonly ChatMessage[]
+    ) => Promise<string>,
     isFirstPrinciplesMode?: boolean
   ): Promise<string> {
     // Build tools context
     const toolsContext = this.buildToolsContext(currentStage);
-    
+
     // Build rules context
     const rulesContext = this.buildRulesContext(prompt, conversationHistory);
-    
+
     // Build stage instructions (with code snippets ready flag for implementation stage)
-    let stageInstructions = this.stageStateMachine.getInstructions(currentStage, this.config.harmonyMode);
-    
+    let stageInstructions = this.stageStateMachine.getInstructions(
+      currentStage,
+      this.config.harmonyMode
+    );
+
     // If in assumptions stage, add referred files from chat stage so AI doesn't re-detect them
-    if (currentStage === 'assumptions' && conversationContext) {
+    if (currentStage === "assumptions" && conversationContext) {
       const referredFiles = conversationContext.referredFiles;
       if (referredFiles && referredFiles.length > 0) {
         const fileList = referredFiles
-          .map(f => `- ${f.file}${f.description ? ` (${f.description})` : ''}`)
-          .join('\n');
+          .map(
+            (f) => `- ${f.file}${f.description ? ` (${f.description})` : ""}`
+          )
+          .join("\n");
         stageInstructions += `\n\n**IDENTIFIED FILES**:\n${fileList}\n\nUse read_file on these files directly.`;
       }
     }
-    
+
     // If in implementation stage, add progressPlan context if available
-    if (currentStage === 'implementation' && conversationContext) {
+    if (currentStage === "implementation" && conversationContext) {
       // Add referred files if available
       const referredFiles = conversationContext.referredFiles;
       if (referredFiles && referredFiles.length > 0) {
         const fileList = referredFiles
-          .map(f => `- ${f.file}${f.description ? ` (${f.description})` : ''}`)
-          .join('\n');
+          .map(
+            (f) => `- ${f.file}${f.description ? ` (${f.description})` : ""}`
+          )
+          .join("\n");
         stageInstructions += `\n\n**IDENTIFIED FILES**:\n${fileList}\n\nUse read_file on these files directly.`;
       }
-      
+
       // Add progressPlan guidance if plan exists
       if (conversationContext.progressPlan) {
         const plan = conversationContext.progressPlan;
-        const currentStep = plan.steps.find(step => 
-          step.status === 'pending' || step.status === 'in_progress'
+        const currentStep = plan.steps.find(
+          (step) => step.status === "pending" || step.status === "in_progress"
         );
-        
+
         if (currentStep) {
           // Show current step to focus on
           stageInstructions += `\n\n**PROGRESS PLAN - CURRENT STEP**:\n`;
           stageInstructions += `You are working on Step ${currentStep.stepNumber}/${plan.totalSteps}: ${currentStep.description}\n`;
-          
+
           // Show remaining steps for context
-          const remainingSteps = plan.steps.filter(s => s.status === 'pending' || s.status === 'in_progress');
+          const remainingSteps = plan.steps.filter(
+            (s) => s.status === "pending" || s.status === "in_progress"
+          );
           if (remainingSteps.length > 1) {
             stageInstructions += `\n**Remaining Steps**:\n`;
-            remainingSteps.forEach(step => {
+            remainingSteps.forEach((step) => {
               if (step.stepNumber !== currentStep.stepNumber) {
                 stageInstructions += `- Step ${step.stepNumber}: ${step.description}\n`;
               }
             });
           }
-          
+
           // Every plan step requires file creation (code file, summary file, or artifact).
-          const fileCreationTools = ['create_file', 'replace_file', 'write_file', 'update_file'];
+          const fileCreationTools = [
+            "create_file",
+            "replace_file",
+            "write_file",
+            "update_file",
+          ];
           const needsFileCreation = true;
-          const needsCommandExecution = currentStep.tools?.includes('exec_terminal') || false;
-          
+          const needsCommandExecution =
+            currentStep.tools?.includes("exec_terminal") || false;
+
           // Check step goal/description for hints about what action is needed
           // Use more specific patterns to avoid false positives
           const stepText = currentStep.description.toLowerCase();
-          
+
           // More specific execution patterns - look for command execution context
-          const mentionsExecution = /\b(execute|run|command|terminal).*(?:python|npm|node|bash|sh|calc\.py|\.py\s|\.js\s|\.sh\s)/i.test(stepText) ||
-                                   /\b(execute|run)\s+(?:the\s+)?(?:script|command|program|calc)/i.test(stepText) ||
-                                   (/\b(python|npm|node|bash|sh)\s+/.test(stepText) && /\b(execute|run|command)/i.test(stepText));
-          
+          const mentionsExecution =
+            /\b(execute|run|command|terminal).*(?:python|npm|node|bash|sh|calc\.py|\.py\s|\.js\s|\.sh\s)/i.test(
+              stepText
+            ) ||
+            /\b(execute|run)\s+(?:the\s+)?(?:script|command|program|calc)/i.test(
+              stepText
+            ) ||
+            (/\b(python|npm|node|bash|sh)\s+/.test(stepText) &&
+              /\b(execute|run|command)/i.test(stepText));
+
           // More specific file creation patterns - avoid matching "create script to execute"
-          const mentionsFileCreation = /\b(create|write|generate)\s+(?:a\s+)?(?:file|code|content|\.py|\.js|\.ts|\.md|\.txt)/i.test(stepText) ||
-                                       /\b(create|write|generate)\s+(?:the|new|an?)\s+(?:file|code)/i.test(stepText);
-          
+          const mentionsFileCreation =
+            /\b(create|write|generate)\s+(?:a\s+)?(?:file|code|content|\.py|\.js|\.ts|\.md|\.txt)/i.test(
+              stepText
+            ) ||
+            /\b(create|write|generate)\s+(?:the|new|an?)\s+(?:file|code)/i.test(
+              stepText
+            );
+
           let actionInstruction: string;
-          
+
           // Priority: explicit tools array takes precedence
           if (needsCommandExecution) {
-            actionInstruction = 'by making a tool call to exec_terminal with the command. DO NOT describe the result - actually call the tool. Your response MUST include: <tool_call name="exec_terminal" args=\'{"command": "..."}\' />';
+            actionInstruction =
+              'by making a tool call to exec_terminal with the command. DO NOT describe the result - actually call the tool. Your response MUST include: <tool_call name="exec_terminal" args=\'{"command": "..."}\' />';
           } else if (needsFileCreation) {
-            actionInstruction = 'by creating or updating the necessary files using create_file or replace_file tool calls';
+            actionInstruction =
+              "by creating or updating the necessary files using create_file or replace_file tool calls";
           } else if (mentionsExecution && !mentionsFileCreation) {
             // Only use keyword-based detection if tools array is not set and execution is clearly indicated
-            actionInstruction = 'by making a tool call to exec_terminal with the command. DO NOT describe the result - actually call the tool. Your response MUST include: <tool_call name="exec_terminal" args=\'{"command": "..."}\' />';
+            actionInstruction =
+              'by making a tool call to exec_terminal with the command. DO NOT describe the result - actually call the tool. Your response MUST include: <tool_call name="exec_terminal" args=\'{"command": "..."}\' />';
           } else if (mentionsFileCreation && !mentionsExecution) {
             // Only use keyword-based detection if tools array is not set and file creation is clearly indicated
-            actionInstruction = 'by creating or updating the necessary files using create_file or replace_file tool calls';
+            actionInstruction =
+              "by creating or updating the necessary files using create_file or replace_file tool calls";
           } else {
             // Generic instruction that works for both - use when ambiguous
-            actionInstruction = 'by making the appropriate tool call (use create_file/replace_file for files, exec_terminal for commands). DO NOT just describe actions - actually make the tool call';
+            actionInstruction =
+              "by making the appropriate tool call (use create_file/replace_file for files, exec_terminal for commands). DO NOT just describe actions - actually make the tool call";
           }
-          
+
           stageInstructions += `\n**FOCUS**: Complete the current step: ${currentStep.description} ${actionInstruction}. After completing this step, you will move to the next step automatically.`;
 
           // Pre-inject previous-step file content for step 2+ (preserves feature A when adding feature B)
           if (currentStep.stepNumber > 1) {
             const filesFromPreviousSteps: string[] = [];
             if (conversationContext.implementationStepContexts) {
-              for (const [fileName, contexts] of conversationContext.implementationStepContexts) {
+              for (const [
+                fileName,
+                contexts,
+              ] of conversationContext.implementationStepContexts) {
                 const hasPrevious = contexts.some(
                   (cc) => (cc.stepNumber ?? 0) < currentStep.stepNumber
                 );
                 if (hasPrevious) filesFromPreviousSteps.push(fileName);
+              }
+              // Include previous step textual log if available (step_<N>_log.txt)
+              try {
+                const prevStepNum = currentStep.stepNumber - 1;
+                if (prevStepNum >= 1 && conversationContext?.codeContexts) {
+                  const logFileName = `step_${prevStepNum}_log.txt`;
+                  const versions =
+                    conversationContext.codeContexts.get(logFileName);
+                  if (versions) {
+                    const activeLog = versions.find((v) => v.isActive);
+                    if (activeLog) {
+                      try {
+                        const logContent = activeLog.getContentAsString();
+                        if (logContent && logContent.trim().length > 0) {
+                          stageInstructions += `\n\n**PREVIOUS STEP LOG (${logFileName})**:\n`;
+                          stageInstructions += `\n${logContent}\n`;
+                        }
+                      } catch (e) {
+                        // ignore errors getting log content
+                      }
+                    }
+                  }
+                }
+              } catch (e) {
+                // ignore
               }
             }
 
@@ -140,7 +203,7 @@ export class PromptBuilder {
             if (filesFromPreviousSteps.length > 0) {
               stageInstructions += `\n\n**⚠️ CRITICAL - FILES ALREADY CREATED IN PREVIOUS STEPS**:\n`;
               stageInstructions += `The following file(s) ALREADY EXIST from previous steps:\n`;
-              filesFromPreviousSteps.forEach(file => {
+              filesFromPreviousSteps.forEach((file) => {
                 stageInstructions += `- ${file}\n`;
               });
               stageInstructions += `\n**DO NOT use create_file on these files** - use edit_file or replace_file instead to modify them.\n`;
@@ -154,11 +217,16 @@ export class PromptBuilder {
             if (needsFileCreation) {
               // Inject ALL files from previous steps when step modifies files (relaxed matching)
               const stepText = currentStep.description.toLowerCase();
-              const filesToInject = filesFromPreviousSteps.filter((fileName) => {
-                const lower = fileName.toLowerCase();
-                const baseName = fileName.split("/").pop()?.toLowerCase() || lower;
-                return stepText.includes(lower) || stepText.includes(baseName);
-              });
+              const filesToInject = filesFromPreviousSteps.filter(
+                (fileName) => {
+                  const lower = fileName.toLowerCase();
+                  const baseName =
+                    fileName.split("/").pop()?.toLowerCase() || lower;
+                  return (
+                    stepText.includes(lower) || stepText.includes(baseName)
+                  );
+                }
+              );
               // Fallback: if only one file from previous steps, inject it (common: both steps touch same file)
               const filesToInjectFinal =
                 filesToInject.length > 0
@@ -174,26 +242,40 @@ export class PromptBuilder {
                 for (const fileName of filesToInjectFinal) {
                   let content: string | null = null;
                   if (conversationContext.implementationStepContexts) {
-                    const contexts = conversationContext.implementationStepContexts.get(fileName);
+                    const contexts =
+                      conversationContext.implementationStepContexts.get(
+                        fileName
+                      );
                     if (contexts) {
                       const previousSteps = contexts.filter(
                         (cc) => (cc.stepNumber ?? 0) < currentStep.stepNumber
                       );
                       if (previousSteps.length > 0) {
                         const latest = previousSteps.reduce((max, cc) =>
-                          (cc.stepNumber ?? 0) > (max.stepNumber ?? 0) ? cc : max
+                          (cc.stepNumber ?? 0) > (max.stepNumber ?? 0)
+                            ? cc
+                            : max
                         );
                         content = latest.getContentAsString();
                       }
                     }
                   }
                   // Fallback: read from disk if not in implementationStepContexts
-                  if ((!content || content.trim().length === 0) && this.nativeToolsManager) {
+                  if (
+                    (!content || content.trim().length === 0) &&
+                    this.nativeToolsManager
+                  ) {
                     try {
-                      const readResult = await this.nativeToolsManager.callTool("read_file", {
-                        file_path: fileName,
-                      });
-                      if (!readResult?.isError && readResult?.content?.[0]?.text) {
+                      const readResult = await this.nativeToolsManager.callTool(
+                        "read_file",
+                        {
+                          file_path: fileName,
+                        }
+                      );
+                      if (
+                        !readResult?.isError &&
+                        readResult?.content?.[0]?.text
+                      ) {
                         content = readResult.content[0].text;
                       }
                     } catch {
@@ -214,23 +296,23 @@ export class PromptBuilder {
           stageInstructions += `\n\n**PROGRESS PLAN**: Plan exists with ${plan.totalSteps} step(s).`;
         }
       }
-      
+
       // Add code contexts instruction if available
       const codeContexts: CodeContext[] = [];
       if (conversationContext.codeContexts) {
         for (const versions of conversationContext.codeContexts.values()) {
-          const active = versions.find(cc => cc.waitForCreate && cc.isActive);
+          const active = versions.find((cc) => cc.waitForCreate && cc.isActive);
           if (active) {
             codeContexts.push(active);
           }
         }
       }
       if (codeContexts.length > 0) {
-        const fileList = codeContexts.map(cc => cc.name).join(', ');
+        const fileList = codeContexts.map((cc) => cc.name).join(", ");
         stageInstructions += `\n\n**CODE SNIPPETS READY**: The following file(s) have code ready for creation: ${fileList}. Extract the code from conversation history and create these files immediately using create_file. Do NOT restate the problem or ask questions - just create the files.`;
       }
     }
-    
+
     // Build continuation context
     const continuationContext = this.buildContinuationContext(
       conversationContext,
@@ -248,40 +330,61 @@ export class PromptBuilder {
         stage: currentStage,
         stageInstructions: stageInstructions,
         // First principles rules only apply in chat stage
-        firstPrinciplesRules: (currentStage === 'chat' && isFirstPrinciplesMode) ? this.getFirstPrinciplesRules() : undefined,
+        firstPrinciplesRules:
+          currentStage === "chat" && isFirstPrinciplesMode
+            ? this.getFirstPrinciplesRules()
+            : undefined,
         // Clarity assessment criteria only apply in chat stage
-        clarityAssessmentCriteria: (currentStage === 'chat') ? this.getClarityAssessmentCriteria(clarityLevel) : undefined,
+        clarityAssessmentCriteria:
+          currentStage === "chat"
+            ? this.getClarityAssessmentCriteria(clarityLevel)
+            : undefined,
       };
       return await applyTemplate(templateName, templateContext);
     }
 
     // Build plain prompt
-    return stageInstructions + "\n\n" + rulesContext + continuationContext + prompt + toolsContext;
+    return (
+      stageInstructions +
+      "\n\n" +
+      rulesContext +
+      continuationContext +
+      prompt +
+      toolsContext
+    );
   }
 
   /**
    * Build tools context string
    */
   private buildToolsContext(currentStage: WorkflowStage): string {
-    const allTools: Array<{ name: string; description?: string; inputSchema: any; type: "mcp" | "native" }> = [];
-    
+    const allTools: Array<{
+      name: string;
+      description?: string;
+      inputSchema: any;
+      type: "mcp" | "native";
+    }> = [];
+
     if (this.mcpManager) {
       const mcpTools = this.mcpManager.getAllTools();
       mcpTools.forEach((tool) => {
         allTools.push({ ...tool, type: "mcp" });
       });
     }
-    
+
     if (this.nativeToolsManager) {
       const nativeTools = this.nativeToolsManager.getAvailableTools();
       nativeTools.forEach((tool) => {
         allTools.push({ ...tool, type: "native" });
       });
     }
-    
+
     // Filter tools based on current stage
-    const allowedTools = this.stageStateMachine.getAllowedTools(allTools, currentStage);
-    
+    const allowedTools = this.stageStateMachine.getAllowedTools(
+      allTools,
+      currentStage
+    );
+
     if (allowedTools.length === 0) {
       return "";
     }
@@ -302,17 +405,19 @@ export class PromptBuilder {
         }
       }
     });
-    toolsContext += "\nTo call a tool, use the format: <tool_call name=\"tool_name\" args=\"{...}\" />\n";
-    
+    toolsContext +=
+      '\nTo call a tool, use the format: <tool_call name="tool_name" args="{...}" />\n';
+
     // Add stage-specific tool restrictions warning
-    if (currentStage === 'chat' || currentStage === 'assumptions') {
-      const restrictedTools = allTools.filter(t => !allowedTools.includes(t));
+    if (currentStage === "chat" || currentStage === "assumptions") {
+      const restrictedTools = allTools.filter((t) => !allowedTools.includes(t));
       if (restrictedTools.length > 0) {
-        toolsContext += `\n⚠️ NOTE: File modification tools (${restrictedTools.map(t => t.name).join(', ')}) are NOT available in ${currentStage} stage. `;
-        if (currentStage === 'assumptions') {
+        toolsContext += `\n⚠️ NOTE: File modification tools (${restrictedTools.map((t) => t.name).join(", ")}) are NOT available in ${currentStage} stage. `;
+        if (currentStage === "assumptions") {
           toolsContext += "Please provide code snippets instead.\n";
         } else {
-          toolsContext += "Please continue the conversation to understand the requirements.\n";
+          toolsContext +=
+            "Please continue the conversation to understand the requirements.\n";
         }
       }
     }
@@ -323,33 +428,41 @@ export class PromptBuilder {
   /**
    * Build rules context string
    */
-  private buildRulesContext(prompt: string, conversationHistory?: readonly ChatMessage[]): string {
+  private buildRulesContext(
+    prompt: string,
+    conversationHistory?: readonly ChatMessage[]
+  ): string {
     if (!this.rulesManager) {
       return "";
     }
 
     let applicableRules: Rule[] = [];
-    
+
     if (conversationHistory && conversationHistory.length > 0) {
-      applicableRules = this.rulesManager.getApplicableRulesFromHistory(conversationHistory);
-      console.log(`[Rules] Checking rules against conversation history (${conversationHistory.length} messages)`);
+      applicableRules =
+        this.rulesManager.getApplicableRulesFromHistory(conversationHistory);
+      console.log(
+        `[Rules] Checking rules against conversation history (${conversationHistory.length} messages)`
+      );
     }
-    
+
     // Also check current prompt for any new rules that might match
     const currentPromptRules = this.rulesManager.getApplicableRules(prompt);
-    
+
     // Combine and deduplicate rules
     const allRules = new Map<string, Rule>();
-    applicableRules.forEach(rule => allRules.set(rule.id, rule));
-    currentPromptRules.forEach(rule => allRules.set(rule.id, rule));
-    
+    applicableRules.forEach((rule) => allRules.set(rule.id, rule));
+    currentPromptRules.forEach((rule) => allRules.set(rule.id, rule));
+
     applicableRules = Array.from(allRules.values());
-    
+
     if (applicableRules.length > 0) {
-      console.log(`[Rules] Found ${applicableRules.length} applicable rule(s) (from history + current prompt)`);
+      console.log(
+        `[Rules] Found ${applicableRules.length} applicable rule(s) (from history + current prompt)`
+      );
       return this.rulesManager.formatRulesForPrompt(applicableRules);
     }
-    
+
     return "";
   }
 
@@ -376,11 +489,11 @@ export class PromptBuilder {
       if (step.reasoning) {
         continuationContext += `Reasoning: ${step.reasoning.substring(0, 200)}...\n`;
       }
-      step.toolCalls.forEach(toolCall => {
+      step.toolCalls.forEach((toolCall) => {
         continuationContext += `- Called ${toolCall.name} with args: ${JSON.stringify(toolCall.arguments)}\n`;
       });
     });
-    
+
     continuationContext += `\nOriginal task: "${conversationContext.originalPrompt}"\n`;
     continuationContext += `Current step: ${conversationContext.currentStep} of ${conversationContext.maxSteps}\n`;
     continuationContext += `Current stage: ${currentStage}\n`;
@@ -392,23 +505,35 @@ export class PromptBuilder {
   /**
    * Get allowed tools for a stage (for template context)
    */
-  private getAllowedTools(currentStage: WorkflowStage): Array<{ name: string; description?: string; inputSchema: any; type: "mcp" | "native" }> {
-    const allTools: Array<{ name: string; description?: string; inputSchema: any; type: "mcp" | "native" }> = [];
-    
+  private getAllowedTools(
+    currentStage: WorkflowStage
+  ): Array<{
+    name: string;
+    description?: string;
+    inputSchema: any;
+    type: "mcp" | "native";
+  }> {
+    const allTools: Array<{
+      name: string;
+      description?: string;
+      inputSchema: any;
+      type: "mcp" | "native";
+    }> = [];
+
     if (this.mcpManager) {
       const mcpTools = this.mcpManager.getAllTools();
       mcpTools.forEach((tool) => {
         allTools.push({ ...tool, type: "mcp" });
       });
     }
-    
+
     if (this.nativeToolsManager) {
       const nativeTools = this.nativeToolsManager.getAvailableTools();
       nativeTools.forEach((tool) => {
         allTools.push({ ...tool, type: "native" });
       });
     }
-    
+
     return this.stageStateMachine.getAllowedTools(allTools, currentStage);
   }
 
@@ -463,7 +588,9 @@ After restating with first principles, proceed with normal chat stage workflow:
    * Get clarity assessment criteria based on clarity level
    * @param clarityLevel 0=minimal, 1=user friendly, 2=full (default)
    */
-  private getClarityAssessmentCriteria(clarityLevel: number = 2): string | undefined {
+  private getClarityAssessmentCriteria(
+    clarityLevel: number = 2
+  ): string | undefined {
     if (clarityLevel === 0) {
       // Level 0: Minimal - ask only if request is genuinely unclear
       return `
@@ -503,4 +630,3 @@ Ask questions ONLY when:
     }
   }
 }
-

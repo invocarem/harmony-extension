@@ -5,6 +5,10 @@ import { TransitionHandler } from "./transitionHandler";
 import { NativeToolsManager } from "../nativeToolManager";
 import { ChatManager } from "./chatManager";
 import { AssumptionsManager } from "./assumptionsManager";
+import { ConversationContextManager } from "./conversationContext";
+import { StageDetector } from "./stageDetector";
+import { ImplementationManager } from "./implementationManager";
+import { logStepInfo } from "../utils/logger";
 export type WorkflowStage = "chat" | "assumptions" | "implementation";
 
 /**
@@ -33,6 +37,8 @@ export interface TransitionContext {
   nativeToolsManager?: NativeToolsManager;
   chatManager?: ChatManager;
   assumptionsManager?: AssumptionsManager;
+  contextManager?: ConversationContextManager;
+  implementationManager?: ImplementationManager;
 }
 
 /**
@@ -56,202 +62,32 @@ interface TransitionRule {
 }
 
 /**
- * ============================================
- * TRANSITION ACTION FUNCTIONS
- * ============================================
- * Each action function receives context and decides whether to proceed with transition
- * Can perform side effects using transitionHandler
+ * NOTE: Transition actions are implemented inline in the TRANSITION_TABLE below.
+ * Inline callbacks keep the table declarative while allowing access to managers
+ * provided in the TransitionContext at runtime.
  */
 
 /**
- * Action: Move to assumptions from chat
- * For explicit @cmd:move_to_assumptions - always transition (user's direct intent)
- * For natural language - check if there are unanswered problems
- * Side effect: Save aggregated prompts
+ * Helper for verbose_info transitions.
+ * Returns the current stage to indicate a handled self-loop (no stage change).
+ * This makes the intent explicit and centralizes any verbose-info side-effects
+ * (e.g. asking the transitionHandler to generate or log verbose diagnostics).
  */
-const moveToAssumptionsFromChat: TransitionAction = async (
-  context
-): Promise<WorkflowStage | null> => {
-  const {
-    prompt,
-    currentStage,
-    conversationHistory,
-    transitionHandler,
-    nativeToolsManager,
-    chatManager,
-  } = context;
-
-  // Check if this is an explicit @cmd: command
-  const isExplicitCommand = /^@cmd:move_to_assumptions/i.test(prompt);
-
-  const hasMeaningfulUserQuery = (): boolean => {
-    if (!conversationHistory || conversationHistory.length === 0) {
-      return false;
+const verboseInfoAction: TransitionAction = async (ctx) => {
+  console.log(`[Action] verbose_info: staying in ${ctx.currentStage}`);
+  // If a transitionHandler supports a verbose/info method, call it safely.
+  try {
+    // Not all transition handlers may implement handleVerboseInfo; check first.
+    // This is intentionally non-blocking: failures should not change stage.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const th: any = ctx.transitionHandler;
+    if (th && typeof th.handleVerboseInfo === "function") {
+      await th.handleVerboseInfo(ctx.currentStage, ctx.prompt);
     }
-
-    const isTrivialGreeting = (text: string): boolean =>
-      /^(hi|hello|hey|greetings?|good\s+(morning|afternoon|evening|day))$/i.test(
-        text
-      );
-
-    const isStageTransitionCommand = (text: string): boolean =>
-      /\b(move\s+to|go\s+to|goto|start|begin)\s+(assumptions|analysis|analyze|implementation|implement|chat|discussion|clarification)\b/i.test(
-        text
-      );
-
-    const isCommand = (text: string): boolean => /^@cmd:/i.test(text);
-
-    return conversationHistory.some((message) => {
-      if (message.role !== "user") {
-        return false;
-      }
-      const content = message.content?.trim() ?? "";
-      if (!content) {
-        return false;
-      }
-      if (
-        isCommand(content) ||
-        isStageTransitionCommand(content) ||
-        isTrivialGreeting(content)
-      ) {
-        return false;
-      }
-      return true;
-    });
-  };
-
-  // Validate transition: require either unanswered problems OR meaningful query
-  // This prevents transition from fresh chat or trivial greetings
-  if (chatManager) {
-    const hasProblems = chatManager.hasUnansweredProblems();
-    const allowTransition = chatManager.allowMoveToAssumptions();
-    const allowTransitionFromHistory =
-      isExplicitCommand && hasMeaningfulUserQuery();
-
-    if (!hasProblems && !allowTransition && !allowTransitionFromHistory) {
-      console.log(
-        `[Action] move_to_assumptions: Staying in chat (no unanswered problems or meaningful queries)`
-      );
-      return "chat" as WorkflowStage; // Stay in chat
-    }
+  } catch (e: any) {
+    console.error("[Action] verbose_info: error generating verbose info", e);
   }
-
-  console.log(
-    `[Action] move_to_assumptions: chat -> assumptions${isExplicitCommand ? " (explicit command)" : ""}`
-  );
-
-  // Perform side effect: save aggregated prompts
-  if (transitionHandler) {
-    await transitionHandler.handleChatToAssumptionsTransition(
-      prompt,
-      conversationHistory,
-      nativeToolsManager
-    );
-  }
-
-  return "assumptions" as WorkflowStage;
-};
-
-/**
- * Action: Move to implementation from assumptions
- * Side effect: Save assumptions data
- */
-const moveToImplementation: TransitionAction = async (
-  context
-): Promise<WorkflowStage | null> => {
-  const { prompt, transitionHandler, nativeToolsManager, assumptionsManager } =
-    context;
-
-  // Validate transition: require plan to be created or updated
-  // This prevents premature transition before assumptions analysis is complete
-  if (assumptionsManager && !assumptionsManager.allowMoveToImplementation()) {
-    console.log(
-      `[Action] move_to_implementation: Staying in assumptions (no plan created yet)`
-    );
-    return "assumptions" as WorkflowStage; // Stay in assumptions
-  }
-
-  console.log(`[Action] move_to_implementation: assumptions -> implementation`);
-
-  // Perform side effect: save assumptions data
-  if (transitionHandler) {
-    await transitionHandler.handleAssumptionsToImplementationTransition(
-      prompt,
-      nativeToolsManager
-    );
-  }
-
-  return "implementation" as WorkflowStage;
-};
-
-/**
- * Action: Move to chat
- */
-const moveToChat: TransitionAction = (context) => {
-  console.log(`[Action] move_to_chat: ${context.currentStage} -> chat`);
-  return "chat";
-};
-
-/**
- * Action: Next step (stay in implementation)
- */
-const nextStep: TransitionAction = (context) => {
-  console.log(`[Action] step: staying in implementation`);
-  return "implementation";
-};
-
-/**
- * Action: Auto mode (stay in implementation)
- */
-const autoMode: TransitionAction = (context) => {
-  console.log(`[Action] auto: staying in implementation`);
-  return "implementation";
-};
-
-/**
- * Action: Verbose info (stay in current stage)
- */
-const verboseInfo: TransitionAction = (context) => {
-  console.log(`[Action] verbose_info: staying in ${context.currentStage}`);
-  return context.currentStage;
-};
-
-/**
- * Action: Restate user's problem (stay in chat stage)
- * Used when user provides a regular prompt in chat stage
- */
-const restateAction: TransitionAction = async (
-  context
-): Promise<WorkflowStage> => {
-  console.log(
-    `[Action] restate: staying in chat - will restate user's problem and clarify`
-  );
-
-  // Perform side effect: ensure ChatManager is ready
-  if (context.transitionHandler) {
-    await context.transitionHandler.handleChatPromptAction();
-  }
-
-  return "chat" as WorkflowStage;
-};
-
-/**
- * Action: Generate or update plan (stay in assumptions stage)
- * Used when user provides a regular prompt in assumptions stage
- */
-const generateOrUpdatePlanAction: TransitionAction = async (
-  context
-): Promise<WorkflowStage> => {
-  console.log(
-    `[Action] generate_or_update_plan: staying in assumptions - will generate/update plan`
-  );
-
-  // Perform side effect: ensure AssumptionsManager is ready
-  if (context.transitionHandler) {
-    await context.transitionHandler.handleAssumptionsPromptAction();
-  }
-
-  return "assumptions" as WorkflowStage;
+  return ctx.currentStage;
 };
 
 /**
@@ -266,21 +102,105 @@ const TRANSITION_TABLE: TransitionRule[] = [
     from: "assumptions",
     to: "implementation",
     trigger: "move_to_implementation",
-    action: moveToImplementation,
+    action: async (ctx) => {
+      const {
+        prompt,
+        transitionHandler,
+        nativeToolsManager,
+        assumptionsManager,
+      } = ctx;
+      if (
+        assumptionsManager &&
+        !assumptionsManager.allowMoveToImplementation()
+      ) {
+        console.log(
+          `[Action] move_to_implementation: Staying in assumptions (no plan created yet)`
+        );
+        return "assumptions" as WorkflowStage;
+      }
+      if (transitionHandler) {
+        await transitionHandler.handleAssumptionsToImplementationTransition(
+          prompt,
+          nativeToolsManager
+        );
+      }
+      return "implementation" as WorkflowStage;
+    },
     priority: 100,
   },
   {
     from: "implementation",
     to: "chat",
     trigger: "move_to_chat",
-    action: moveToChat,
+    action: (ctx) => {
+      console.log(`[Action] move_to_chat: ${ctx.currentStage} -> chat`);
+      return "chat";
+    },
     priority: 100,
   },
   {
     from: "chat",
     to: "assumptions",
     trigger: "move_to_assumptions",
-    action: moveToAssumptionsFromChat,
+    action: async (ctx) => {
+      const {
+        prompt,
+        conversationHistory,
+        transitionHandler,
+        nativeToolsManager,
+        chatManager,
+      } = ctx;
+      const isExplicitCommand = /^@cmd:move_to_assumptions/i.test(prompt);
+
+      const hasMeaningfulUserQuery = (): boolean => {
+        if (!conversationHistory || conversationHistory.length === 0)
+          return false;
+        const isTrivialGreeting = (text: string): boolean =>
+          /^(hi|hello|hey|greetings?|good\s+(morning|afternoon|evening|day))$/i.test(
+            text
+          );
+        const isStageTransitionCommand = (text: string): boolean =>
+          /\b(move\s+to|go\s+to|goto|start|begin)\s+(assumptions|analysis|analyze|implementation|implement|chat|discussion|clarification)\b/i.test(
+            text
+          );
+        const isCommand = (text: string): boolean => /^@cmd:/i.test(text);
+        return conversationHistory.some((message) => {
+          if (message.role !== "user") return false;
+          const content = message.content?.trim() ?? "";
+          if (!content) return false;
+          if (
+            isCommand(content) ||
+            isStageTransitionCommand(content) ||
+            isTrivialGreeting(content)
+          )
+            return false;
+          return true;
+        });
+      };
+
+      if (chatManager) {
+        const hasProblems = chatManager.hasUnansweredProblems();
+        const allowTransition = chatManager.allowMoveToAssumptions();
+        const allowTransitionFromHistory =
+          isExplicitCommand && hasMeaningfulUserQuery();
+        if (!hasProblems && !allowTransition && !allowTransitionFromHistory) {
+          console.log(
+            `[Action] move_to_assumptions: Staying in chat (no unanswered problems or meaningful queries)`
+          );
+          return "chat" as WorkflowStage;
+        }
+      }
+
+      if (transitionHandler) {
+        await transitionHandler.handleChatToAssumptionsTransition(
+          prompt,
+          conversationHistory,
+          nativeToolsManager
+        );
+      }
+
+      return "assumptions" as WorkflowStage;
+    },
     priority: 100,
   },
 
@@ -289,14 +209,84 @@ const TRANSITION_TABLE: TransitionRule[] = [
     from: "implementation",
     to: "implementation",
     trigger: "step",
-    action: nextStep,
+    action: async (ctx): Promise<WorkflowStage | null> => {
+      console.log(`[Action] step: staying in implementation`);
+      try {
+        const impl = ctx.implementationManager;
+        const nativeTools = ctx.nativeToolsManager;
+        const contextMgr = ctx.contextManager;
+
+        if (impl) {
+          // Ensure there's a current step or advance to one
+          let current = impl.getCurrentStep();
+          if (!current) {
+            const advanced = impl.advanceToNextStep();
+            current = advanced || undefined;
+          } else if (current.status === "pending") {
+            // Mark pending step as in_progress
+            impl.advanceToNextStep();
+          }
+
+          // Start execution tracking for the current step
+          const stepNumber = current?.stepNumber;
+          if (stepNumber !== undefined) {
+            impl.startStepTracking(stepNumber);
+
+            // Generate diagnostic step file if possible (non-blocking)
+            if (nativeTools && contextMgr) {
+              await impl.generateImplementationStepFile(
+                stepNumber,
+                contextMgr.getCodeContexts ? contextMgr.getCodeContexts() : [],
+                nativeTools,
+                contextMgr
+              );
+            }
+          }
+        }
+      } catch (e: any) {
+        console.error(`[Action] step: error executing implementation step:`, e);
+      }
+      return "implementation";
+    },
     priority: 100,
   },
   {
     from: "implementation",
     to: "implementation",
     trigger: "auto",
-    action: autoMode,
+    action: async (ctx): Promise<WorkflowStage | null> => {
+      console.log(`[Action] auto: staying in implementation (auto mode)`);
+      try {
+        const impl = ctx.implementationManager;
+        const nativeTools = ctx.nativeToolsManager;
+        const contextMgr = ctx.contextManager;
+
+        if (impl) {
+          // Ensure there's a current step or advance to one
+          let current = impl.getCurrentStep();
+          if (!current) {
+            current = impl.advanceToNextStep() || undefined;
+          }
+
+          // Start execution tracking and generate diagnostic file for current step
+          const stepNumber = current?.stepNumber;
+          if (stepNumber !== undefined) {
+            impl.startStepTracking(stepNumber);
+            if (nativeTools && contextMgr) {
+              await impl.generateImplementationStepFile(
+                stepNumber,
+                contextMgr.getCodeContexts ? contextMgr.getCodeContexts() : [],
+                nativeTools,
+                contextMgr
+              );
+            }
+          }
+        }
+      } catch (e: any) {
+        console.error(`[Action] auto: error executing auto implementation:`, e);
+      }
+      return "implementation";
+    },
     priority: 100,
   },
 
@@ -305,21 +295,21 @@ const TRANSITION_TABLE: TransitionRule[] = [
     from: "chat",
     to: "chat",
     trigger: "verbose_info",
-    action: verboseInfo,
+    action: verboseInfoAction,
     priority: 100,
   },
   {
     from: "assumptions",
     to: "assumptions",
     trigger: "verbose_info",
-    action: verboseInfo,
+    action: verboseInfoAction,
     priority: 100,
   },
   {
     from: "implementation",
     to: "implementation",
     trigger: "verbose_info",
-    action: verboseInfo,
+    action: verboseInfoAction,
     priority: 100,
   },
 
@@ -328,14 +318,22 @@ const TRANSITION_TABLE: TransitionRule[] = [
     from: "chat",
     to: "chat",
     trigger: "prompt",
-    action: restateAction,
+    action: async (ctx) => {
+      if (ctx.transitionHandler)
+        await ctx.transitionHandler.handleChatPromptAction();
+      return "chat" as WorkflowStage;
+    },
     priority: 10,
   },
   {
     from: "assumptions",
     to: "assumptions",
     trigger: "plan",
-    action: generateOrUpdatePlanAction,
+    action: async (ctx) => {
+      if (ctx.transitionHandler)
+        await ctx.transitionHandler.handleAssumptionsPromptAction();
+      return "assumptions" as WorkflowStage;
+    },
     priority: 10,
   },
 
@@ -362,6 +360,40 @@ const VALID_TRANSITIONS: Map<WorkflowStage, Set<WorkflowStage>> = new Map([
  * Uses a transition table instead of if-else chains
  */
 export class StageStateMachine {
+  // Optional orchestrator references (set via setupOrchestrator)
+  private transitionHandler?: TransitionHandler;
+  private contextManager?: ConversationContextManager;
+  private stageDetector?: StageDetector;
+  private chatManager?: ChatManager;
+  private assumptionsManager?: AssumptionsManager;
+  private implementationManager?: ImplementationManager;
+
+  /**
+   * Configure orchestration helpers so the state machine can perform side-effects
+   * Previously handled by StateTransitionManager; this keeps transition logic
+   * colocated in the state machine module.
+   */
+  setupOrchestrator(
+    contextManager: ConversationContextManager,
+    stageDetector: StageDetector,
+    chatManager: ChatManager,
+    assumptionsManager: AssumptionsManager,
+    implementationManager: ImplementationManager
+  ) {
+    this.contextManager = contextManager;
+    this.stageDetector = stageDetector;
+    this.chatManager = chatManager;
+    this.assumptionsManager = assumptionsManager;
+    this.implementationManager = implementationManager;
+    this.transitionHandler = new TransitionHandler(
+      contextManager,
+      chatManager,
+      assumptionsManager,
+      implementationManager
+    );
+    // Wire transition handler into the detector
+    this.stageDetector.setTransitionHandler(this.transitionHandler);
+  }
   /**
    * Check if a transition from one stage to another is valid
    */
@@ -531,6 +563,8 @@ export class StageStateMachine {
       nativeToolsManager,
       chatManager,
       assumptionsManager,
+      contextManager: this.contextManager,
+      implementationManager: this.implementationManager,
     };
 
     const targetStage = await transition.action(transitionContext);
@@ -563,6 +597,177 @@ export class StageStateMachine {
       `[StageStateMachine] ✅ Transition approved: ${currentStage} -> ${targetStage} (trigger: ${trigger})`
     );
     return targetStage;
+  }
+
+  /* Orchestration helpers (moved from StateTransitionManager)
+   * These methods use the orchestrator set by `setupOrchestrator`.
+   */
+  async initializeConversation(
+    prompt: string,
+    conversationHistory?: readonly ChatMessage[]
+  ): Promise<void> {
+    if (!this.contextManager) return;
+
+    if (!this.contextManager.hasContext()) {
+      this.contextManager.initialize(prompt, "chat");
+      const context = this.contextManager.getContext();
+
+      if (context && context.currentStage === "chat") {
+        console.log(`[Harmony] Initializing conversation at chat stage`);
+        if (this.chatManager && !this.chatManager.hasContent()) {
+          this.chatManager.initialize();
+        }
+      }
+
+      // Detect if we should transition further from chat
+      const updatedContext = this.contextManager.getContext();
+      if (updatedContext && this.stageDetector) {
+        const detectedStage = await this.stageDetector.detectStage(
+          prompt,
+          conversationHistory,
+          updatedContext
+        );
+        if (detectedStage !== "chat") {
+          console.log(
+            `[Harmony] Stage transition detected at start: chat -> ${detectedStage}`
+          );
+          this.contextManager.updateStage(detectedStage, prompt);
+        }
+      }
+
+      const finalContext = this.contextManager.getContext();
+      console.log(
+        `[Harmony] Starting new conversation in stage: ${finalContext?.currentStage || "chat"}`
+      );
+
+      if (
+        finalContext?.currentStage === "chat" &&
+        this.chatManager &&
+        !this.chatManager.hasContent()
+      ) {
+        this.chatManager.initialize();
+      }
+    }
+  }
+
+  async checkAndPerformStageTransition(
+    prompt: string,
+    conversationHistory?: readonly ChatMessage[],
+    nativeToolsManager?: NativeToolsManager
+  ): Promise<{ shouldSkipLLM: boolean; message?: string }> {
+    if (!this.contextManager || !this.stageDetector) {
+      return { shouldSkipLLM: false };
+    }
+
+    const context = this.contextManager.getContext();
+    if (!context) return { shouldSkipLLM: false };
+
+    const previousStage = context.currentStage;
+    console.log(
+      `[Harmony] Checking stage transition. Current stage: ${previousStage}, Prompt: "${prompt.substring(0, 50)}..."`
+    );
+
+    const detectedStage = await this.stageDetector.detectStage(
+      prompt,
+      conversationHistory,
+      context,
+      undefined,
+      nativeToolsManager
+    );
+
+    console.log(
+      `[Harmony] State machine detected stage: ${detectedStage} (was: ${previousStage})`
+    );
+
+    if (detectedStage !== previousStage) {
+      console.log(
+        `[Harmony] ✅ STAGE TRANSITION APPROVED: ${previousStage} -> ${detectedStage}`
+      );
+
+      const isTransitionCommand =
+        /\b(move\s+to|go\s+to|goto|start|begin)\s+(assumptions|analysis|analyze|implementation|implement|chat)\b/i.test(
+          prompt
+        );
+
+      if (detectedStage === "implementation" && this.transitionHandler) {
+        await this.transitionHandler.validateImplementationTransition();
+      }
+
+      this.contextManager.updateStage(detectedStage, prompt);
+
+      const updatedContext = this.contextManager.getContext();
+      if (updatedContext?.currentStage === detectedStage) {
+        console.log(
+          `[Harmony] ✅ Stage successfully updated in context: ${updatedContext.currentStage}`
+        );
+        if (isTransitionCommand) {
+          console.log(
+            `[Harmony] 🔄 Transitioned to ${detectedStage} stage with transition command - skipping LLM call`
+          );
+          return {
+            shouldSkipLLM: true,
+            message: `✓ Transitioned to ${detectedStage} stage`,
+          };
+        }
+      } else {
+        console.error(
+          `[Harmony] ❌ ERROR: Stage update failed! Expected: ${detectedStage}, Got: ${updatedContext?.currentStage}`
+        );
+      }
+    } else {
+      console.log(
+        `[Harmony] Stage remains: ${previousStage} (no transition needed)`
+      );
+    }
+
+    return { shouldSkipLLM: false };
+  }
+
+  async handleContinuation(
+    prompt: string,
+    conversationHistory?: readonly ChatMessage[]
+  ): Promise<void> {
+    if (!this.contextManager || !this.stageDetector) return;
+    const context = this.contextManager.getContext();
+    if (!context) return;
+
+    const detectedStage = await this.stageDetector.detectStage(
+      prompt,
+      conversationHistory,
+      context
+    );
+    const previousStage = context.currentStage;
+
+    if (detectedStage !== previousStage) {
+      console.log(
+        `[Harmony] Stage transition: ${previousStage} -> ${detectedStage}`
+      );
+      this.contextManager.updateStage(detectedStage, prompt);
+    }
+  }
+
+  logCurrentStageInfo(isContinuation: boolean): void {
+    if (!this.contextManager) return;
+    const context = this.contextManager.getContext();
+    if (context && isContinuation) {
+      logStepInfo(
+        context.currentStep,
+        context.maxSteps,
+        context.originalPrompt
+      );
+    }
+  }
+
+  isMaxStepsExceeded(): boolean {
+    if (!this.contextManager) return false;
+    const context = this.contextManager.getContext();
+    return context ? context.currentStep > context.maxSteps : false;
+  }
+
+  getCurrentStage(): WorkflowStage {
+    if (!this.contextManager) return "chat";
+    const context = this.contextManager.getContext();
+    return context?.currentStage || "chat";
   }
 
   /**
@@ -696,11 +901,11 @@ export class StageStateMachine {
 2. **Edge cases** – List edge cases and special considerations (place after Assumptions, still before the Implementation plan block).
 3. **Implementation plan block** – Contains ONLY the numbered steps, with the exact header and footer below.
 
-**Implementation plan block (strict format):**
-- **Header**: Start the block with exactly: **Implementation plan (begin)**
-- **Content**: Include ONLY "Step 1:", "Step 2:", "Step 3:" lines (and their descriptions). Do NOT put **Assumptions** or **Edge cases** inside this block; those belong above.
-- **Output Expectation": Each step MUST produce a tangible file output named step_[N]_result.txt
-- **Footer**: End the block with exactly: **Implementation plan (end)**
+  **Implementation plan block (strict format):**
+  - **Header**: Start the block with exactly: **Implementation plan (begin)**
+  - **Content**: Include ONLY "Step 1:", "Step 2:", "Step 3:" lines (and their descriptions). Do NOT put **Assumptions** or **Edge cases** inside this block; those belong above.
+  - **Log**: Inside the Implementation plan block, each "Step N:" line MUST include an explicit "Log:" line instructing creation of 'step_[N]_log.txt' containing status, timestamp, and relevant code/context snapshots (and any __created__/__edited__/__replaced__ entries).
+  - **Footer**: End the block with exactly: **Implementation plan (end)**
 
 **Creating the numbered steps:**
 - **Format steps clearly** - You MUST format your plan steps as "Step 1:", "Step 2:", "Step 3:" (with colon) so the system can detect complexity correctly
@@ -721,12 +926,16 @@ export class StageStateMachine {
 
 **PRIMARY GOAL**: Execute the implementation plan from Analysis stage
 
-**EXECUTION RULES**:
-1. Restate current PlanStep description. 
-2. Work on current PlanStep to generate code or context. display only the code changes needed.
-3. Do not work on previous or future steps.
-4. All tools are available in this stage. Use appropriate tools, see TOOL USAGE GUIDE below.
-5. Each step MUST produce a tangible file output named step_[N]_result.txt, N is step number.
+**EXECUTION RULES For Each Step**:
+1. Implement and generate code or context. 
+2. Do not work on previous or future steps.
+3. All tools are available in this step. Use appropriate tools, see TOOL USAGE GUIDE below.
+4. You MUST produce a tangible file output named step_[N]_log.txt, N is current step number.
+5. You MUST save status message in step_[N]_log.txt, N is current step number.:
+   - "__created__: [file_path]" for create_file
+   - "__edited__: [file_path]" for edit_file
+   - "__replaced__: [file_path]" for replace_file
+   - "__executed__: [command]" for exec_terminal
 
 
 ${
@@ -802,11 +1011,6 @@ Example with multiple tool calls:
 ✅ DO NOT read files that should be created (just create them)
 ✅ If step requires multiple files, create them in logical order      
 
-**COMPLETION CHECK**:
-After each tool call, verify:
-- File created/modified successfully
-- Terminal command executed properly
-- Step objectives achieved
 
 **FINALIZATION**: Follow the plan, when ALL plan steps are complete:
 1. Verify all user requests are addressed

@@ -27,7 +27,6 @@ import {
   ChatManager,
   AssumptionsManager,
   ImplementationManager,
-  StateTransitionManager,
   ResponseProcessor,
   ToolExecutionCoordinator,
 } from "./harmony";
@@ -97,7 +96,7 @@ export class HarmonyClient {
   private autoTransitionManager: AutoTransitionManager;
 
   // Extracted manager components (for refactored callServer)
-  private stateTransitionManager: StateTransitionManager;
+  // state transition orchestration is provided by `stageStateMachine` now
   private responseProcessor: ResponseProcessor;
   private toolExecutionCoordinator: ToolExecutionCoordinator;
 
@@ -154,8 +153,8 @@ export class HarmonyClient {
     this.responseValidator = new ResponseValidator();
     this.continuationManager = new ContinuationManager();
 
-    // Initialize extracted manager components
-    this.stateTransitionManager = new StateTransitionManager(
+    // Initialize orchestration on the stage state machine (replaces StateTransitionManager)
+    this.stageStateMachine.setupOrchestrator(
       this.contextManager,
       this.stageDetector,
       this.chatManager,
@@ -211,11 +210,14 @@ export class HarmonyClient {
 
       // Check if we should skip LLM call (e.g., when transitioning to assumptions)
       if (initResult.shouldSkipLLM) {
-        const currentStage = this.stateTransitionManager.getCurrentStage();
+        const currentStage = this.stageStateMachine.getCurrentStage();
         const context = this.contextManager.getContext();
-        console.log(`[Harmony] Skipping LLM call after stage transition to ${currentStage}`);
+        console.log(
+          `[Harmony] Skipping LLM call after stage transition to ${currentStage}`
+        );
         return {
-          content: initResult.message || `Transitioned to ${currentStage} stage.`,
+          content:
+            initResult.message || `Transitioned to ${currentStage} stage.`,
           verboseInfo: this.buildVerboseInfo(currentStage, context, {
             fileExtractionResult,
           }),
@@ -223,10 +225,10 @@ export class HarmonyClient {
       }
 
       // Phase 2: Prepare for LLM call
-      const currentStage = this.stateTransitionManager.getCurrentStage();
-      this.stateTransitionManager.logCurrentStageInfo(isContinuation);
+      const currentStage = this.stageStateMachine.getCurrentStage();
+      this.stageStateMachine.logCurrentStageInfo(isContinuation);
 
-      if (this.stateTransitionManager.isMaxStepsExceeded()) {
+      if (this.stageStateMachine.isMaxStepsExceeded()) {
         return this.buildMaxStepsExceededResponse();
       }
 
@@ -320,14 +322,14 @@ export class HarmonyClient {
     if (!isContinuation) {
       // Initialize new conversation
       if (!this.contextManager.hasContext()) {
-        await this.stateTransitionManager.initializeConversation(
+        await this.stageStateMachine.initializeConversation(
           prompt,
           conversationHistory
         );
         return { shouldSkipLLM: false };
       } else {
         // Check for stage transitions in existing context
-        return await this.stateTransitionManager.checkAndPerformStageTransition(
+        return await this.stageStateMachine.checkAndPerformStageTransition(
           prompt,
           conversationHistory,
           this.nativeToolsManager
@@ -335,7 +337,7 @@ export class HarmonyClient {
       }
     } else {
       // Handle continuation stage check
-      await this.stateTransitionManager.handleContinuation(
+      await this.stageStateMachine.handleContinuation(
         prompt,
         conversationHistory
       );
@@ -2232,11 +2234,9 @@ export class HarmonyClient {
     try {
       // Build verboseInfo for the current stage (after transition)
       // Note: conversationHistory not available in this context, pass undefined
-      const verboseInfo = this.buildVerboseInfo(
-        context.currentStage,
-        context,
-        { fileExtractionResult }
-      );
+      const verboseInfo = this.buildVerboseInfo(context.currentStage, context, {
+        fileExtractionResult,
+      });
 
       console.log(
         `[Harmony] 📋 Sending ${context.currentStage} verbose info to webview (after transition)`

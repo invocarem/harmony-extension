@@ -328,11 +328,15 @@ export class HarmonyAssistant {
     try {
       // Auto-detect vague prompts in assumptions stage and convert to @cmd:plan
       // This must happen BEFORE command extraction to avoid adding to history
-      const currentStageForVagueDetection = this.harmonyClient.getCurrentStage();
+      const currentStageForVagueDetection =
+        this.harmonyClient.getCurrentStage();
       if (currentStageForVagueDetection === "assumptions") {
-        const vagueTriggers = /^(next|continue|go|proceed|okay|ok|yes|sure|alright|start)$/i;
+        const vagueTriggers =
+          /^(next|continue|go|proceed|okay|ok|yes|sure|alright|start)$/i;
         if (vagueTriggers.test(text.trim())) {
-          console.log(`[Harmony] Auto-converting vague prompt "${text}" to @cmd:plan`);
+          console.log(
+            `[Harmony] Auto-converting vague prompt "${text}" to @cmd:plan`
+          );
           text = "@cmd:plan";
         }
       }
@@ -362,13 +366,16 @@ export class HarmonyAssistant {
               const currentStage = this.harmonyClient.getCurrentStage();
               const contextManager = (this.harmonyClient as any).contextManager;
               const context = contextManager?.getContext?.();
-              const displayStage = currentStage as 'chat' | 'assumptions' | 'implementation';
+              const displayStage = currentStage as
+                | "chat"
+                | "assumptions"
+                | "implementation";
               await this.webviewManager.sendMessage({
                 content: commandResult.message,
                 verboseInfo: {
                   stage: displayStage,
                   hasPlan: context?.hasPlan || false,
-                }
+                },
               });
             }
             return;
@@ -540,7 +547,9 @@ export class HarmonyAssistant {
         };
         this.conversationManager.addMessage(userMessage);
       } else {
-        console.log(`[Harmony] Command detected - not adding to conversation history: "${text.substring(0, 50)}..."`);
+        console.log(
+          `[Harmony] Command detected - not adding to conversation history: "${text.substring(0, 50)}..."`
+        );
       }
 
       console.log(
@@ -558,10 +567,7 @@ export class HarmonyAssistant {
       if (currentStage === "chat" || !currentStage) {
         // Initialize ChatManager if not already initialized (for chat stage)
         // Only initialize if it doesn't already have content to avoid losing existing queries/files
-        if (
-          !currentStage &&
-          !chatManager.hasContent()
-        ) {
+        if (!currentStage && !chatManager.hasContent()) {
           chatManager.initialize();
         }
 
@@ -649,11 +655,10 @@ export class HarmonyAssistant {
       const shouldActivateFirstPrinciples =
         this.harmonyClient.shouldActivateFirstPrinciples(finalMessage) ||
         this.config.firstPrinciplesMode === true;
-      const wasFirstPrinciplesActive = this.harmonyClient.isFirstPrinciplesMode();
-      const supportsFirstPrinciples =
-        currentStage === "chat";
-      const leftChatStage =
-        initialStage === "chat" && currentStage !== "chat";
+      const wasFirstPrinciplesActive =
+        this.harmonyClient.isFirstPrinciplesMode();
+      const supportsFirstPrinciples = currentStage === "chat";
+      const leftChatStage = initialStage === "chat" && currentStage !== "chat";
 
       if (
         supportsFirstPrinciples &&
@@ -667,7 +672,10 @@ export class HarmonyAssistant {
         console.log(`[Harmony] First-principles mode activated (${reason})`);
       }
 
-      if (leftChatStage || (!supportsFirstPrinciples && wasFirstPrinciplesActive)) {
+      if (
+        leftChatStage ||
+        (!supportsFirstPrinciples && wasFirstPrinciplesActive)
+      ) {
         this.harmonyClient.setFirstPrinciplesMode(false);
         console.log(
           `[Harmony] First-principles mode deactivated (stage change to ${currentStage})`
@@ -681,9 +689,7 @@ export class HarmonyAssistant {
         case "chat":
           templateName = "chat";
           if (firstPrinciplesActive) {
-            console.log(
-              `[Harmony] First-principles mode active in chat stage`
-            );
+            console.log(`[Harmony] First-principles mode active in chat stage`);
           }
           break;
         case "assumptions":
@@ -745,7 +751,11 @@ export class HarmonyAssistant {
 
       // Process response and update problems in ChatManager if in chat stage
       if (currentStage === "chat" && cleanedContent) {
-        chatManager.processResponse(cleanedContent, cleanMessage, response.toolCalls);
+        chatManager.processResponse(
+          cleanedContent,
+          cleanMessage,
+          response.toolCalls
+        );
       }
 
       await this.webviewManager.sendMessage(cleanedResponse);
@@ -919,9 +929,10 @@ export class HarmonyAssistant {
         }
 
         // Execute transition directly - no LLM call needed
-        const transitionHandler = (this.harmonyClient as any).stateTransitionManager.transitionHandler;
+        const transitionHandler = (this.harmonyClient as any).stageStateMachine
+          .transitionHandler;
         const contextManager = (this.harmonyClient as any).contextManager;
-        
+
         // Execute transition side effects based on current stage
         if (currentStage === "assumptions") {
           await transitionHandler.handleAssumptionsToImplementationTransition(
@@ -929,13 +940,13 @@ export class HarmonyAssistant {
             this.nativeToolsManager
           );
         }
-        
+
         // Validate implementation has a plan
         await transitionHandler.validateImplementationTransition();
-        
+
         // Update stage in context
         contextManager.updateStage("implementation", "move to implementation");
-        
+
         return {
           handled: true,
           shouldReturn: true,
@@ -945,11 +956,12 @@ export class HarmonyAssistant {
 
       case "move_to_assumptions": {
         const currentStage = this.harmonyClient.getCurrentStage();
-        const transitionHandler = (this.harmonyClient as any).stateTransitionManager.transitionHandler;
+        const transitionHandler = (this.harmonyClient as any).stageStateMachine
+          .transitionHandler;
         const contextManager = (this.harmonyClient as any).contextManager;
         const conversationHistory = this.conversationManager.getHistory();
         const chatManager = (this.harmonyClient as any).chatManager;
-        
+
         // Use state machine to determine if transition should happen
         // This respects hasUnansweredProblems() check
         const nextStage = await this.stageStateMachine.determineNextStage(
@@ -961,7 +973,7 @@ export class HarmonyAssistant {
           this.nativeToolsManager,
           chatManager
         );
-        
+
         // Check if state machine blocked the transition
         if (nextStage === currentStage) {
           return {
@@ -970,7 +982,7 @@ export class HarmonyAssistant {
             message: `⚠️ Cannot transition to assumptions stage - no problems to work on. Please ask a question or describe what you need first.`,
           };
         }
-        
+
         if (nextStage !== "assumptions") {
           return {
             handled: true,
@@ -978,7 +990,7 @@ export class HarmonyAssistant {
             message: `Cannot transition to assumptions stage from ${currentStage}. Valid transitions: ${currentStage === "chat" ? "chat -> assumptions" : currentStage === "implementation" ? "implementation -> assumptions" : "N/A"}`,
           };
         }
-        
+
         // Execute transition side effects based on current stage
         if (currentStage === "chat") {
           await transitionHandler.handleChatToAssumptionsTransition(
@@ -987,10 +999,10 @@ export class HarmonyAssistant {
             this.nativeToolsManager
           );
         }
-        
+
         // Update stage in context
         contextManager.updateStage("assumptions", "move to assumptions");
-        
+
         return {
           handled: true,
           shouldReturn: true,
@@ -1002,7 +1014,7 @@ export class HarmonyAssistant {
         // @cmd:plan - Create or update implementation plan (assumptions stage only)
         // This command triggers plan generation without adding user message to history
         const currentStage = this.harmonyClient.getCurrentStage();
-        
+
         if (currentStage !== "assumptions") {
           return {
             handled: true,
@@ -1020,7 +1032,8 @@ export class HarmonyAssistant {
         return {
           handled: true,
           shouldReturn: false,
-          modifiedMessage: "SYSTEM INSTRUCTION: Analyze all user requests from the conversation history above and create a numbered implementation plan. Do NOT treat this instruction as a user request to be included in the plan.",
+          modifiedMessage:
+            "SYSTEM INSTRUCTION: Analyze all user requests from the conversation history above and create a numbered implementation plan. Do NOT treat this instruction as a user request to be included in the plan.",
         };
       }
 
@@ -1038,15 +1051,15 @@ export class HarmonyAssistant {
         // Execute transition directly - no LLM call needed
         const contextManager = (this.harmonyClient as any).contextManager;
         const chatManager = this.harmonyClient.getChatManager();
-        
+
         // Initialize chat manager if not already initialized
         if (!chatManager.hasContent()) {
           chatManager.initialize();
         }
-        
+
         // Update stage in context
         contextManager.updateStage("chat", "move to chat");
-        
+
         return {
           handled: true,
           shouldReturn: true,
@@ -1069,10 +1082,12 @@ export class HarmonyAssistant {
         // IMPORTANT: Preserve the original command by returning the full original text in modifiedMessage
         // This allows detectTrigger() to properly detect the verbose_info/step/auto triggers
         // instead of defaulting to "prompt" or "plan"
-        return { 
-          handled: true, 
+        return {
+          handled: true,
           shouldReturn: false,
-          modifiedMessage: remainingMessage ? `@cmd:${command} ${remainingMessage}`.trim() : `@cmd:${command}`
+          modifiedMessage: remainingMessage
+            ? `@cmd:${command} ${remainingMessage}`.trim()
+            : `@cmd:${command}`,
         };
 
       case "convert": {
