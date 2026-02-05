@@ -19,8 +19,8 @@ export interface ConversationContext {
     timestamp: number;
     stage: WorkflowStage;
   }>;
-  maxSteps: number;
-  currentStep: number;
+  continueLimit: number; // Max LLM continuation calls to prevent infinite loops
+  continueStep: number; // Current continuation count
   lastStageTransition?: {
     from: WorkflowStage;
     to: WorkflowStage;
@@ -38,10 +38,10 @@ export interface ConversationContext {
   // First-principles thinking mode (disabled by default)
   firstPrinciplesMode?: boolean;
   firstPrinciplesState?: {
-    questionsAsked: number;        // How many questions asked (0-12)
-    questionsRemaining: number;    // How many questions left
+    questionsAsked: number; // How many questions asked (0-12)
+    questionsRemaining: number; // How many questions left
     answers: Record<number, string>; // Question number → answer mapping
-    synthesisGenerated?: boolean;   // Has synthesis been generated?
+    synthesisGenerated?: boolean; // Has synthesis been generated?
     synthesis?: {
       coreTruths: string[];
       falseAssumptions: string[];
@@ -60,25 +60,33 @@ export class ConversationContextManager {
   /**
    * Initialize a new conversation context
    */
-  initialize(originalPrompt: string, initialStage: WorkflowStage = 'chat'): ConversationContext {
+  initialize(
+    originalPrompt: string,
+    initialStage: WorkflowStage = "chat"
+  ): ConversationContext {
     // Preserve existing progressPlan if context is being re-initialized
     const existingPlan = this.context?.progressPlan;
     const existingCodeContexts = this.context?.codeContexts;
-    const existingImplementationStepContexts = this.context?.implementationStepContexts;
-    
+    const existingImplementationStepContexts =
+      this.context?.implementationStepContexts;
+
     this.context = {
       originalPrompt,
       currentStage: initialStage,
-      stageHistory: [{ stage: initialStage, enteredAt: Date.now(), prompt: originalPrompt }],
+      stageHistory: [
+        { stage: initialStage, enteredAt: Date.now(), prompt: originalPrompt },
+      ],
       steps: [],
-      maxSteps: 5,
-      currentStep: 1,
+      continueLimit: 5,
+      continueStep: 1,
       // Preserve progressPlan if it exists (important for implementation stage)
       ...(existingPlan && { progressPlan: existingPlan }),
       // Preserve codeContexts if they exist
       ...(existingCodeContexts && { codeContexts: existingCodeContexts }),
       // Preserve implementationStepContexts for multi-step code preservation
-      ...(existingImplementationStepContexts && { implementationStepContexts: existingImplementationStepContexts }),
+      ...(existingImplementationStepContexts && {
+        implementationStepContexts: existingImplementationStepContexts,
+      }),
     };
     return this.context;
   }
@@ -115,9 +123,9 @@ export class ConversationContextManager {
         from: previousStage,
         to: newStage,
       };
-      
+
       // Clear planUpdatedByUser flag when leaving assumptions stage
-      if (previousStage === 'assumptions' && newStage !== 'assumptions') {
+      if (previousStage === "assumptions" && newStage !== "assumptions") {
         this.clearPlanUpdatedByUser();
       }
     }
@@ -126,7 +134,11 @@ export class ConversationContextManager {
   /**
    * Add a step to the context
    */
-  addStep(toolCalls: Array<{ name: string; arguments: Record<string, any> }>, reasoning?: string, stage?: WorkflowStage): void {
+  addStep(
+    toolCalls: Array<{ name: string; arguments: Record<string, any> }>,
+    reasoning?: string,
+    stage?: WorkflowStage
+  ): void {
     if (!this.context) return;
 
     this.context.steps.push({
@@ -138,35 +150,63 @@ export class ConversationContextManager {
   }
 
   /**
-   * Increment the step counter
+   * Increment the continuation counter
    */
   incrementStep(): void {
     if (this.context) {
-      this.context.currentStep++;
+      this.context.continueStep++;
     }
   }
 
   /**
-   * Get the current step number
+   * Get the current continuation count
    */
   getCurrentStep(): number {
-    return this.context?.currentStep || 1;
+    return this.context?.continueStep || 1;
   }
 
   /**
-   * Check if we've exceeded max steps
+   * Check if we've exceeded continuation limit
    */
   hasExceededMaxSteps(): boolean {
     if (!this.context) return false;
-    return this.context.currentStep > this.context.maxSteps;
+    return this.context.continueStep > this.context.continueLimit;
   }
 
   /**
-   * Check if next step would exceed max steps
+   * Check if next continuation would exceed limit
    */
   wouldExceedMaxSteps(): boolean {
     if (!this.context) return false;
-    return this.context.currentStep + 1 > this.context.maxSteps;
+    return this.context.continueStep + 1 > this.context.continueLimit;
+  }
+
+  /**
+   * Get display step information
+   * Returns ProgressPlan step info if plan exists, otherwise continuation info
+   */
+  getDisplayStepInfo(): { currentStep: number; totalSteps: number } | null {
+    if (!this.context) return null;
+
+    // If ProgressPlan exists, use its step information
+    if (this.context.progressPlan) {
+      const plan = this.context.progressPlan;
+      // Find the current in_progress step, or the first pending step
+      const currentPlanStep =
+        plan.steps.find((s) => s.status === "in_progress") ||
+        plan.steps.find((s) => s.status === "pending");
+
+      return {
+        currentStep: currentPlanStep?.stepNumber || plan.steps.length,
+        totalSteps: plan.totalSteps,
+      };
+    }
+
+    // Otherwise, use continuation counter
+    return {
+      currentStep: this.context.continueStep,
+      totalSteps: this.context.continueLimit,
+    };
   }
 
   /**
@@ -178,22 +218,22 @@ export class ConversationContextManager {
     if (!this.context) {
       // Create a minimal context if it doesn't exist to preserve the plan
       this.context = {
-        originalPrompt: plan.originalPrompt || '',
-        currentStage: 'chat',
-        stageHistory: [{ stage: 'chat', enteredAt: Date.now() }],
+        originalPrompt: plan.originalPrompt || "",
+        currentStage: "chat",
+        stageHistory: [{ stage: "chat", enteredAt: Date.now() }],
         steps: [],
-        maxSteps: plan.totalSteps, // Synchronize with plan's totalSteps
-        currentStep: 1,
+        continueLimit: plan.totalSteps,
+        continueStep: 1,
         progressPlan: plan,
       };
     } else {
       this.context.progressPlan = plan;
-      // Reset currentStep to 1 and maxSteps to totalSteps when setting a new progress plan
-      // This prevents the issue where conversation steps accumulate before the plan is created,
-      // causing currentStep to exceed maxSteps immediately when the plan workflow begins
-      this.context.currentStep = 1;
-      this.context.maxSteps = plan.totalSteps;
-      console.log(`[ConversationContext] Reset currentStep to 1 and maxSteps to ${plan.totalSteps} when setting progress plan`);
+      // Reset continueStep to 1 and continueLimit to totalSteps when setting a new progress plan
+      this.context.continueStep = 1;
+      this.context.continueLimit = plan.totalSteps;
+      console.log(
+        `[ConversationContext] Reset continueStep to 1 and continueLimit to ${plan.totalSteps} when setting progress plan`
+      );
     }
   }
 
@@ -203,7 +243,9 @@ export class ConversationContextManager {
   markPlanUpdatedByUser(): void {
     if (this.context) {
       this.context.planUpdatedByUser = true;
-      console.log(`[ConversationContext] Plan marked as explicitly updated by user`);
+      console.log(
+        `[ConversationContext] Plan marked as explicitly updated by user`
+      );
     }
   }
 
@@ -221,12 +263,15 @@ export class ConversationContextManager {
    * For initial generation: uses the user's original request
    * For updates: extracts the change description from user prompt
    */
-  private extractDescription(userPrompt?: string, aiResponse?: string): string | undefined {
+  private extractDescription(
+    userPrompt?: string,
+    aiResponse?: string
+  ): string | undefined {
     if (userPrompt) {
       // Use user prompt as description (keep concise, max 200 chars)
       const trimmed = userPrompt.trim();
       if (trimmed.length > 200) {
-        return trimmed.substring(0, 197) + '...';
+        return trimmed.substring(0, 197) + "...";
       }
       return trimmed;
     }
@@ -236,7 +281,7 @@ export class ConversationContextManager {
       if (firstSentence.length <= 200) {
         return firstSentence;
       }
-      return aiResponse.substring(0, 197) + '...';
+      return aiResponse.substring(0, 197) + "...";
     }
     return undefined;
   }
@@ -251,7 +296,7 @@ export class ConversationContextManager {
       return `v${num + 1}`;
     }
     // If version format is unexpected, default to v2
-    return 'v2';
+    return "v2";
   }
 
   /**
@@ -261,50 +306,61 @@ export class ConversationContextManager {
    * @param userPrompt Optional user prompt for description extraction
    * @param aiResponse Optional AI response for description extraction
    */
-  addCodeContext(codeContext: CodeContext, userPrompt?: string, aiResponse?: string): void {
+  addCodeContext(
+    codeContext: CodeContext,
+    userPrompt?: string,
+    aiResponse?: string
+  ): void {
     if (!this.context) return;
-    
+
     if (!this.context.codeContexts) {
       this.context.codeContexts = new Map<string, CodeContext[]>();
     }
-    
+
     const fileName = codeContext.name;
     const existingVersions = this.context.codeContexts.get(fileName) || [];
-    
+
     if (existingVersions.length > 0) {
       // Update existing - preserve history
       // Find the active version (or latest if none is active)
-      const activeVersion = existingVersions.find(v => v.isActive) || 
-                           existingVersions.sort((a, b) => {
-                             // Sort by version number
-                             const aNum = parseInt(a.version.match(/^v(\d+)/i)?.[1] || '0', 10);
-                             const bNum = parseInt(b.version.match(/^v(\d+)/i)?.[1] || '0', 10);
-                             return bNum - aNum;
-                           })[0];
-      
+      const activeVersion =
+        existingVersions.find((v) => v.isActive) ||
+        existingVersions.sort((a, b) => {
+          // Sort by version number
+          const aNum = parseInt(a.version.match(/^v(\d+)/i)?.[1] || "0", 10);
+          const bNum = parseInt(b.version.match(/^v(\d+)/i)?.[1] || "0", 10);
+          return bNum - aNum;
+        })[0];
+
       // Mark existing active version as inactive
       activeVersion.isActive = false;
-      
+
       // Create new version
       const newVersion = this.incrementVersion(activeVersion.version);
       codeContext.version = newVersion;
       codeContext.previousVersion = activeVersion.version;
       codeContext.timestamp = Date.now();
       codeContext.isActive = true;
-      
+
       // Extract description if not already set
       if (!codeContext.description) {
-        codeContext.description = this.extractDescription(userPrompt, aiResponse);
+        codeContext.description = this.extractDescription(
+          userPrompt,
+          aiResponse
+        );
       }
-      
+
       // Add new version (keep old ones)
       existingVersions.push(codeContext);
       this.context.codeContexts.set(fileName, existingVersions);
     } else {
       // First version
-      if (codeContext.version === 'v1' && !codeContext.description) {
+      if (codeContext.version === "v1" && !codeContext.description) {
         // Set description if not already set
-        codeContext.description = this.extractDescription(userPrompt, aiResponse);
+        codeContext.description = this.extractDescription(
+          userPrompt,
+          aiResponse
+        );
       }
       codeContext.timestamp = Date.now();
       codeContext.isActive = true;
@@ -317,10 +373,10 @@ export class ConversationContextManager {
    */
   getCodeContexts(): CodeContext[] {
     if (!this.context?.codeContexts) return [];
-    
+
     const activeContexts: CodeContext[] = [];
     for (const versions of this.context.codeContexts.values()) {
-      const active = versions.find(cc => cc.waitForCreate && cc.isActive);
+      const active = versions.find((cc) => cc.waitForCreate && cc.isActive);
       if (active) {
         activeContexts.push(active);
       }
@@ -333,12 +389,12 @@ export class ConversationContextManager {
    */
   getCodeContextVersions(fileName: string): CodeContext[] {
     if (!this.context?.codeContexts) return [];
-    
+
     const versions = this.context.codeContexts.get(fileName) || [];
     return versions.sort((a, b) => {
       // Sort by version number (descending - newest first)
-      const aNum = parseInt(a.version.match(/^v(\d+)/i)?.[1] || '0', 10);
-      const bNum = parseInt(b.version.match(/^v(\d+)/i)?.[1] || '0', 10);
+      const aNum = parseInt(a.version.match(/^v(\d+)/i)?.[1] || "0", 10);
+      const bNum = parseInt(b.version.match(/^v(\d+)/i)?.[1] || "0", 10);
       return bNum - aNum;
     });
   }
@@ -348,11 +404,11 @@ export class ConversationContextManager {
    */
   getActiveCodeContext(fileName: string): CodeContext | null {
     if (!this.context?.codeContexts) return null;
-    
+
     const versions = this.context.codeContexts.get(fileName);
     if (!versions) return null;
-    
-    return versions.find(cc => cc.isActive) || null;
+
+    return versions.find((cc) => cc.isActive) || null;
   }
 
   /**
@@ -363,18 +419,18 @@ export class ConversationContextManager {
    */
   revertToVersion(fileName: string, version: string): boolean {
     if (!this.context?.codeContexts) return false;
-    
+
     const versions = this.getCodeContextVersions(fileName);
-    const targetVersion = versions.find(v => v.version === version);
-    
+    const targetVersion = versions.find((v) => v.version === version);
+
     if (!targetVersion) return false;
-    
+
     // Mark all versions as inactive
-    versions.forEach(v => v.isActive = false);
-    
+    versions.forEach((v) => (v.isActive = false));
+
     // Activate target version
     targetVersion.isActive = true;
-    
+
     return true;
   }
 
@@ -392,7 +448,7 @@ export class ConversationContextManager {
    */
   markCodeContextCreated(fileName: string): void {
     if (!this.context?.codeContexts) return;
-    
+
     // Find the active version of the file
     const codeContext = this.getActiveCodeContext(fileName);
     if (codeContext) {
@@ -404,14 +460,21 @@ export class ConversationContextManager {
    * Record implementation-stage file creation for tracking (used for pre-inject in later steps)
    * Stores CodeContext with stepNumber so step 2+ can access step 1's content
    */
-  addImplementationStepContext(fileName: string, content: string, stepNumber: number): void {
+  addImplementationStepContext(
+    fileName: string,
+    content: string,
+    stepNumber: number
+  ): void {
     if (!this.context) return;
 
     if (!this.context.implementationStepContexts) {
-      this.context.implementationStepContexts = new Map<string, CodeContext[]>();
+      this.context.implementationStepContexts = new Map<
+        string,
+        CodeContext[]
+      >();
     }
 
-    const contentLines = content.split('\n');
+    const contentLines = content.split("\n");
     const codeContext = new CodeContext(
       fileName,
       contentLines,
@@ -424,13 +487,16 @@ export class ConversationContextManager {
       stepNumber
     );
 
-    const existing = this.context.implementationStepContexts.get(fileName) || [];
+    const existing =
+      this.context.implementationStepContexts.get(fileName) || [];
     // Replace if same step (e.g. create then replace) - keep latest
-    const filtered = existing.filter(cc => cc.stepNumber !== stepNumber);
+    const filtered = existing.filter((cc) => cc.stepNumber !== stepNumber);
     filtered.push(codeContext);
     filtered.sort((a, b) => (a.stepNumber ?? 0) - (b.stepNumber ?? 0));
     this.context.implementationStepContexts.set(fileName, filtered);
-    console.log(`[ConversationContext] Recorded implementation step context: ${fileName} (step ${stepNumber})`);
+    console.log(
+      `[ConversationContext] Recorded implementation step context: ${fileName} (step ${stepNumber})`
+    );
   }
 
   /**
@@ -441,7 +507,9 @@ export class ConversationContextManager {
     const contexts = this.context?.implementationStepContexts?.get(fileName);
     if (!contexts || contexts.length === 0) return null;
 
-    const previousSteps = contexts.filter(cc => (cc.stepNumber ?? 0) < beforeStep);
+    const previousSteps = contexts.filter(
+      (cc) => (cc.stepNumber ?? 0) < beforeStep
+    );
     if (previousSteps.length === 0) return null;
 
     const latest = previousSteps.reduce((max, cc) =>
@@ -457,8 +525,11 @@ export class ConversationContextManager {
     if (!this.context?.implementationStepContexts) return [];
 
     const files: string[] = [];
-    for (const [fileName, contexts] of this.context.implementationStepContexts) {
-      const hasPrevious = contexts.some(cc => (cc.stepNumber ?? 0) < beforeStep);
+    for (const [fileName, contexts] of this.context
+      .implementationStepContexts) {
+      const hasPrevious = contexts.some(
+        (cc) => (cc.stepNumber ?? 0) < beforeStep
+      );
       if (hasPrevious) {
         files.push(fileName);
       }
@@ -471,9 +542,9 @@ export class ConversationContextManager {
    */
   setFirstPrinciplesMode(enabled: boolean): void {
     if (!this.context) return;
-    
+
     this.context.firstPrinciplesMode = enabled;
-    
+
     if (enabled && !this.context.firstPrinciplesState) {
       // Initialize first-principles state
       this.context.firstPrinciplesState = {
@@ -507,7 +578,7 @@ export class ConversationContextManager {
    */
   recordFirstPrinciplesAnswer(questionNumber: number, answer: string): void {
     if (!this.context?.firstPrinciplesState) return;
-    
+
     const state = this.context.firstPrinciplesState;
     state.answers[questionNumber] = answer;
     state.questionsAsked = Math.max(state.questionsAsked, questionNumber);
@@ -524,7 +595,7 @@ export class ConversationContextManager {
     actionableInsights: string[];
   }): void {
     if (!this.context?.firstPrinciplesState) return;
-    
+
     this.context.firstPrinciplesState.synthesisGenerated = true;
     this.context.firstPrinciplesState.synthesis = synthesis;
   }
@@ -533,7 +604,9 @@ export class ConversationContextManager {
    * Set referred files from chat stage
    * These are files detected/mentioned in chat stage and can be reused in assumptions/implementation
    */
-  setReferredFiles(referredFiles: Array<{ file: string; description?: string }>): void {
+  setReferredFiles(
+    referredFiles: Array<{ file: string; description?: string }>
+  ): void {
     if (!this.context) return;
     this.context.referredFiles = referredFiles;
   }
@@ -552,4 +625,3 @@ export class ConversationContextManager {
     this.context = null;
   }
 }
-

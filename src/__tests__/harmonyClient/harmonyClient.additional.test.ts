@@ -358,7 +358,7 @@ describe('HarmonyClient - Additional Test Cases', () => {
       client['contextManager'].setProgressPlan({
         taskId: 'test-task',
         totalSteps: 1,
-        currentStep: 1,
+        continueStep: 1,
         steps: [{ stepNumber: 1, description: 'test', status: 'pending' }],
         status: 'in_progress',
         isComplete: false,

@@ -231,25 +231,6 @@ export class ImplementationManager {
       console.log(
         `[ImplementationManager] Marked step ${stepNumber} as completed`
       );
-
-      // Automatically advance the next pending step to in_progress
-      // This ensures the workflow is ready for the next @cmd:step call
-      const updatedPlan = this.progressPlanManager.getPlan(this.state.taskId);
-      const nextPendingStep = updatedPlan?.steps.find(
-        (s) => s.status === "pending"
-      );
-      if (nextPendingStep) {
-        const advanceSuccess = this.progressPlanManager.updateStepStatus(
-          this.state.taskId,
-          nextPendingStep.stepNumber,
-          "in_progress"
-        );
-        if (advanceSuccess) {
-          console.log(
-            `[ImplementationManager] Automatically advanced step ${nextPendingStep.stepNumber} to in_progress`
-          );
-        }
-      }
     }
 
     return success;
@@ -322,165 +303,46 @@ export class ImplementationManager {
       (tc) => tc.result && !tc.result.isError
     );
 
-    // Filter out diagnostic files from successfulFileMods (they shouldn't count for step completion)
-    const nonDiagnosticSuccessfulMods = successfulFileMods.filter((tc) => {
-      const filePath = tc.arguments?.file_path || tc.arguments?.filePath;
-      return (
-        filePath &&
-        !filePath.startsWith("implementation_step_") &&
-        filePath !== "assumption_data.json" &&
-        filePath !== "aggregated_prompt.json"
-      );
-    });
-
-    // If there were file modification tool calls but all non-diagnostic ones failed, revert step to pending
-    const nonDiagnosticFileModCalls = allFileModToolCalls.filter((tc) => {
-      const filePath = tc.arguments?.file_path || tc.arguments?.filePath;
-      return (
-        filePath &&
-        !filePath.startsWith("implementation_step_") &&
-        filePath !== "assumption_data.json" &&
-        filePath !== "aggregated_prompt.json"
-      );
-    });
-
-    if (
-      nonDiagnosticFileModCalls.length > 0 &&
-      nonDiagnosticSuccessfulMods.length === 0
-    ) {
-      if (currentStep.status === "in_progress") {
-        this.progressPlanManager.updateStepStatus(
-          this.state.taskId,
-          currentStep.stepNumber,
-          "pending"
-        );
-        console.log(
-          `[ImplementationManager] Reverted step ${currentStep.stepNumber} to pending due to tool call failures`
-        );
-      }
+    if (successfulFileMods.length === 0) {
       return undefined;
     }
 
-    if (nonDiagnosticSuccessfulMods.length === 0) {
-      return undefined;
-    }
+    // Check for step completion: look for step_X_log.txt or step_X_log.md
+    const stepLogPattern = new RegExp(
+      `^step[_-]?${currentStep.stepNumber}_log\\.(txt|md)$`,
+      "i"
+    );
 
-    // Record all file creations and filter files to only those that match the current step
-    // Use non-diagnostic successful mods to avoid completing steps with diagnostic files
-    const filesForCurrentStep: string[] = [];
-    const allCreatedFiles: string[] = [];
-    for (const toolCall of nonDiagnosticSuccessfulMods) {
+    for (const toolCall of successfulFileMods) {
       const filePath =
         toolCall.arguments?.file_path || toolCall.arguments?.filePath;
-      if (filePath) {
-        // Skip diagnostic files - they should not complete steps
-        // Diagnostic files: implementation_step_*.json, assumption_data.json, aggregated_prompt.json, step*_design.txt
-        const isDiagnosticFile =
-          filePath.startsWith("implementation_step_") ||
-          filePath === "assumption_data.json" ||
-          filePath === "aggregated_prompt.json" ||
-          /^step\d+_design\.txt$/i.test(filePath);
+      if (!filePath) continue;
 
-        if (isDiagnosticFile) {
-          // Still record the file creation, but don't use it for step completion
-          const status =
-            toolCall.name === "replace_file" ? "replaced" : "created";
-          this.recordFileCreated(filePath, currentStep.stepNumber, status);
-          continue;
-        }
+      // Record all file creations (including diagnostic files)
+      const status = toolCall.name === "replace_file" ? "replaced" : "created";
+      this.recordFileCreated(filePath, currentStep.stepNumber, status);
 
-        // Always record the file creation (even if it doesn't match the step)
-        const status =
-          toolCall.name === "replace_file" ? "replaced" : "created";
-        this.recordFileCreated(filePath, currentStep.stepNumber, status);
-        allCreatedFiles.push(filePath);
+      // Check if this is the step log file
+      const fileName = filePath.split(/[/\\]/).pop() || "";
+      if (stepLogPattern.test(fileName)) {
+        // Check first line for completion status
+        const content = toolCall.arguments?.content || "";
+        const firstLine = content.split("\n")[0].toLowerCase();
 
-        // Check if file matches current step using filterCodeContextsForStep
-        const tempCodeContext = new CodeContext(filePath, [""]);
-        const matched = this.filterCodeContextsForStep(
-          [tempCodeContext],
-          currentStep
-        );
-        if (matched.length > 0) {
-          filesForCurrentStep.push(filePath);
-        }
-      }
-    }
-
-    // Only complete step if at least one file matches this step
-    if (filesForCurrentStep.length > 0) {
-      const success = this.completeStep(currentStep.stepNumber);
-      if (success) {
-        console.log(
-          `[ImplementationManager] Completed step ${currentStep.stepNumber} (${currentStep.description}) after creating file(s): ${filesForCurrentStep.join(", ")}`
-        );
-        return currentStep.stepNumber;
-      }
-    } else if (allCreatedFiles.length === 1) {
-      // Fallback: If only one file was created and it doesn't explicitly match,
-      // but the step mentions importing/using a file (not creating a specific file),
-      // consider it a match. This handles cases like "Import from X.py" where
-      // a test file is created that imports from X.py.
-      const stepText = currentStep.description.toLowerCase();
-      // Match patterns like "import from calc.py", "use X.py", "from `file.py`", etc.
-      // Handle backticks, quotes, and various formats. Look for "from X.py" or "import X.py" patterns
-      const mentionsImport =
-        /(?:from|import|use)\s+[`'"]?[\w\-\.]+\.(?:py|js|ts|java|go|rs)[`'"]?/i.test(
-          stepText
-        );
-      // Match patterns like "create file.py", "write X.py", "make file.py", etc.
-      // This checks if the step explicitly names a file to create (not just import from)
-      const mentionsCreateSpecificFile =
-        /(?:create|write|make|generate)\s+[`'"]?[\w\-\.]+\.(?:py|js|ts|java|go|rs)[`'"]?/i.test(
-          stepText
-        );
-
-      // If step mentions importing/using a file but doesn't specify which file to create,
-      // and only one file was created, consider it a match
-      if (mentionsImport && !mentionsCreateSpecificFile) {
-        const success = this.completeStep(currentStep.stepNumber);
-        if (success) {
-          console.log(
-            `[ImplementationManager] Completed step ${currentStep.stepNumber} (${currentStep.description}) after creating file: ${allCreatedFiles[0]} (fallback match: step mentions importing/using a file)`
-          );
-          return currentStep.stepNumber;
-        }
-      } else {
-        // If step doesn't explicitly require creating a specific file, allow a
-        // step summary artifact to complete the step (e.g., step_1_summary.md)
-        const summaryBaseNameRegex = new RegExp(
-          `^step[_-]?${currentStep.stepNumber}_summary\\.md$`,
-          "i"
-        );
-        const createdBaseName = allCreatedFiles[0].split(/[/\\]/).pop();
-        if (
-          !mentionsCreateSpecificFile &&
-          createdBaseName &&
-          summaryBaseNameRegex.test(createdBaseName)
-        ) {
+        if (firstLine.includes("done") || firstLine.includes("complete")) {
           const success = this.completeStep(currentStep.stepNumber);
           if (success) {
             console.log(
-              `[ImplementationManager] Completed step ${currentStep.stepNumber} (${currentStep.description}) after creating summary file: ${allCreatedFiles[0]} (fallback match: step summary artifact)`
+              `[ImplementationManager] Completed step ${currentStep.stepNumber} (${currentStep.description}) after creating ${fileName} with completion status`
             );
             return currentStep.stepNumber;
           }
+        } else {
+          console.log(
+            `[ImplementationManager] Found ${fileName} for step ${currentStep.stepNumber}, but first line does not contain 'done' or 'complete' - step remains in_progress`
+          );
         }
-
-        // Files were created but don't match current step
-        // Don't change step status - plan runs step by step, no jumps
-        // If files don't match current step, it's a workflow issue, not something to handle gracefully
-        console.log(
-          `[ImplementationManager] Created file(s) but none match current step ${currentStep.stepNumber} (${currentStep.description}), not completing step`
-        );
       }
-    } else {
-      // Files were created but don't match current step
-      // Don't change step status - plan runs step by step, no jumps
-      // If files don't match current step, it's a workflow issue, not something to handle gracefully
-      console.log(
-        `[ImplementationManager] Created file(s) but none match current step ${currentStep.stepNumber} (${currentStep.description}), not completing step`
-      );
     }
 
     return undefined;

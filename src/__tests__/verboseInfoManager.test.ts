@@ -1,6 +1,9 @@
 import { VerboseInfoManager } from "../harmony/verboseInfoManager";
 import { ProgressPlanManager } from "../progressPlanManager";
-import { ConversationContext } from "../harmony/conversationContext";
+import {
+  ConversationContext,
+  ConversationContextManager,
+} from "../harmony/conversationContext";
 import { ChatMessage } from "../conversationManager";
 import {
   FileExtractionResult,
@@ -14,10 +17,12 @@ import { MCPToolResult } from "../mcpClient";
 describe("VerboseInfoManager", () => {
   let manager: VerboseInfoManager;
   let progressPlanManager: ProgressPlanManager;
+  let contextManager: ConversationContextManager;
 
   beforeEach(() => {
     progressPlanManager = new ProgressPlanManager();
-    manager = new VerboseInfoManager(progressPlanManager);
+    contextManager = new ConversationContextManager();
+    manager = new VerboseInfoManager(progressPlanManager, contextManager);
   });
 
   describe("buildVerboseInfo", () => {
@@ -29,8 +34,8 @@ describe("VerboseInfoManager", () => {
           codeContexts: new Map(),
           stageHistory: [],
           steps: [],
-          maxSteps: 10,
-          currentStep: 1,
+          continueLimit: 10,
+          continueStep: 1,
         };
 
         const result = manager.buildVerboseInfo("chat", context);
@@ -48,8 +53,8 @@ describe("VerboseInfoManager", () => {
           codeContexts: new Map(),
           stageHistory: [],
           steps: [],
-          maxSteps: 10,
-          currentStep: 1,
+          continueLimit: 10,
+          continueStep: 1,
         };
 
         const fileExtractionResult: FileExtractionResult = {
@@ -87,8 +92,8 @@ describe("VerboseInfoManager", () => {
           codeContexts: new Map(),
           stageHistory: [],
           steps: [],
-          maxSteps: 10,
-          currentStep: 1,
+          continueLimit: 10,
+          continueStep: 1,
         };
 
         const result = manager.buildVerboseInfo("chat", context, {
@@ -106,8 +111,8 @@ describe("VerboseInfoManager", () => {
           codeContexts: new Map(),
           stageHistory: [],
           steps: [],
-          maxSteps: 10,
-          currentStep: 1,
+          continueLimit: 10,
+          continueStep: 1,
         };
 
         const toolCallsForVerbose = [
@@ -141,8 +146,8 @@ describe("VerboseInfoManager", () => {
           codeContexts: new Map(),
           stageHistory: [],
           steps: [],
-          maxSteps: 10,
-          currentStep: 1,
+          continueLimit: 10,
+          continueStep: 1,
         };
 
         const result = manager.buildVerboseInfo("assumptions", context);
@@ -160,12 +165,16 @@ describe("VerboseInfoManager", () => {
           codeContexts: new Map(),
           stageHistory: [],
           steps: [],
-          maxSteps: 10,
-          currentStep: 1,
+          continueLimit: 10,
+          continueStep: 1,
         };
 
         const toolCallsForVerbose = [
-          { name: "assumption_tool", stage: "assumptions" as const, success: true },
+          {
+            name: "assumption_tool",
+            stage: "assumptions" as const,
+            success: true,
+          },
         ];
 
         const result = manager.buildVerboseInfo("assumptions", context, {
@@ -183,8 +192,8 @@ describe("VerboseInfoManager", () => {
           codeContexts: new Map(),
           stageHistory: [],
           steps: [],
-          maxSteps: 10,
-          currentStep: 1,
+          continueLimit: 10,
+          continueStep: 1,
         };
 
         const conversationHistory: readonly ChatMessage[] = [
@@ -203,7 +212,9 @@ describe("VerboseInfoManager", () => {
         const result = manager.buildVerboseInfo("assumptions", null);
 
         expect(result.stage).toBe("assumptions");
-        expect((result as AssumptionVerboseInfo).problemSummary).toBeUndefined();
+        expect(
+          (result as AssumptionVerboseInfo).problemSummary
+        ).toBeUndefined();
       });
     });
 
@@ -215,8 +226,8 @@ describe("VerboseInfoManager", () => {
           codeContexts: new Map(),
           stageHistory: [],
           steps: [],
-          maxSteps: 10,
-          currentStep: 1,
+          continueLimit: 10,
+          continueStep: 1,
         };
 
         const result = manager.buildVerboseInfo("implementation", context);
@@ -231,8 +242,8 @@ describe("VerboseInfoManager", () => {
           codeContexts: new Map(),
           stageHistory: [],
           steps: [],
-          maxSteps: 10,
-          currentStep: 1,
+          continueLimit: 10,
+          continueStep: 1,
         };
 
         const fileOperations: FileOperationResult = {
@@ -275,8 +286,8 @@ describe("VerboseInfoManager", () => {
           codeContexts: new Map(),
           stageHistory: [],
           steps: [],
-          maxSteps: 10,
-          currentStep: 1,
+          continueLimit: 10,
+          continueStep: 1,
         };
 
         const toolCallsForVerbose = [
@@ -303,8 +314,8 @@ describe("VerboseInfoManager", () => {
           codeContexts: new Map(),
           stageHistory: [],
           steps: [],
-          maxSteps: 10,
-          currentStep: 1,
+          continueLimit: 10,
+          continueStep: 1,
         };
 
         // Create a plan in the progress manager
@@ -326,8 +337,8 @@ describe("VerboseInfoManager", () => {
           codeContexts: new Map(),
           stageHistory: [],
           steps: [],
-          maxSteps: 10,
-          currentStep: 1,
+          continueLimit: 10,
+          continueStep: 1,
         };
 
         const result = manager.buildVerboseInfo("implementation", context);
@@ -352,8 +363,8 @@ describe("VerboseInfoManager", () => {
           codeContexts: new Map(),
           stageHistory: [],
           steps: [],
-          maxSteps: 10,
-          currentStep: 1,
+          continueLimit: 10,
+          continueStep: 1,
         };
 
         const executedToolCalls = [
@@ -382,8 +393,8 @@ describe("VerboseInfoManager", () => {
           codeContexts: new Map(),
           stageHistory: [],
           steps: [],
-          maxSteps: 10,
-          currentStep: 1,
+          continueLimit: 10,
+          continueStep: 1,
         };
 
         const mcpToolResult: MCPToolResult = {
@@ -418,8 +429,8 @@ describe("VerboseInfoManager", () => {
           codeContexts: new Map(),
           stageHistory: [],
           steps: [],
-          maxSteps: 10,
-          currentStep: 1,
+          continueLimit: 10,
+          continueStep: 1,
         };
 
         const mcpToolResult: MCPToolResult = {
@@ -453,8 +464,8 @@ describe("VerboseInfoManager", () => {
           codeContexts: new Map(),
           stageHistory: [],
           steps: [],
-          maxSteps: 10,
-          currentStep: 1,
+          continueLimit: 10,
+          continueStep: 1,
         };
 
         const toolCallsForVerbose = [
@@ -487,8 +498,8 @@ describe("VerboseInfoManager", () => {
           codeContexts: new Map(),
           stageHistory: [],
           steps: [],
-          maxSteps: 10,
-          currentStep: 1,
+          continueLimit: 10,
+          continueStep: 1,
         };
 
         const result = manager.buildVerboseInfo("chat", context, {
@@ -510,10 +521,10 @@ describe("VerboseInfoManager", () => {
         currentStage: "assumptions",
         originalPrompt: "Test prompt",
         codeContexts: new Map(),
-          stageHistory: [],
-          steps: [],
-          maxSteps: 10,
-          currentStep: 1,
+        stageHistory: [],
+        steps: [],
+        continueLimit: 10,
+        continueStep: 1,
       };
 
       const result = manager.getCurrentVerboseInfo(context);
@@ -532,10 +543,10 @@ describe("VerboseInfoManager", () => {
         currentStage: undefined as any,
         originalPrompt: "Test prompt",
         codeContexts: new Map(),
-          stageHistory: [],
-          steps: [],
-          maxSteps: 10,
-          currentStep: 1,
+        stageHistory: [],
+        steps: [],
+        continueLimit: 10,
+        continueStep: 1,
       };
 
       const result = manager.getCurrentVerboseInfo(context);
@@ -548,10 +559,10 @@ describe("VerboseInfoManager", () => {
         currentStage: "chat",
         originalPrompt: "Test prompt",
         codeContexts: new Map(),
-          stageHistory: [],
-          steps: [],
-          maxSteps: 10,
-          currentStep: 1,
+        stageHistory: [],
+        steps: [],
+        continueLimit: 10,
+        continueStep: 1,
       };
 
       const conversationHistory: readonly ChatMessage[] = [
@@ -559,7 +570,10 @@ describe("VerboseInfoManager", () => {
         { role: "assistant", content: "Hi" },
       ];
 
-      const result = manager.getCurrentVerboseInfo(context, conversationHistory);
+      const result = manager.getCurrentVerboseInfo(
+        context,
+        conversationHistory
+      );
 
       expect(result.stage).toBe("chat");
       // conversationHistory is passed internally to VerboseInfoBuilder
@@ -579,8 +593,8 @@ describe("VerboseInfoManager", () => {
           codeContexts: new Map(),
           stageHistory: [],
           steps: [],
-          maxSteps: 10,
-          currentStep: 1,
+          continueLimit: 10,
+          continueStep: 1,
         };
 
         const result = manager.getCurrentVerboseInfo(context);
@@ -597,10 +611,10 @@ describe("VerboseInfoManager", () => {
         currentStage: "chat",
         originalPrompt: "Create a new feature",
         codeContexts: new Map(),
-          stageHistory: [],
-          steps: [],
-          maxSteps: 10,
-          currentStep: 1,
+        stageHistory: [],
+        steps: [],
+        continueLimit: 10,
+        continueStep: 1,
       };
 
       let result = manager.getCurrentVerboseInfo(context);
@@ -616,10 +630,12 @@ describe("VerboseInfoManager", () => {
       expect(result.stage).toBe("assumptions");
 
       // Implementation stage with plan
-      progressPlanManager.createPlan("feature-task", "Create a new feature", "simple", [
-        { description: "Create file" },
-        { description: "Add tests" },
-      ]);
+      progressPlanManager.createPlan(
+        "feature-task",
+        "Create a new feature",
+        "simple",
+        [{ description: "Create file" }, { description: "Add tests" }]
+      );
 
       context = {
         ...context,
@@ -637,7 +653,9 @@ describe("VerboseInfoManager", () => {
       ];
 
       const fileExtractionResult: FileExtractionResult = {
-        explicitFiles: [{ path: "test.ts", type: "file", extractedAt: Date.now() }],
+        explicitFiles: [
+          { path: "test.ts", type: "file", extractedAt: Date.now() },
+        ],
       };
 
       const fileOperations: FileOperationResult = {
@@ -659,10 +677,10 @@ describe("VerboseInfoManager", () => {
         currentStage: "chat",
         originalPrompt: "Test",
         codeContexts: new Map(),
-          stageHistory: [],
-          steps: [],
-          maxSteps: 10,
-          currentStep: 1,
+        stageHistory: [],
+        steps: [],
+        continueLimit: 10,
+        continueStep: 1,
       };
 
       const chatResult = manager.buildVerboseInfo("chat", chatContext, {
@@ -680,18 +698,26 @@ describe("VerboseInfoManager", () => {
         currentStage: "implementation",
         originalPrompt: "Test",
         codeContexts: new Map(),
-          stageHistory: [],
-          steps: [],
-          maxSteps: 10,
-          currentStep: 1,
+        stageHistory: [],
+        steps: [],
+        continueLimit: 10,
+        continueStep: 1,
       };
 
-      const implResult = manager.buildVerboseInfo("implementation", implContext, {
-        fileOperations,
-        toolCallsForVerbose: [
-          { name: "impl_tool", stage: "implementation" as const, success: true },
-        ],
-      });
+      const implResult = manager.buildVerboseInfo(
+        "implementation",
+        implContext,
+        {
+          fileOperations,
+          toolCallsForVerbose: [
+            {
+              name: "impl_tool",
+              stage: "implementation" as const,
+              success: true,
+            },
+          ],
+        }
+      );
 
       expect(implResult.stage).toBe("implementation");
     });
@@ -704,8 +730,8 @@ describe("VerboseInfoManager", () => {
           codeContexts: new Map(),
           stageHistory: [],
           steps: [],
-          maxSteps: 10,
-          currentStep: 1,
+          continueLimit: 10,
+          continueStep: 1,
         };
 
         const result = manager.buildVerboseInfo("chat", context);
@@ -721,8 +747,8 @@ describe("VerboseInfoManager", () => {
           codeContexts: new Map(),
           stageHistory: [],
           steps: [],
-          maxSteps: 10,
-          currentStep: 1,
+          continueLimit: 10,
+          continueStep: 1,
         };
 
         const result = manager.buildVerboseInfo("assumptions", context);
@@ -740,8 +766,8 @@ describe("VerboseInfoManager", () => {
           codeContexts: new Map(),
           stageHistory: [],
           steps: [],
-          maxSteps: 10,
-          currentStep: 1,
+          continueLimit: 10,
+          continueStep: 1,
           progressPlan: {
             taskId: "task-123",
             totalSteps: 3,
@@ -749,9 +775,24 @@ describe("VerboseInfoManager", () => {
             createdAt: Date.now(),
             originalPrompt: "Test prompt",
             steps: [
-              { stepNumber: 1, description: "Step 1", status: "pending", tools: [] },
-              { stepNumber: 2, description: "Step 2", status: "pending", tools: [] },
-              { stepNumber: 3, description: "Step 3", status: "pending", tools: [] },
+              {
+                stepNumber: 1,
+                description: "Step 1",
+                status: "pending",
+                tools: [],
+              },
+              {
+                stepNumber: 2,
+                description: "Step 2",
+                status: "pending",
+                tools: [],
+              },
+              {
+                stepNumber: 3,
+                description: "Step 3",
+                status: "pending",
+                tools: [],
+              },
             ],
           },
         };
@@ -770,14 +811,16 @@ describe("VerboseInfoManager", () => {
           codeContexts: new Map(),
           stageHistory: [],
           steps: [],
-          maxSteps: 10,
-          currentStep: 1,
+          continueLimit: 10,
+          continueStep: 1,
         };
 
         const result = manager.buildVerboseInfo("implementation", context);
 
         expect(result.stage).toBe("implementation");
-        expect((result as ImplementationVerboseInfo).isComplete).toBeUndefined();
+        expect(
+          (result as ImplementationVerboseInfo).isComplete
+        ).toBeUndefined();
       });
 
       it("should return true for isComplete when all steps are completed in implementation stage", () => {
@@ -802,8 +845,8 @@ describe("VerboseInfoManager", () => {
           codeContexts: new Map(),
           stageHistory: [],
           steps: [],
-          maxSteps: 3,
-          currentStep: 3,
+          continueLimit: 3,
+          continueStep: 3,
           progressPlan: {
             taskId: "task-123",
             totalSteps: 3,
@@ -861,8 +904,8 @@ describe("VerboseInfoManager", () => {
           codeContexts: new Map(),
           stageHistory: [],
           steps: [],
-          maxSteps: 3,
-          currentStep: 3,
+          continueLimit: 3,
+          continueStep: 3,
           progressPlan: {
             taskId: "task-456",
             totalSteps: 3,
@@ -911,8 +954,8 @@ describe("VerboseInfoManager", () => {
           codeContexts: new Map(),
           stageHistory: [],
           steps: [],
-          maxSteps: 3,
-          currentStep: 1,
+          continueLimit: 3,
+          continueStep: 1,
           progressPlan: {
             taskId: "task-789",
             totalSteps: 3,
@@ -926,8 +969,18 @@ describe("VerboseInfoManager", () => {
                 status: "in_progress",
                 tools: [],
               },
-              { stepNumber: 2, description: "Step 2", status: "pending", tools: [] },
-              { stepNumber: 3, description: "Step 3", status: "pending", tools: [] },
+              {
+                stepNumber: 2,
+                description: "Step 2",
+                status: "pending",
+                tools: [],
+              },
+              {
+                stepNumber: 3,
+                description: "Step 3",
+                status: "pending",
+                tools: [],
+              },
             ],
           },
         };
@@ -945,8 +998,8 @@ describe("VerboseInfoManager", () => {
           codeContexts: new Map(),
           stageHistory: [],
           steps: [],
-          maxSteps: 0,
-          currentStep: 0,
+          continueLimit: 0,
+          continueStep: 0,
           progressPlan: {
             taskId: "task-empty",
             totalSteps: 0,
@@ -960,7 +1013,9 @@ describe("VerboseInfoManager", () => {
         const result = manager.buildVerboseInfo("implementation", context);
 
         expect(result.stage).toBe("implementation");
-        expect((result as ImplementationVerboseInfo).isComplete).toBeUndefined();
+        expect(
+          (result as ImplementationVerboseInfo).isComplete
+        ).toBeUndefined();
       });
 
       it("should have isComplete as readonly in type definitions", () => {
@@ -973,8 +1028,8 @@ describe("VerboseInfoManager", () => {
           codeContexts: new Map(),
           stageHistory: [],
           steps: [],
-          maxSteps: 10,
-          currentStep: 1,
+          continueLimit: 10,
+          continueStep: 1,
         };
 
         const result = manager.buildVerboseInfo("chat", context) as any;
@@ -983,7 +1038,7 @@ describe("VerboseInfoManager", () => {
         expect(result).toBeDefined();
         // For chat stage, isComplete should be undefined
         expect(result.isComplete).toBeUndefined();
-        
+
         // TypeScript prevents this at compile time:
         // result.isComplete = true; // TS2540: Cannot assign to 'isComplete' because it is a read-only property
       });

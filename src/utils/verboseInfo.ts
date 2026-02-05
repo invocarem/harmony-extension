@@ -382,6 +382,7 @@ export class VerboseInfoBuilder {
    */
   static forChatStage(
     context: ConversationContext | null,
+    contextManager: import("../harmony/conversationContext").ConversationContextManager,
     extractedFiles?: FileExtractionResult,
     responseContent?: string,
     responseReasoning?: string,
@@ -415,12 +416,15 @@ export class VerboseInfoBuilder {
     // a progress plan exists to avoid showing "Progress: Step 1/5" during simple
     // chat/clarification interactions.
     const hasProgressPlan = !!context?.progressPlan;
+    const stepInfo = hasProgressPlan
+      ? contextManager.getDisplayStepInfo()
+      : null;
 
     const verboseInfo: ChatVerboseInfo = {
       stage: "chat",
       stageTransition: context?.lastStageTransition,
-      step: hasProgressPlan && context ? context.currentStep : undefined,
-      maxSteps: hasProgressPlan && context ? context.maxSteps : undefined,
+      step: stepInfo?.currentStep,
+      maxSteps: stepInfo?.totalSteps,
       // isComplete is not meaningful for chat stage - no real plan exists yet
       // The real plan is only created when moving to implementation stage
     };
@@ -456,6 +460,7 @@ export class VerboseInfoBuilder {
    */
   static forAssumptionStage(
     context: ConversationContext | null,
+    contextManager: import("../harmony/conversationContext").ConversationContextManager,
     toolCalls?: Array<{
       name: string;
       stage: WorkflowStage;
@@ -472,11 +477,13 @@ export class VerboseInfoBuilder {
       conversationHistory !== undefined && allUserQueries
         ? allUserQueries
         : context?.originalPrompt || "";
+    const stepInfo = contextManager.getDisplayStepInfo();
+
     const verboseInfo: AssumptionVerboseInfo = {
       stage: "assumptions",
       stageTransition: context?.lastStageTransition,
-      step: context ? context.currentStep : undefined,
-      maxSteps: context ? context.maxSteps : undefined,
+      step: stepInfo?.currentStep,
+      maxSteps: stepInfo?.totalSteps,
       // isComplete is not meaningful for assumptions stage - no real plan exists yet
       // The real plan is only created when moving to implementation stage
     };
@@ -543,6 +550,7 @@ export class VerboseInfoBuilder {
    */
   static forImplementationStage(
     context: ConversationContext | null,
+    contextManager: import("../harmony/conversationContext").ConversationContextManager,
     progressPlanManager: ProgressPlanManager,
     fileOperations?: FileOperationResult,
     toolCalls?: Array<{
@@ -553,28 +561,21 @@ export class VerboseInfoBuilder {
       relatedStep?: number;
     }>
   ): ImplementationVerboseInfo {
-    // Only include step/maxSteps when there's a ProgressPlan (real multi-step task)
-    // For simple tasks without a plan, don't show misleading step counts
-    const hasProgressPlan = !!context?.progressPlan;
-
-    // Resolve plan first so we can use plan.totalSteps for maxSteps (keeps verboseInfo in sync with
-    // "Implementation plan (one step per request)" in the prompt; context.maxSteps can be stale after updatePlanSteps)
-    const plan = context?.progressPlan
-      ? progressPlanManager.getPlan(context.progressPlan.taskId)
-      : null;
+    // Get step info from contextManager (uses ProgressPlan if available)
+    const stepInfo = contextManager.getDisplayStepInfo();
 
     const verboseInfo: ImplementationVerboseInfo = {
       stage: "implementation",
       stageTransition: context?.lastStageTransition,
-      step: hasProgressPlan && context ? context.currentStep : undefined,
-      maxSteps:
-        plan != null
-          ? plan.totalSteps
-          : hasProgressPlan && context
-            ? context.maxSteps
-            : undefined,
+      step: stepInfo?.currentStep,
+      maxSteps: stepInfo?.totalSteps,
       // isComplete is now computed dynamically as a getter based on planProgress.steps
     };
+
+    // Resolve plan for progress details
+    const plan = context?.progressPlan
+      ? progressPlanManager.getPlan(context.progressPlan.taskId)
+      : null;
 
     // Add plan progress with file operation linking
     if (context?.progressPlan && plan) {

@@ -1,8 +1,8 @@
-import { ImplementationManager } from '../harmony/implementationManager';
-import { ProgressPlanManager, ProgressPlan } from '../progressPlanManager';
-import { CodeContext } from '../harmony/codeContext';
+import { ImplementationManager } from "../harmony/implementationManager";
+import { ProgressPlanManager, ProgressPlan } from "../progressPlanManager";
+import { CodeContext } from "../harmony/codeContext";
 
-describe('ImplementationManager', () => {
+describe("ImplementationManager", () => {
   let manager: ImplementationManager;
   let progressPlanManager: ProgressPlanManager;
 
@@ -11,8 +11,8 @@ describe('ImplementationManager', () => {
     manager = new ImplementationManager(progressPlanManager);
   });
 
-  describe('initialization', () => {
-    it('should initialize with empty state', () => {
+  describe("initialization", () => {
+    it("should initialize with empty state", () => {
       manager.initialize();
       expect(manager.getCreatedFiles()).toEqual([]);
       expect(manager.getCompletedSteps()).toEqual([]);
@@ -21,626 +21,610 @@ describe('ImplementationManager', () => {
       expect(state?.referredFiles).toEqual([]);
     });
 
-    it('should initialize with taskId', () => {
-      manager.initialize('task-123');
-      expect(manager.getTaskId()).toBe('task-123');
+    it("should initialize with taskId", () => {
+      manager.initialize("task-123");
+      expect(manager.getTaskId()).toBe("task-123");
       expect(manager.getCreatedFiles()).toEqual([]);
       expect(manager.getCompletedSteps()).toEqual([]);
       const state = manager.getState();
       expect(state?.referredFiles).toEqual([]);
     });
 
-    it('should auto-initialize when setting taskId without explicit init', () => {
-      manager.setTaskId('task-456');
-      expect(manager.getTaskId()).toBe('task-456');
+    it("should auto-initialize when setting taskId without explicit init", () => {
+      manager.setTaskId("task-456");
+      expect(manager.getTaskId()).toBe("task-456");
       const state = manager.getState();
       expect(state?.referredFiles).toEqual([]);
     });
   });
 
-  describe('setTaskId', () => {
+  describe("setTaskId", () => {
     beforeEach(() => {
       manager.initialize();
     });
 
-    it('should set task ID', () => {
-      manager.setTaskId('task-123');
-      expect(manager.getTaskId()).toBe('task-123');
+    it("should set task ID", () => {
+      manager.setTaskId("task-123");
+      expect(manager.getTaskId()).toBe("task-123");
     });
 
-    it('should update task ID', () => {
-      manager.setTaskId('task-1');
-      manager.setTaskId('task-2');
-      expect(manager.getTaskId()).toBe('task-2');
+    it("should update task ID", () => {
+      manager.setTaskId("task-1");
+      manager.setTaskId("task-2");
+      expect(manager.getTaskId()).toBe("task-2");
     });
 
-    it('should update lastUpdated timestamp', () => {
+    it("should update lastUpdated timestamp", () => {
       manager.initialize();
       const before = Date.now();
-      manager.setTaskId('task-123');
+      manager.setTaskId("task-123");
       const state = manager.getState();
       expect(state?.lastUpdated).toBeGreaterThanOrEqual(before);
     });
   });
 
-  describe('getProgressPlan', () => {
+  describe("getProgressPlan", () => {
     beforeEach(() => {
       manager.initialize();
     });
 
-    it('should return undefined when no taskId is set', () => {
+    it("should return undefined when no taskId is set", () => {
       expect(manager.getProgressPlan()).toBeUndefined();
     });
 
-    it('should return undefined when taskId is set but plan does not exist', () => {
-      manager.setTaskId('non-existent-task');
+    it("should return undefined when taskId is set but plan does not exist", () => {
+      manager.setTaskId("non-existent-task");
       expect(manager.getProgressPlan()).toBeUndefined();
     });
 
-    it('should return plan when taskId is set and plan exists', () => {
+    it("should return plan when taskId is set and plan exists", () => {
       const plan = progressPlanManager.createPlan(
-        'task-123',
-        'Test task',
-        'simple',
-        [{ description: 'Step 1' }]
+        "task-123",
+        "Test task",
+        "simple",
+        [{ description: "Step 1" }]
       );
-      manager.setTaskId('task-123');
-      
+      manager.setTaskId("task-123");
+
       const retrievedPlan = manager.getProgressPlan();
       expect(retrievedPlan).toBeDefined();
-      expect(retrievedPlan?.taskId).toBe('task-123');
-      expect(retrievedPlan?.originalPrompt).toBe('Test task');
+      expect(retrievedPlan?.taskId).toBe("task-123");
+      expect(retrievedPlan?.originalPrompt).toBe("Test task");
     });
 
-    it('should return updated plan when plan is modified in ProgressPlanManager', () => {
+    it("should return updated plan when plan is modified in ProgressPlanManager", () => {
       const plan = progressPlanManager.createPlan(
-        'task-123',
-        'Test task',
-        'hard',
-        [
-          { description: 'Step 1' },
-          { description: 'Step 2' },
-        ]
+        "task-123",
+        "Test task",
+        "hard",
+        [{ description: "Step 1" }, { description: "Step 2" }]
       );
-      manager.setTaskId('task-123');
-      
+      manager.setTaskId("task-123");
+
       // Update step status in ProgressPlanManager
-      progressPlanManager.updateStepStatus('task-123', 1, 'completed');
-      
+      progressPlanManager.updateStepStatus("task-123", 1, "completed");
+
       const retrievedPlan = manager.getProgressPlan();
-      expect(retrievedPlan?.steps[0].status).toBe('completed');
-      expect(retrievedPlan?.steps[1].status).toBe('pending');
+      expect(retrievedPlan?.steps[0].status).toBe("completed");
+      expect(retrievedPlan?.steps[1].status).toBe("pending");
     });
   });
 
-  describe('getCurrentStep', () => {
+  describe("getCurrentStep", () => {
     beforeEach(() => {
       manager.initialize();
     });
 
-    it('should return undefined when no plan exists', () => {
+    it("should return undefined when no plan exists", () => {
       expect(manager.getCurrentStep()).toBeUndefined();
     });
 
-    it('should return first pending step when all steps are pending', () => {
+    it("should return first pending step when all steps are pending", () => {
       const plan = progressPlanManager.createPlan(
-        'task-123',
-        'Test task',
-        'hard',
-        [
-          { description: 'Step 1' },
-          { description: 'Step 2' },
-        ]
+        "task-123",
+        "Test task",
+        "hard",
+        [{ description: "Step 1" }, { description: "Step 2" }]
       );
-      manager.setTaskId('task-123');
-      
+      manager.setTaskId("task-123");
+
       const currentStep = manager.getCurrentStep();
       expect(currentStep).toBeDefined();
       expect(currentStep?.stepNumber).toBe(1);
-      expect(currentStep?.description).toBe('Step 1');
-      expect(currentStep?.status).toBe('pending');
+      expect(currentStep?.description).toBe("Step 1");
+      expect(currentStep?.status).toBe("pending");
     });
 
-    it('should return in_progress step when one exists', () => {
+    it("should return in_progress step when one exists", () => {
       const plan = progressPlanManager.createPlan(
-        'task-123',
-        'Test task',
-        'hard',
-        [
-          { description: 'Step 1' },
-          { description: 'Step 2' },
-        ]
+        "task-123",
+        "Test task",
+        "hard",
+        [{ description: "Step 1" }, { description: "Step 2" }]
       );
-      manager.setTaskId('task-123');
-      progressPlanManager.updateStepStatus('task-123', 1, 'completed');
-      progressPlanManager.updateStepStatus('task-123', 2, 'in_progress');
-      
+      manager.setTaskId("task-123");
+      progressPlanManager.updateStepStatus("task-123", 1, "completed");
+      progressPlanManager.updateStepStatus("task-123", 2, "in_progress");
+
       const currentStep = manager.getCurrentStep();
       expect(currentStep).toBeDefined();
       expect(currentStep?.stepNumber).toBe(2);
-      expect(currentStep?.status).toBe('in_progress');
+      expect(currentStep?.status).toBe("in_progress");
     });
 
-    it('should return undefined when all steps are completed', () => {
+    it("should return undefined when all steps are completed", () => {
       const plan = progressPlanManager.createPlan(
-        'task-123',
-        'Test task',
-        'simple',
-        [{ description: 'Step 1' }]
+        "task-123",
+        "Test task",
+        "simple",
+        [{ description: "Step 1" }]
       );
-      manager.setTaskId('task-123');
-      progressPlanManager.updateStepStatus('task-123', 1, 'completed');
-      
+      manager.setTaskId("task-123");
+      progressPlanManager.updateStepStatus("task-123", 1, "completed");
+
       expect(manager.getCurrentStep()).toBeUndefined();
     });
   });
 
-  describe('completeStep', () => {
+  describe("completeStep", () => {
     beforeEach(() => {
       manager.initialize();
     });
 
-    it('should return false when no state exists', () => {
+    it("should return false when no state exists", () => {
       manager.clear();
       expect(manager.completeStep(1)).toBe(false);
     });
 
-    it('should return false when no taskId is set', () => {
+    it("should return false when no taskId is set", () => {
       manager.initialize();
       expect(manager.completeStep(1)).toBe(false);
     });
 
-    it('should complete a step and update ProgressPlanManager', () => {
+    it("should complete a step and update ProgressPlanManager", () => {
       const plan = progressPlanManager.createPlan(
-        'task-123',
-        'Test task',
-        'simple',
-        [{ description: 'Step 1' }]
+        "task-123",
+        "Test task",
+        "simple",
+        [{ description: "Step 1" }]
       );
-      manager.setTaskId('task-123');
-      
+      manager.setTaskId("task-123");
+
       const success = manager.completeStep(1);
       expect(success).toBe(true);
       expect(manager.getCompletedSteps()).toContain(1);
-      
+
       const updatedPlan = manager.getProgressPlan();
-      expect(updatedPlan?.steps[0].status).toBe('completed');
+      expect(updatedPlan?.steps[0].status).toBe("completed");
     });
 
-    it('should not add duplicate step to completedSteps', () => {
+    it("should not add duplicate step to completedSteps", () => {
       const plan = progressPlanManager.createPlan(
-        'task-123',
-        'Test task',
-        'simple',
-        [{ description: 'Step 1' }]
+        "task-123",
+        "Test task",
+        "simple",
+        [{ description: "Step 1" }]
       );
-      manager.setTaskId('task-123');
-      
+      manager.setTaskId("task-123");
+
       manager.completeStep(1);
       manager.completeStep(1); // Try again
-      
+
       expect(manager.getCompletedSteps()).toEqual([1]);
     });
 
-    it('should return false when step does not exist', () => {
+    it("should return false when step does not exist", () => {
       const plan = progressPlanManager.createPlan(
-        'task-123',
-        'Test task',
-        'simple',
-        [{ description: 'Step 1' }]
+        "task-123",
+        "Test task",
+        "simple",
+        [{ description: "Step 1" }]
       );
-      manager.setTaskId('task-123');
-      
+      manager.setTaskId("task-123");
+
       expect(manager.completeStep(999)).toBe(false);
     });
   });
 
-  describe('advanceToNextStep', () => {
+  describe("advanceToNextStep", () => {
     beforeEach(() => {
       manager.initialize();
     });
 
-    it('should return undefined when no plan exists', () => {
+    it("should return undefined when no plan exists", () => {
       expect(manager.advanceToNextStep()).toBeUndefined();
     });
 
-    it('should return undefined when no taskId is set', () => {
+    it("should return undefined when no taskId is set", () => {
       manager.initialize();
       expect(manager.advanceToNextStep()).toBeUndefined();
     });
 
-    it('should advance to next pending step', () => {
+    it("should advance to next pending step", () => {
       const plan = progressPlanManager.createPlan(
-        'task-123',
-        'Test task',
-        'hard',
-        [
-          { description: 'Step 1' },
-          { description: 'Step 2' },
-        ]
+        "task-123",
+        "Test task",
+        "hard",
+        [{ description: "Step 1" }, { description: "Step 2" }]
       );
-      manager.setTaskId('task-123');
-      progressPlanManager.updateStepStatus('task-123', 1, 'completed');
-      
+      manager.setTaskId("task-123");
+      progressPlanManager.updateStepStatus("task-123", 1, "completed");
+
       const nextStep = manager.advanceToNextStep();
       expect(nextStep).toBeDefined();
       expect(nextStep?.stepNumber).toBe(2);
-      expect(nextStep?.description).toBe('Step 2');
-      
+      expect(nextStep?.description).toBe("Step 2");
+
       const updatedPlan = manager.getProgressPlan();
-      expect(updatedPlan?.steps[1].status).toBe('in_progress');
+      expect(updatedPlan?.steps[1].status).toBe("in_progress");
     });
 
-    it('should return undefined when no more steps are pending', () => {
+    it("should return undefined when no more steps are pending", () => {
       const plan = progressPlanManager.createPlan(
-        'task-123',
-        'Test task',
-        'simple',
-        [{ description: 'Step 1' }]
+        "task-123",
+        "Test task",
+        "simple",
+        [{ description: "Step 1" }]
       );
-      manager.setTaskId('task-123');
-      progressPlanManager.updateStepStatus('task-123', 1, 'completed');
-      
+      manager.setTaskId("task-123");
+      progressPlanManager.updateStepStatus("task-123", 1, "completed");
+
       expect(manager.advanceToNextStep()).toBeUndefined();
     });
   });
 
-  describe('recordFileCreated', () => {
+  describe("recordFileCreated", () => {
     beforeEach(() => {
       manager.initialize();
     });
 
-    it('should record a file creation', () => {
-      manager.recordFileCreated('test.py', 1, 'created');
-      
+    it("should record a file creation", () => {
+      manager.recordFileCreated("test.py", 1, "created");
+
       const files = manager.getCreatedFiles();
       expect(files).toHaveLength(1);
-      expect(files[0].file).toBe('test.py');
+      expect(files[0].file).toBe("test.py");
       expect(files[0].stepNumber).toBe(1);
-      expect(files[0].status).toBe('created');
+      expect(files[0].status).toBe("created");
       expect(files[0].createdAt).toBeDefined();
     });
 
-    it('should record a file replacement', () => {
-      manager.recordFileCreated('test.py', 1, 'replaced');
-      
+    it("should record a file replacement", () => {
+      manager.recordFileCreated("test.py", 1, "replaced");
+
       const files = manager.getCreatedFiles();
-      expect(files[0].status).toBe('replaced');
+      expect(files[0].status).toBe("replaced");
     });
 
-    it('should record a file creation error', () => {
-      manager.recordFileCreated('test.py', 1, 'error', 'File already exists');
-      
+    it("should record a file creation error", () => {
+      manager.recordFileCreated("test.py", 1, "error", "File already exists");
+
       const files = manager.getCreatedFiles();
-      expect(files[0].status).toBe('error');
-      expect(files[0].error).toBe('File already exists');
+      expect(files[0].status).toBe("error");
+      expect(files[0].error).toBe("File already exists");
     });
 
-    it('should update existing record for same file and step', () => {
-      manager.recordFileCreated('test.py', 1, 'created');
+    it("should update existing record for same file and step", () => {
+      manager.recordFileCreated("test.py", 1, "created");
       const firstRecord = manager.getCreatedFiles()[0];
       const originalCreatedAt = firstRecord.createdAt;
-      
-      manager.recordFileCreated('test.py', 1, 'replaced');
-      
+
+      manager.recordFileCreated("test.py", 1, "replaced");
+
       const files = manager.getCreatedFiles();
       expect(files).toHaveLength(1);
-      expect(files[0].status).toBe('replaced');
+      expect(files[0].status).toBe("replaced");
       expect(files[0].createdAt).toBe(originalCreatedAt); // Preserved
     });
 
-    it('should record multiple files for same step', () => {
-      manager.recordFileCreated('file1.py', 1, 'created');
-      manager.recordFileCreated('file2.py', 1, 'created');
-      
+    it("should record multiple files for same step", () => {
+      manager.recordFileCreated("file1.py", 1, "created");
+      manager.recordFileCreated("file2.py", 1, "created");
+
       const files = manager.getCreatedFiles();
       expect(files).toHaveLength(2);
-      expect(files.map(f => f.file)).toEqual(['file1.py', 'file2.py']);
+      expect(files.map((f) => f.file)).toEqual(["file1.py", "file2.py"]);
     });
 
-    it('should record files for different steps', () => {
-      manager.recordFileCreated('file1.py', 1, 'created');
-      manager.recordFileCreated('file2.py', 2, 'created');
-      
+    it("should record files for different steps", () => {
+      manager.recordFileCreated("file1.py", 1, "created");
+      manager.recordFileCreated("file2.py", 2, "created");
+
       const files = manager.getCreatedFiles();
       expect(files).toHaveLength(2);
       expect(manager.getFilesForStep(1)).toHaveLength(1);
       expect(manager.getFilesForStep(2)).toHaveLength(1);
     });
 
-    it('should auto-initialize when recording without explicit init', () => {
+    it("should auto-initialize when recording without explicit init", () => {
       manager.clear();
-      manager.recordFileCreated('test.py', 1, 'created');
-      
+      manager.recordFileCreated("test.py", 1, "created");
+
       expect(manager.getCreatedFiles()).toHaveLength(1);
     });
   });
 
-  describe('filterCodeContextsForStep', () => {
+  describe("filterCodeContextsForStep", () => {
     beforeEach(() => {
       manager.initialize();
     });
 
-    it('should return empty array when no code contexts provided', () => {
+    it("should return empty array when no code contexts provided", () => {
       const step = {
         stepNumber: 1,
-        description: 'create hello.py - Create a Python file',
+        description: "create hello.py - Create a Python file",
       };
       expect(manager.filterCodeContextsForStep([], step)).toEqual([]);
     });
 
-    it('should match code context by exact filename in step', () => {
+    it("should match code context by exact filename in step", () => {
       const step = {
         stepNumber: 1,
-        description: 'create hello.py - Create a Python file',
+        description: "create hello.py - Create a Python file",
       };
-      const codeContext1 = new CodeContext('hello.py', ['print("Hello")']);
-      const codeContext2 = new CodeContext('world.py', ['print("World")']);
-      
-      const filtered = manager.filterCodeContextsForStep([codeContext1, codeContext2], step);
+      const codeContext1 = new CodeContext("hello.py", ['print("Hello")']);
+      const codeContext2 = new CodeContext("world.py", ['print("World")']);
+
+      const filtered = manager.filterCodeContextsForStep(
+        [codeContext1, codeContext2],
+        step
+      );
       expect(filtered).toHaveLength(1);
-      expect(filtered[0].name).toBe('hello.py');
+      expect(filtered[0].name).toBe("hello.py");
     });
 
-    it('should match code context by filename in step description', () => {
+    it("should match code context by filename in step description", () => {
       const step = {
         stepNumber: 1,
-        description: 'Create a file - create hello.py with greeting function',
+        description: "Create a file - create hello.py with greeting function",
       };
-      const codeContext = new CodeContext('hello.py', ['def greet(): pass']);
-      
+      const codeContext = new CodeContext("hello.py", ["def greet(): pass"]);
+
       const filtered = manager.filterCodeContextsForStep([codeContext], step);
       expect(filtered).toHaveLength(1);
-      expect(filtered[0].name).toBe('hello.py');
+      expect(filtered[0].name).toBe("hello.py");
     });
 
-    it('should match test files when step mentions test', () => {
+    it("should match test files when step mentions test", () => {
       const step = {
         stepNumber: 2,
-        description: 'create hello.test.py to test greet - Create test file',
+        description: "create hello.test.py to test greet - Create test file",
       };
-      const codeContext = new CodeContext('hello.test.py', ['import unittest']);
-      
+      const codeContext = new CodeContext("hello.test.py", ["import unittest"]);
+
       const filtered = manager.filterCodeContextsForStep([codeContext], step);
       expect(filtered).toHaveLength(1);
-      expect(filtered[0].name).toBe('hello.test.py');
+      expect(filtered[0].name).toBe("hello.test.py");
     });
 
-    it('should match markdown files when step mentions document', () => {
+    it("should match markdown files when step mentions document", () => {
       const step = {
         stepNumber: 3,
-        description: 'write hello.md to document hello module - Create documentation',
+        description:
+          "write hello.md to document hello module - Create documentation",
       };
-      const codeContext = new CodeContext('hello.md', ['# Hello Module']);
-      
+      const codeContext = new CodeContext("hello.md", ["# Hello Module"]);
+
       const filtered = manager.filterCodeContextsForStep([codeContext], step);
       expect(filtered).toHaveLength(1);
-      expect(filtered[0].name).toBe('hello.md');
+      expect(filtered[0].name).toBe("hello.md");
     });
 
-    it('should return single context when only one remains (fallback)', () => {
+    it("should return single context when only one remains (fallback)", () => {
       const step = {
         stepNumber: 1,
-        description: 'create a file - Generic step',
+        description: "create a file - Generic step",
       };
-      const codeContext = new CodeContext('hello.py', ['print("Hello")']);
+      const codeContext = new CodeContext("hello.py", ['print("Hello")']);
       codeContext.waitForCreate = true;
-      
+
       const filtered = manager.filterCodeContextsForStep([codeContext], step);
       expect(filtered).toHaveLength(1);
-      expect(filtered[0].name).toBe('hello.py');
+      expect(filtered[0].name).toBe("hello.py");
     });
 
-    it('should return empty array when multiple contexts exist but none match', () => {
+    it("should return empty array when multiple contexts exist but none match", () => {
       const step = {
         stepNumber: 1,
-        description: 'create test.py - Create test file',
+        description: "create test.py - Create test file",
       };
-      const codeContext1 = new CodeContext('file1.py', ['code1']);
-      const codeContext2 = new CodeContext('file2.py', ['code2']);
-      
-      const filtered = manager.filterCodeContextsForStep([codeContext1, codeContext2], step);
+      const codeContext1 = new CodeContext("file1.py", ["code1"]);
+      const codeContext2 = new CodeContext("file2.py", ["code2"]);
+
+      const filtered = manager.filterCodeContextsForStep(
+        [codeContext1, codeContext2],
+        step
+      );
       expect(filtered).toEqual([]);
     });
 
-    it('should match by base name when step mentions base name', () => {
+    it("should match by base name when step mentions base name", () => {
       const step = {
         stepNumber: 1,
-        description: 'create hello.py - Create hello file',
+        description: "create hello.py - Create hello file",
       };
-      const codeContext = new CodeContext('hello.py', ['print("Hello")']);
-      
+      const codeContext = new CodeContext("hello.py", ['print("Hello")']);
+
       const filtered = manager.filterCodeContextsForStep([codeContext], step);
       expect(filtered).toHaveLength(1);
     });
   });
 
-  describe('getCreatedFiles and getFilesForStep', () => {
+  describe("getCreatedFiles and getFilesForStep", () => {
     beforeEach(() => {
       manager.initialize();
     });
 
-    it('should return empty array when no files created', () => {
+    it("should return empty array when no files created", () => {
       expect(manager.getCreatedFiles()).toEqual([]);
     });
 
-    it('should return all created files', () => {
-      manager.recordFileCreated('file1.py', 1, 'created');
-      manager.recordFileCreated('file2.py', 1, 'created');
-      manager.recordFileCreated('file3.py', 2, 'created');
-      
+    it("should return all created files", () => {
+      manager.recordFileCreated("file1.py", 1, "created");
+      manager.recordFileCreated("file2.py", 1, "created");
+      manager.recordFileCreated("file3.py", 2, "created");
+
       const files = manager.getCreatedFiles();
       expect(files).toHaveLength(3);
     });
 
-    it('should return files for specific step', () => {
-      manager.recordFileCreated('file1.py', 1, 'created');
-      manager.recordFileCreated('file2.py', 2, 'created');
-      manager.recordFileCreated('file3.py', 2, 'created');
-      
+    it("should return files for specific step", () => {
+      manager.recordFileCreated("file1.py", 1, "created");
+      manager.recordFileCreated("file2.py", 2, "created");
+      manager.recordFileCreated("file3.py", 2, "created");
+
       const step1Files = manager.getFilesForStep(1);
       expect(step1Files).toHaveLength(1);
-      expect(step1Files[0].file).toBe('file1.py');
-      
+      expect(step1Files[0].file).toBe("file1.py");
+
       const step2Files = manager.getFilesForStep(2);
       expect(step2Files).toHaveLength(2);
     });
 
-    it('should return empty array for step with no files', () => {
-      manager.recordFileCreated('file1.py', 1, 'created');
+    it("should return empty array for step with no files", () => {
+      manager.recordFileCreated("file1.py", 1, "created");
       expect(manager.getFilesForStep(2)).toEqual([]);
     });
   });
 
-  describe('isComplete', () => {
+  describe("isComplete", () => {
     beforeEach(() => {
       manager.initialize();
     });
 
-    it('should return false when no plan exists', () => {
+    it("should return false when no plan exists", () => {
       expect(manager.isComplete()).toBe(false);
     });
 
-    it('should return false when no taskId is set', () => {
+    it("should return false when no taskId is set", () => {
       manager.initialize();
       expect(manager.isComplete()).toBe(false);
     });
 
-    it('should return false when not all steps are completed', () => {
+    it("should return false when not all steps are completed", () => {
       const plan = progressPlanManager.createPlan(
-        'task-123',
-        'Test task',
-        'hard',
-        [
-          { description: 'Step 1' },
-          { description: 'Step 2' },
-        ]
+        "task-123",
+        "Test task",
+        "hard",
+        [{ description: "Step 1" }, { description: "Step 2" }]
       );
-      manager.setTaskId('task-123');
-      progressPlanManager.updateStepStatus('task-123', 1, 'completed');
-      
+      manager.setTaskId("task-123");
+      progressPlanManager.updateStepStatus("task-123", 1, "completed");
+
       expect(manager.isComplete()).toBe(false);
     });
 
-    it('should return true when all steps are completed', () => {
+    it("should return true when all steps are completed", () => {
       const plan = progressPlanManager.createPlan(
-        'task-123',
-        'Test task',
-        'hard',
-        [
-          { description: 'Step 1' },
-          { description: 'Step 2' },
-        ]
+        "task-123",
+        "Test task",
+        "hard",
+        [{ description: "Step 1" }, { description: "Step 2" }]
       );
-      manager.setTaskId('task-123');
-      progressPlanManager.updateStepStatus('task-123', 1, 'completed');
-      progressPlanManager.updateStepStatus('task-123', 2, 'completed');
-      
+      manager.setTaskId("task-123");
+      progressPlanManager.updateStepStatus("task-123", 1, "completed");
+      progressPlanManager.updateStepStatus("task-123", 2, "completed");
+
       expect(manager.isComplete()).toBe(true);
     });
   });
 
-  describe('clear', () => {
-    it('should clear all state', () => {
-      manager.initialize('task-123');
-      manager.recordFileCreated('test.py', 1, 'created');
+  describe("clear", () => {
+    it("should clear all state", () => {
+      manager.initialize("task-123");
+      manager.recordFileCreated("test.py", 1, "created");
       manager.completeStep(1);
-      
+
       manager.clear();
-      
+
       expect(manager.getCreatedFiles()).toEqual([]);
       expect(manager.getCompletedSteps()).toEqual([]);
       expect(manager.getTaskId()).toBeUndefined();
       expect(manager.getState()).toBeNull();
     });
 
-    it('should clear referredFiles when cleared', async () => {
+    it("should clear referredFiles when cleared", async () => {
       manager.initialize();
-      
+
       const assumptionsExport = {
-        assumptions: ['Assumption 1'],
-        codeSnippets: [
-          { file: 'test.py', description: 'Test file' },
-        ],
-        summary: 'Test summary',
+        assumptions: ["Assumption 1"],
+        codeSnippets: [{ file: "test.py", description: "Test file" }],
+        summary: "Test summary",
       };
 
       await manager.generateAssumptionDataFile(assumptionsExport);
       expect(manager.getState()?.referredFiles).toHaveLength(1);
-      
+
       manager.clear();
       expect(manager.getState()).toBeNull();
     });
   });
 
-  describe('getSummary', () => {
+  describe("getSummary", () => {
     beforeEach(() => {
       manager.initialize();
     });
 
-    it('should return message when state is not initialized', () => {
+    it("should return message when state is not initialized", () => {
       manager.clear();
       const summary = manager.getSummary();
-      expect(summary).toContain('No implementation data');
+      expect(summary).toContain("No implementation data");
     });
 
-    it('should return summary with progress info', () => {
+    it("should return summary with progress info", () => {
       const plan = progressPlanManager.createPlan(
-        'task-123',
-        'Test task',
-        'hard',
-        [
-          { description: 'Step 1' },
-          { description: 'Step 2' },
-        ]
+        "task-123",
+        "Test task",
+        "hard",
+        [{ description: "Step 1" }, { description: "Step 2" }]
       );
-      manager.setTaskId('task-123');
-      manager.recordFileCreated('file1.py', 1, 'created');
-      progressPlanManager.updateStepStatus('task-123', 1, 'completed');
-      
+      manager.setTaskId("task-123");
+      manager.recordFileCreated("file1.py", 1, "created");
+      progressPlanManager.updateStepStatus("task-123", 1, "completed");
+
       const summary = manager.getSummary();
-      expect(summary).toContain('1');
-      expect(summary).toContain('2');
-      expect(summary).toContain('step(s)');
-      expect(summary).toContain('file(s)');
+      expect(summary).toContain("1");
+      expect(summary).toContain("2");
+      expect(summary).toContain("step(s)");
+      expect(summary).toContain("file(s)");
     });
 
-    it('should return summary with zero progress when nothing is done', () => {
+    it("should return summary with zero progress when nothing is done", () => {
       const plan = progressPlanManager.createPlan(
-        'task-123',
-        'Test task',
-        'simple',
-        [{ description: 'Step 1' }]
+        "task-123",
+        "Test task",
+        "simple",
+        [{ description: "Step 1" }]
       );
-      manager.setTaskId('task-123');
-      
+      manager.setTaskId("task-123");
+
       const summary = manager.getSummary();
-      expect(summary).toContain('0');
-      expect(summary).toContain('1');
+      expect(summary).toContain("0");
+      expect(summary).toContain("1");
     });
 
-    it('should return summary without plan info when no plan exists', () => {
-      manager.recordFileCreated('file1.py', 1, 'created');
-      
+    it("should return summary without plan info when no plan exists", () => {
+      manager.recordFileCreated("file1.py", 1, "created");
+
       const summary = manager.getSummary();
-      expect(summary).toContain('0'); // 0 steps completed
-      expect(summary).toContain('1'); // 1 file created
+      expect(summary).toContain("0"); // 0 steps completed
+      expect(summary).toContain("1"); // 1 file created
     });
   });
 
-  describe('getState', () => {
-    it('should return null when state is not initialized', () => {
+  describe("getState", () => {
+    it("should return null when state is not initialized", () => {
       expect(manager.getState()).toBeNull();
     });
 
-    it('should return copy of state', () => {
-      manager.initialize('task-123');
-      manager.recordFileCreated('test.py', 1, 'created');
+    it("should return copy of state", () => {
+      manager.initialize("task-123");
+      manager.recordFileCreated("test.py", 1, "created");
       manager.completeStep(1);
-      
+
       const state1 = manager.getState();
       const state2 = manager.getState();
-      
+
       expect(state1).not.toBe(state2); // Different objects
       expect(state1?.createdFiles).not.toBe(state2?.createdFiles); // Different arrays
       expect(state1?.completedSteps).not.toBe(state2?.completedSteps); // Different arrays
@@ -651,272 +635,285 @@ describe('ImplementationManager', () => {
     });
   });
 
-  describe('referredFiles from assumptions stage', () => {
-    it('should store referredFiles when generateAssumptionDataFile is called', async () => {
+  describe("referredFiles from assumptions stage", () => {
+    it("should store referredFiles when generateAssumptionDataFile is called", async () => {
       manager.initialize();
-      
+
       const assumptionsExport = {
-        assumptions: ['Assumption 1', 'Assumption 2'],
+        assumptions: ["Assumption 1", "Assumption 2"],
         codeSnippets: [
-          { file: 'test1.py', description: 'Test file 1' },
-          { file: 'test2.py', description: 'Test file 2' },
+          { file: "test1.py", description: "Test file 1" },
+          { file: "test2.py", description: "Test file 2" },
         ],
-        summary: 'Test summary',
+        summary: "Test summary",
       };
 
       await manager.generateAssumptionDataFile(assumptionsExport);
-      
+
       const state = manager.getState();
       expect(state?.referredFiles).toHaveLength(2);
       expect(state?.referredFiles).toEqual(assumptionsExport.codeSnippets);
     });
 
-    it('should initialize state if not initialized when generateAssumptionDataFile is called', async () => {
+    it("should initialize state if not initialized when generateAssumptionDataFile is called", async () => {
       const plan = progressPlanManager.createPlan(
-        'task-123',
-        'Test task',
-        'simple',
-        [{ description: 'Step 1' }]
+        "task-123",
+        "Test task",
+        "simple",
+        [{ description: "Step 1" }]
       );
-      
+
       const assumptionsExport = {
-        assumptions: ['Assumption 1'],
-        codeSnippets: [
-          { file: 'test.py', description: 'Test file' },
-        ],
+        assumptions: ["Assumption 1"],
+        codeSnippets: [{ file: "test.py", description: "Test file" }],
         progressPlan: plan,
-        summary: 'Test summary',
+        summary: "Test summary",
       };
 
       await manager.generateAssumptionDataFile(assumptionsExport);
-      
-      expect(manager.getTaskId()).toBe('task-123');
+
+      expect(manager.getTaskId()).toBe("task-123");
       const state = manager.getState();
       expect(state?.referredFiles).toHaveLength(1);
-      expect(state?.referredFiles[0]).toEqual({ file: 'test.py', description: 'Test file' });
+      expect(state?.referredFiles[0]).toEqual({
+        file: "test.py",
+        description: "Test file",
+      });
     });
 
-    it('should store empty array when codeSnippets is empty', async () => {
+    it("should store empty array when codeSnippets is empty", async () => {
       manager.initialize();
-      
+
       const assumptionsExport = {
-        assumptions: ['Assumption 1'],
+        assumptions: ["Assumption 1"],
         codeSnippets: [],
-        summary: 'Test summary',
+        summary: "Test summary",
       };
 
       await manager.generateAssumptionDataFile(assumptionsExport);
-      
+
       const state = manager.getState();
       expect(state?.referredFiles).toEqual([]);
     });
 
-    it('should overwrite existing referredFiles when generateAssumptionDataFile is called multiple times', async () => {
+    it("should overwrite existing referredFiles when generateAssumptionDataFile is called multiple times", async () => {
       manager.initialize();
-      
+
       const firstExport = {
-        assumptions: ['Assumption 1'],
-        codeSnippets: [
-          { file: 'file1.py', description: 'First file' },
-        ],
-        summary: 'First summary',
+        assumptions: ["Assumption 1"],
+        codeSnippets: [{ file: "file1.py", description: "First file" }],
+        summary: "First summary",
       };
 
       await manager.generateAssumptionDataFile(firstExport);
       let state = manager.getState();
       expect(state?.referredFiles).toHaveLength(1);
-      
+
       const secondExport = {
-        assumptions: ['Assumption 2'],
+        assumptions: ["Assumption 2"],
         codeSnippets: [
-          { file: 'file2.py', description: 'Second file' },
-          { file: 'file3.py', description: 'Third file' },
+          { file: "file2.py", description: "Second file" },
+          { file: "file3.py", description: "Third file" },
         ],
-        summary: 'Second summary',
+        summary: "Second summary",
       };
 
       await manager.generateAssumptionDataFile(secondExport);
       state = manager.getState();
       expect(state?.referredFiles).toHaveLength(2);
       expect(state?.referredFiles).toEqual(secondExport.codeSnippets);
-      expect(state?.referredFiles[0].file).toBe('file2.py');
+      expect(state?.referredFiles[0].file).toBe("file2.py");
     });
 
-    it('should store referredFiles with description', async () => {
+    it("should store referredFiles with description", async () => {
       manager.initialize();
-      
+
       const assumptionsExport = {
-        assumptions: ['Assumption 1'],
+        assumptions: ["Assumption 1"],
         codeSnippets: [
-          { file: 'test.py', description: 'Test file with description' },
+          { file: "test.py", description: "Test file with description" },
         ],
-        summary: 'Test summary',
+        summary: "Test summary",
       };
 
       await manager.generateAssumptionDataFile(assumptionsExport);
-      
+
       const state = manager.getState();
-      expect(state?.referredFiles[0].file).toBe('test.py');
-      expect(state?.referredFiles[0].description).toBe('Test file with description');
+      expect(state?.referredFiles[0].file).toBe("test.py");
+      expect(state?.referredFiles[0].description).toBe(
+        "Test file with description"
+      );
     });
 
-    it('should store referredFiles without description', async () => {
+    it("should store referredFiles without description", async () => {
       manager.initialize();
-      
+
       const assumptionsExport = {
-        assumptions: ['Assumption 1'],
-        codeSnippets: [
-          { file: 'test.py' },
-        ],
-        summary: 'Test summary',
+        assumptions: ["Assumption 1"],
+        codeSnippets: [{ file: "test.py" }],
+        summary: "Test summary",
       };
 
       await manager.generateAssumptionDataFile(assumptionsExport);
-      
+
       const state = manager.getState();
-      expect(state?.referredFiles[0].file).toBe('test.py');
+      expect(state?.referredFiles[0].file).toBe("test.py");
       expect(state?.referredFiles[0].description).toBeUndefined();
     });
 
-    it('should create a copy of referredFiles array (not reference)', async () => {
+    it("should create a copy of referredFiles array (not reference)", async () => {
       manager.initialize();
-      
+
       const codeSnippets = [
-        { file: 'test1.py', description: 'File 1' },
-        { file: 'test2.py', description: 'File 2' },
+        { file: "test1.py", description: "File 1" },
+        { file: "test2.py", description: "File 2" },
       ];
-      
+
       const assumptionsExport = {
-        assumptions: ['Assumption 1'],
+        assumptions: ["Assumption 1"],
         codeSnippets: codeSnippets,
-        summary: 'Test summary',
+        summary: "Test summary",
       };
 
       await manager.generateAssumptionDataFile(assumptionsExport);
-      
+
       const state = manager.getState();
       expect(state?.referredFiles).not.toBe(codeSnippets); // Different array reference
       expect(state?.referredFiles).toEqual(codeSnippets); // Same content
-      
+
       // Modifying original should not affect state
-      codeSnippets.push({ file: 'test3.py', description: 'File 3' });
+      codeSnippets.push({ file: "test3.py", description: "File 3" });
       const state2 = manager.getState();
       expect(state2?.referredFiles).toHaveLength(2); // Still 2, not 3
     });
   });
 
-  describe('integration with ProgressPlanManager', () => {
-    it('should work with multiple plans in ProgressPlanManager', () => {
-      const plan1 = progressPlanManager.createPlan('task-1', 'Task 1', 'simple', [{ description: 'Step 1' }]);
-      const plan2 = progressPlanManager.createPlan('task-2', 'Task 2', 'hard', [
-        { description: 'Step 1' },
-        { description: 'Step 2' },
+  describe("integration with ProgressPlanManager", () => {
+    it("should work with multiple plans in ProgressPlanManager", () => {
+      const plan1 = progressPlanManager.createPlan(
+        "task-1",
+        "Task 1",
+        "simple",
+        [{ description: "Step 1" }]
+      );
+      const plan2 = progressPlanManager.createPlan("task-2", "Task 2", "hard", [
+        { description: "Step 1" },
+        { description: "Step 2" },
       ]);
-      
+
       manager.initialize();
-      manager.setTaskId('task-1');
-      expect(manager.getProgressPlan()?.taskId).toBe('task-1');
-      
-      manager.setTaskId('task-2');
-      expect(manager.getProgressPlan()?.taskId).toBe('task-2');
+      manager.setTaskId("task-1");
+      expect(manager.getProgressPlan()?.taskId).toBe("task-1");
+
+      manager.setTaskId("task-2");
+      expect(manager.getProgressPlan()?.taskId).toBe("task-2");
       expect(manager.getProgressPlan()?.totalSteps).toBe(2);
     });
 
-    it('should reflect plan updates from ProgressPlanManager', () => {
+    it("should reflect plan updates from ProgressPlanManager", () => {
       const plan = progressPlanManager.createPlan(
-        'task-123',
-        'Test task',
-        'hard',
+        "task-123",
+        "Test task",
+        "hard",
         [
-          { description: 'Step 1' },
-          { description: 'Step 2' },
-          { description: 'Step 3' },
+          { description: "Step 1" },
+          { description: "Step 2" },
+          { description: "Step 3" },
         ]
       );
       manager.initialize();
-      manager.setTaskId('task-123');
-      
+      manager.setTaskId("task-123");
+
       // Update steps in ProgressPlanManager
-      progressPlanManager.updateStepStatus('task-123', 1, 'in_progress');
-      progressPlanManager.updateStepStatus('task-123', 1, 'completed');
-      progressPlanManager.updateStepStatus('task-123', 2, 'in_progress');
-      
+      progressPlanManager.updateStepStatus("task-123", 1, "in_progress");
+      progressPlanManager.updateStepStatus("task-123", 1, "completed");
+      progressPlanManager.updateStepStatus("task-123", 2, "in_progress");
+
       const retrievedPlan = manager.getProgressPlan();
-      expect(retrievedPlan?.steps[0].status).toBe('completed');
-      expect(retrievedPlan?.steps[1].status).toBe('in_progress');
-      expect(retrievedPlan?.steps[2].status).toBe('pending');
-      
+      expect(retrievedPlan?.steps[0].status).toBe("completed");
+      expect(retrievedPlan?.steps[1].status).toBe("in_progress");
+      expect(retrievedPlan?.steps[2].status).toBe("pending");
+
       const currentStep = manager.getCurrentStep();
       expect(currentStep?.stepNumber).toBe(2);
-      expect(currentStep?.status).toBe('in_progress');
+      expect(currentStep?.status).toBe("in_progress");
     });
   });
 
-  describe('processFileCreations', () => {
+  describe("processFileCreations", () => {
     beforeEach(() => {
       const plan: ProgressPlan = {
-        taskId: 'test-task',
-        originalPrompt: 'Create hello module',
-        complexity: 'hard',
+        taskId: "test-task",
+        originalPrompt: "Create hello module",
+        complexity: "hard",
         totalSteps: 3,
         steps: [
           {
             stepNumber: 1,
-            description: 'Step 1: create hello.py which greet function and main block',
-            status: 'in_progress',
-            tools: []
+            description:
+              "Step 1: create hello.py which greet function and main block",
+            status: "in_progress",
+            tools: [],
           },
           {
             stepNumber: 2,
-            description: 'Step 2: create hello.test.py to test greet',
-            status: 'pending',
-            tools: []
+            description: "Step 2: create hello.test.py to test greet",
+            status: "pending",
+            tools: [],
           },
           {
             stepNumber: 3,
-            description: 'Step 3: write hello.md to document hello module',
-            status: 'pending',
-            tools: []
-          }
+            description: "Step 3: write hello.md to document hello module",
+            status: "pending",
+            tools: [],
+          },
         ],
-        createdAt: Date.now()
+        createdAt: Date.now(),
       };
       progressPlanManager.createPlan(
         plan.taskId,
         plan.originalPrompt,
         plan.complexity,
-        plan.steps.map(s => ({ description: s.description, tools: s.tools }))
+        plan.steps.map((s) => ({ description: s.description, tools: s.tools }))
       );
-      manager.initialize('test-task');
+      manager.initialize("test-task");
     });
 
-    it('should complete step 1 when hello.py is created', () => {
+    it("should complete step 1 when hello.py is created", () => {
       const toolCalls = [
         {
-          name: 'create_file',
-          arguments: { file_path: 'hello.py', content: 'def greet(): pass' },
-          result: { isError: false }
-        }
+          name: "create_file",
+          arguments: { file_path: "hello.py", content: "def greet(): pass" },
+          result: { isError: false },
+        },
+        {
+          name: "create_file",
+          arguments: {
+            file_path: "step_1_log.txt",
+            content: "__completed__\nCompleted by agent",
+          },
+          result: { isError: false },
+        },
       ];
 
       const completedStep = manager.processFileCreations(toolCalls);
 
       expect(completedStep).toBe(1);
       const plan = manager.getProgressPlan();
-      expect(plan?.steps[0].status).toBe('completed');
-      expect(plan?.steps[1].status).toBe('in_progress'); // Automatically advanced to in_progress
+      expect(plan?.steps[0].status).toBe("completed");
+      expect(plan?.steps[1].status).toBe("pending"); // No auto-advance: remains pending
     });
 
-    it('should NOT complete step 1 when hello.test.py is created', () => {
+    it("should NOT complete step 1 when hello.test.py is created", () => {
       // Set step 1 to in_progress first (simulating that we've started working on it)
-      progressPlanManager.updateStepStatus('test-task', 1, 'in_progress');
-      
+      progressPlanManager.updateStepStatus("test-task", 1, "in_progress");
+
       const toolCalls = [
         {
-          name: 'create_file',
-          arguments: { file_path: 'hello.test.py', content: 'import unittest' },
-          result: { isError: false }
-        }
+          name: "create_file",
+          arguments: { file_path: "hello.test.py", content: "import unittest" },
+          result: { isError: false },
+        },
       ];
 
       const completedStep = manager.processFileCreations(toolCalls);
@@ -925,55 +922,60 @@ describe('ImplementationManager', () => {
       const plan = manager.getProgressPlan();
       // Step 1 should remain in_progress (not change) since files don't match
       // Plan runs step by step - if files don't match current step, status doesn't change
-      expect(plan?.steps[0].status).toBe('in_progress');
+      expect(plan?.steps[0].status).toBe("in_progress");
     });
 
-    it('should only complete step 1 when multiple files are created but only hello.py matches', () => {
+    it("should only complete step 1 when multiple files are created but only hello.py matches", () => {
       const toolCalls = [
         {
-          name: 'create_file',
-          arguments: { file_path: 'hello.py', content: 'def greet(): pass' },
-          result: { isError: false }
+          name: "create_file",
+          arguments: { file_path: "hello.py", content: "def greet(): pass" },
+          result: { isError: false },
         },
         {
-          name: 'create_file',
-          arguments: { file_path: 'hello.test.py', content: 'import unittest' },
-          result: { isError: false }
+          name: "create_file",
+          arguments: { file_path: "hello.test.py", content: "import unittest" },
+          result: { isError: false },
         },
         {
-          name: 'create_file',
-          arguments: { file_path: 'hello.md', content: '# Hello' },
-          result: { isError: false }
-        }
+          name: "create_file",
+          arguments: { file_path: "hello.md", content: "# Hello" },
+          result: { isError: false },
+        },
+        {
+          name: "create_file",
+          arguments: { file_path: "step_1_log.txt", content: "__completed__" },
+          result: { isError: false },
+        },
       ];
 
       const completedStep = manager.processFileCreations(toolCalls);
 
       expect(completedStep).toBe(1);
       const plan = manager.getProgressPlan();
-      expect(plan?.steps[0].status).toBe('completed');
-      expect(plan?.steps[1].status).toBe('in_progress'); // Automatically advanced to in_progress
-      expect(plan?.steps[2].status).toBe('pending');
+      expect(plan?.steps[0].status).toBe("completed");
+      expect(plan?.steps[1].status).toBe("pending"); // No auto-advance: remains pending
+      expect(plan?.steps[2].status).toBe("pending");
     });
 
-    it('should record all file creations even if step is not completed', () => {
+    it("should record all file creations even if step is not completed", () => {
       const toolCalls = [
         {
-          name: 'create_file',
-          arguments: { file_path: 'hello.test.py', content: 'import unittest' },
-          result: { isError: false }
-        }
+          name: "create_file",
+          arguments: { file_path: "hello.test.py", content: "import unittest" },
+          result: { isError: false },
+        },
       ];
 
       manager.processFileCreations(toolCalls);
 
       const files = manager.getFilesForStep(1);
       expect(files.length).toBe(1);
-      expect(files[0].file).toBe('hello.test.py');
-      expect(files[0].status).toBe('created');
+      expect(files[0].file).toBe("hello.test.py");
+      expect(files[0].status).toBe("created");
     });
 
-    it('should return undefined if no current step', () => {
+    it("should return undefined if no current step", () => {
       // Complete all steps
       manager.completeStep(1);
       manager.advanceToNextStep();
@@ -983,119 +985,146 @@ describe('ImplementationManager', () => {
 
       const toolCalls = [
         {
-          name: 'create_file',
-          arguments: { file_path: 'hello.py', content: 'def greet(): pass' },
-          result: { isError: false }
-        }
+          name: "create_file",
+          arguments: { file_path: "hello.py", content: "def greet(): pass" },
+          result: { isError: false },
+        },
       ];
 
       const completedStep = manager.processFileCreations(toolCalls);
       expect(completedStep).toBeUndefined();
     });
 
-    it('should return undefined if no successful file modifications', () => {
+    it("should return undefined if no successful file modifications", () => {
       const toolCalls = [
         {
-          name: 'read_file',
-          arguments: { file_path: 'hello.py' },
-          result: { isError: false }
-        }
+          name: "read_file",
+          arguments: { file_path: "hello.py" },
+          result: { isError: false },
+        },
       ];
 
       const completedStep = manager.processFileCreations(toolCalls);
       expect(completedStep).toBeUndefined();
     });
 
-    it('should handle replace_file tool calls', () => {
+    it("should handle replace_file tool calls", () => {
       const toolCalls = [
         {
-          name: 'replace_file',
-          arguments: { file_path: 'hello.py', content: 'def greet(): pass' },
-          result: { isError: false }
-        }
+          name: "replace_file",
+          arguments: { file_path: "hello.py", content: "def greet(): pass" },
+          result: { isError: false },
+        },
+        {
+          name: "create_file",
+          arguments: { file_path: "step_1_log.txt", content: "__completed__" },
+          result: { isError: false },
+        },
       ];
 
       const completedStep = manager.processFileCreations(toolCalls);
 
       expect(completedStep).toBe(1);
       const files = manager.getFilesForStep(1);
-      expect(files[0].status).toBe('replaced');
+      expect(files[0].status).toBe("replaced");
     });
   });
 
-  describe('Step auto-advance bug regression', () => {
-    it('should NOT auto-complete step 3 when step 2 completes', () => {
+  describe("Step auto-advance bug regression", () => {
+    it("should NOT auto-complete step 3 when step 2 completes", () => {
       // This test verifies the fix for: when completing step 2, step 3 should only advance to
       // in_progress, not be marked as completed. The bug was that any subsequent file creation
       // would trigger processFileCreations for step 3, which would complete it prematurely.
-      
-      manager.initialize('task-123');
-      
+
+      manager.initialize("task-123");
+
       // Create a 3-step plan
       const plan = progressPlanManager.createPlan(
-        'task-123',
-        'Three step task',
-        'hard',
+        "task-123",
+        "Three step task",
+        "hard",
         [
-          { description: 'Step 1: Read requirements' },
-          { description: 'Step 2: Based on the extracted specifications, design the overall structure' },
-          { description: 'Step 3: Write the filter.awk script according to the design' }
+          { description: "Step 1: Read requirements" },
+          {
+            description:
+              "Step 2: Based on the extracted specifications, design the overall structure",
+          },
+          {
+            description:
+              "Step 3: Write the filter.awk script according to the design",
+          },
         ]
       );
-      
+
       // Manually start step 1
-      progressPlanManager.updateStepStatus('task-123', 1, 'in_progress');
-      
+      progressPlanManager.updateStepStatus("task-123", 1, "in_progress");
+
       // Complete step 1
       manager.completeStep(1);
-      
-      // Verify step 2 is now in_progress and step 3 is still pending
-      let step2 = progressPlanManager.getPlan('task-123')?.steps.find(s => s.stepNumber === 2);
-      let step3 = progressPlanManager.getPlan('task-123')?.steps.find(s => s.stepNumber === 3);
-      
-      expect(step2?.status).toBe('in_progress');
-      expect(step3?.status).toBe('pending');
-      
-      // Now complete step 2
+
+      // After completing step 1 there is no auto-advance, step 2 remains pending
+      let step2 = progressPlanManager
+        .getPlan("task-123")
+        ?.steps.find((s) => s.stepNumber === 2);
+      let step3 = progressPlanManager
+        .getPlan("task-123")
+        ?.steps.find((s) => s.stepNumber === 3);
+
+      expect(step2?.status).toBe("pending");
+      expect(step3?.status).toBe("pending");
+
+      // Manually start step 2, then complete it
+      progressPlanManager.updateStepStatus("task-123", 2, "in_progress");
       manager.completeStep(2);
-      
+
+      // Manually start step 3 (no auto-advance on completion)
+      progressPlanManager.updateStepStatus("task-123", 3, "in_progress");
+
       // Verify step 2 is completed and step 3 is now in_progress
-      step2 = progressPlanManager.getPlan('task-123')?.steps.find(s => s.stepNumber === 2);
-      step3 = progressPlanManager.getPlan('task-123')?.steps.find(s => s.stepNumber === 3);
-      
-      expect(step2?.status).toBe('completed');
-      expect(step3?.status).toBe('in_progress');
-      
+      step2 = progressPlanManager
+        .getPlan("task-123")
+        ?.steps.find((s) => s.stepNumber === 2);
+      step3 = progressPlanManager
+        .getPlan("task-123")
+        ?.steps.find((s) => s.stepNumber === 3);
+
+      expect(step2?.status).toBe("completed");
+      expect(step3?.status).toBe("in_progress");
+
       // This is the critical part: step 3 should NOT be auto-completed
       // even if a file like step2_design.txt is created
       // (The file creation processing should only complete step 3 when actual step 3 files are created)
-      
+
       // Create a diagnostic file that might be created during step 2's post-processing
       const toolCalls = [
         {
-          name: 'create_file',
-          arguments: { file_path: 'step2_design.txt', content: 'Design output' },
-          result: { isError: false }
-        }
+          name: "create_file",
+          arguments: {
+            file_path: "step2_design.txt",
+            content: "Design output",
+          },
+          result: { isError: false },
+        },
       ];
-      
+
       // Manually trigger getCurrentStep to be step 3
       // (normally this happens in the stage handler)
       const currentStep = manager.getCurrentStep();
       expect(currentStep?.stepNumber).toBe(3);
-      
+
       // Call processFileCreations with the diagnostic file
       const completedStep = manager.processFileCreations(toolCalls);
-      
+
       // Step 3 should NOT be completed by this diagnostic file
       // In the bug scenario, step 3 would be marked as completed here
       // After the fix, it should remain in_progress
       expect(completedStep).toBeUndefined();
-      
+
       // Verify step 3 is still in_progress
-      step3 = progressPlanManager.getPlan('task-123')?.steps.find(s => s.stepNumber === 3);
-      expect(step3?.status).toBe('in_progress');
+      step3 = progressPlanManager
+        .getPlan("task-123")
+        ?.steps.find((s) => s.stepNumber === 3);
+      expect(step3?.status).toBe("in_progress");
     });
   });
 });
-

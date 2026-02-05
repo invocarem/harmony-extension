@@ -9,6 +9,9 @@ import { ConversationContextManager } from "./conversationContext";
 import { StageDetector } from "./stageDetector";
 import { ImplementationManager } from "./implementationManager";
 import { logStepInfo } from "../utils/logger";
+import * as fs from "fs";
+import * as path from "path";
+import * as vscode from "vscode";
 export type WorkflowStage = "chat" | "assumptions" | "implementation";
 
 /**
@@ -614,6 +617,25 @@ export class StageStateMachine {
 
       if (context && context.currentStage === "chat") {
         console.log(`[Harmony] Initializing conversation at chat stage`);
+
+        // Create .harmony folder if it doesn't exist (only on first conversation initialization)
+        try {
+          const workspaceFolder =
+            vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          if (workspaceFolder) {
+            const harmonyFolder = path.join(workspaceFolder, ".harmony");
+            if (!fs.existsSync(harmonyFolder)) {
+              fs.mkdirSync(harmonyFolder, { recursive: true });
+              console.log(
+                `[Harmony] Created .harmony folder at ${harmonyFolder}`
+              );
+            }
+          }
+        } catch (error) {
+          console.warn(`[Harmony] Failed to create .harmony folder:`, error);
+        }
+
+        // Initialize chat manager for this conversation
         if (this.chatManager && !this.chatManager.hasContent()) {
           this.chatManager.initialize();
         }
@@ -751,8 +773,8 @@ export class StageStateMachine {
     const context = this.contextManager.getContext();
     if (context && isContinuation) {
       logStepInfo(
-        context.currentStep,
-        context.maxSteps,
+        context.continueStep,
+        context.continueLimit,
         context.originalPrompt
       );
     }
@@ -761,7 +783,7 @@ export class StageStateMachine {
   isMaxStepsExceeded(): boolean {
     if (!this.contextManager) return false;
     const context = this.contextManager.getContext();
-    return context ? context.currentStep > context.maxSteps : false;
+    return context ? context.continueStep > context.continueLimit : false;
   }
 
   getCurrentStage(): WorkflowStage {
@@ -893,6 +915,7 @@ export class StageStateMachine {
 - **Review ALL conversation history above** - Examine ALL user messages and assistant responses from the beginning. Do not focus only on the first or most recent message
 - **Identify ALL requirements** - Extract and list all distinct functional requirements/deliverables from the conversation. Note: One user message may contain multiple requirements; multiple messages may clarify one requirement
 - **Analyze the current prompt below** - Consider both the conversation history and the current prompt together
+- **If a plan already exists and the user provides feedback/comments** - INCORPORATE the user's feedback into an UPDATED plan. Do NOT simply regenerate the same plan. Adjust steps, add new steps, remove steps, or modify descriptions based on the user's comments
 - **Assess actual complexity** - Determine the complexity based on ALL requirements identified, not just the first one
 - **Create a comprehensive plan** - Your plan must address ALL identified user requirements, not just one
 
@@ -932,6 +955,8 @@ export class StageStateMachine {
 3. All tools are available in this step. Use appropriate tools, see TOOL USAGE GUIDE below.
 4. You MUST produce a tangible file output named step_[N]_log.txt, N is current step number.
 5. You MUST save status message in step_[N]_log.txt, N is current step number.:
+   - **CRITICAL** FIRST LINE "__completed__: [file_path]" to indicate successful implementation of the step.
+   Other status:
    - "__created__: [file_path]" for create_file
    - "__edited__: [file_path]" for edit_file
    - "__replaced__: [file_path]" for replace_file

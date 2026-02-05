@@ -29,7 +29,10 @@ export interface VerboseInfoOptions {
  * Centralized builder for verboseInfo across stages
  */
 export class VerboseInfoManager {
-  constructor(private progressPlanManager: ProgressPlanManager) {}
+  constructor(
+    private progressPlanManager: ProgressPlanManager,
+    private contextManager: import("./conversationContext").ConversationContextManager
+  ) {}
 
   buildVerboseInfo(
     stage: WorkflowStage,
@@ -60,6 +63,7 @@ export class VerboseInfoManager {
     if (stage === "chat") {
       return VerboseInfoBuilder.forChatStage(
         context,
+        this.contextManager,
         fileExtractionResult,
         content,
         reasoning,
@@ -71,6 +75,7 @@ export class VerboseInfoManager {
     if (stage === "assumptions") {
       return VerboseInfoBuilder.forAssumptionStage(
         context,
+        this.contextManager,
         mappedToolCalls,
         conversationHistory
       );
@@ -79,6 +84,7 @@ export class VerboseInfoManager {
     // Implementation stage
     const info = VerboseInfoBuilder.forImplementationStage(
       context,
+      this.contextManager,
       this.progressPlanManager,
       fileOperations,
       mappedToolCalls
@@ -140,7 +146,7 @@ export class VerboseInfoManager {
     options: VerboseInfoOptions & { mergeToolCalls?: boolean } = {}
   ): VerboseInfo {
     const { mergeToolCalls, ...verboseOptions } = options;
-    
+
     const fallbackVerboseInfo = this.buildVerboseInfo(
       stage,
       context,

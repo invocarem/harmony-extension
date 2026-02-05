@@ -30,7 +30,7 @@ export class StateTransitionManager {
       assumptionsManager,
       implementationManager
     );
-    
+
     // Wire transitionHandler to stageDetector
     this.stageDetector.setTransitionHandler(this.transitionHandler);
   }
@@ -48,7 +48,7 @@ export class StateTransitionManager {
 
       if (context && context.currentStage === "chat") {
         console.log(`[Harmony] Initializing conversation at chat stage`);
-        
+
         // Initialize chat manager for tracking
         const chatManager = this.chatManager;
         if (chatManager && !chatManager.hasContent()) {
@@ -124,7 +124,10 @@ export class StateTransitionManager {
       );
 
       // Check if this is a stage transition command
-      const isTransitionCommand = /\b(move\s+to|go\s+to|goto|start|begin)\s+(assumptions|analysis|analyze|implementation|implement|chat)\b/i.test(prompt);
+      const isTransitionCommand =
+        /\b(move\s+to|go\s+to|goto|start|begin)\s+(assumptions|analysis|analyze|implementation|implement|chat)\b/i.test(
+          prompt
+        );
 
       // NOTE: Transition side effects are now handled by action functions in stageStateMachine
       // No need to call transitionHandler methods here anymore
@@ -142,14 +145,16 @@ export class StateTransitionManager {
         console.log(
           `[Harmony] ✅ Stage successfully updated in context: ${updatedContext.currentStage}`
         );
-        
+
         // If transitioning with a transition command (just "move to X" without additional message),
         // skip LLM call and return a success message
         if (isTransitionCommand) {
-          console.log(`[Harmony] 🔄 Transitioned to ${detectedStage} stage with transition command - skipping LLM call`);
+          console.log(
+            `[Harmony] 🔄 Transitioned to ${detectedStage} stage with transition command - skipping LLM call`
+          );
           return {
             shouldSkipLLM: true,
-            message: `✓ Transitioned to ${detectedStage} stage`
+            message: `✓ Transitioned to ${detectedStage} stage`,
           };
         }
       } else {
@@ -162,7 +167,7 @@ export class StateTransitionManager {
         `[Harmony] Stage remains: ${previousStage} (no transition needed)`
       );
     }
-    
+
     return { shouldSkipLLM: false };
   }
 
@@ -200,8 +205,8 @@ export class StateTransitionManager {
     const context = this.contextManager.getContext();
     if (context && isContinuation) {
       logStepInfo(
-        context.currentStep,
-        context.maxSteps,
+        context.continueStep,
+        context.continueLimit,
         context.originalPrompt
       );
     }
@@ -212,7 +217,7 @@ export class StateTransitionManager {
    */
   isMaxStepsExceeded(): boolean {
     const context = this.contextManager.getContext();
-    return context ? context.currentStep > context.maxSteps : false;
+    return context ? context.continueStep > context.continueLimit : false;
   }
 
   /**

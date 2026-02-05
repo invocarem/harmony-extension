@@ -103,8 +103,7 @@ export class PromptBuilder {
           const fileCreationTools = [
             "create_file",
             "replace_file",
-            "write_file",
-            "update_file",
+            "edit_file",
           ];
           const needsFileCreation = true;
           const needsCommandExecution =
@@ -495,7 +494,7 @@ export class PromptBuilder {
     });
 
     continuationContext += `\nOriginal task: "${conversationContext.originalPrompt}"\n`;
-    continuationContext += `Current step: ${conversationContext.currentStep} of ${conversationContext.maxSteps}\n`;
+    continuationContext += `Current continuation: ${conversationContext.continueStep} of ${conversationContext.continueLimit}\n`;
     continuationContext += `Current stage: ${currentStage}\n`;
     continuationContext += `\nNow continue with the NEXT step to complete the task:\n`;
 
@@ -505,9 +504,7 @@ export class PromptBuilder {
   /**
    * Get allowed tools for a stage (for template context)
    */
-  private getAllowedTools(
-    currentStage: WorkflowStage
-  ): Array<{
+  private getAllowedTools(currentStage: WorkflowStage): Array<{
     name: string;
     description?: string;
     inputSchema: any;

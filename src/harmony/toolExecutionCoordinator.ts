@@ -97,8 +97,7 @@ export class ToolExecutionCoordinator {
     const processed = toolCalls.map((tc) => {
       if (!fileModTools.includes(tc.name)) return tc;
 
-      const filePath =
-        tc.arguments?.file_path || tc.arguments?.filePath;
+      const filePath = tc.arguments?.file_path || tc.arguments?.filePath;
       const newContent = tc.arguments?.content;
       if (
         !filePath ||
@@ -135,11 +134,10 @@ export class ToolExecutionCoordinator {
       }
 
       // New content doesn't include previous = overwrite, merge to preserve
-      const mergedContent =
-        previousContent.trim() + "\n\n" + newContent.trim();
+      const mergedContent = previousContent.trim() + "\n\n" + newContent.trim();
       console.log(
-          `[Harmony] Merge safeguard: prepended previous-step content to ${filePath} (LLM would have overwritten)`
-        );
+        `[Harmony] Merge safeguard: prepended previous-step content to ${filePath} (LLM would have overwritten)`
+      );
       return {
         ...tc,
         arguments: {
@@ -289,26 +287,24 @@ export class ToolExecutionCoordinator {
         // Update diagnostic file with completion summary
         await this.implementationManager.updateImplementationStepFileOnCompletion(
           completedStepNumber,
-          'llm_tools',
+          "llm_tools",
           this.nativeToolsManager,
           this.contextManager
         );
-        
+
         const updatedPlan = this.implementationManager.getProgressPlan();
         if (updatedPlan?.completedAt) {
           console.log(
             `[Harmony] ProgressPlan: All steps completed! Plan "${plan.taskId}" is now complete.`
           );
         } else {
-          // Do NOT automatically advance to next step
-          // Keep next step pending until user explicitly calls @cmd:step
-          // This allows users to control step execution sequentially
+          // Report next pending step that user needs to start with @cmd:step
           const nextPendingStep = updatedPlan?.steps.find(
             (s) => s.status === "pending"
           );
           if (nextPendingStep) {
             console.log(
-              `[Harmony] Step completed. Next step ${nextPendingStep.stepNumber} is pending (waiting for @cmd:step to execute)`
+              `[Harmony] Step completed. Next step ${nextPendingStep.stepNumber} is pending (use @cmd:step to start)`
             );
           }
         }

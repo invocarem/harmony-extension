@@ -177,7 +177,10 @@ export class HarmonyClient {
       nativeToolsManager
     );
 
-    this.verboseInfoManager = new VerboseInfoManager(this.progressPlanManager);
+    this.verboseInfoManager = new VerboseInfoManager(
+      this.progressPlanManager,
+      this.contextManager
+    );
   }
 
   async callServer(
@@ -382,8 +385,9 @@ export class HarmonyClient {
   ): Promise<HarmonyResponse> {
     const context = this.contextManager.getContext();
 
+    const stepInfo = this.contextManager.getDisplayStepInfo();
     console.log(
-      `[Harmony] Current stage: ${currentStage} (step ${context?.currentStep || 0}/${context?.maxSteps || 0})`
+      `[Harmony] Current stage: ${currentStage} (step ${stepInfo?.currentStep || 0}/${stepInfo?.totalSteps || 0})`
     );
 
     // Pre-processing via stage handler
@@ -756,7 +760,7 @@ export class HarmonyClient {
       );
 
       if (shouldContinue && updatedContext) {
-        if (updatedContext.currentStep + 1 > updatedContext.maxSteps) {
+        if (updatedContext.continueStep + 1 > updatedContext.continueLimit) {
           return {
             content: finalContent,
             reasoning: parsed.reasoning,
@@ -771,7 +775,7 @@ export class HarmonyClient {
         }
 
         console.log(
-          `[Harmony] Task incomplete, continuing to step ${updatedContext.currentStep + 1}...`
+          `[Harmony] Task incomplete, continuing to step ${updatedContext.continueStep + 1}...`
         );
 
         this.contextManager.incrementStep();
@@ -873,7 +877,7 @@ export class HarmonyClient {
       if (
         describesFileOperations &&
         isFileTask &&
-        context.currentStep + 1 <= context.maxSteps
+        context.continueStep + 1 <= context.continueLimit
       ) {
         console.log(
           `[Harmony] Model describes file operations but didn't make tool calls. Triggering continuation...`
@@ -1059,14 +1063,14 @@ export class HarmonyClient {
       // IMPORTANT: Get fresh context to ensure we have the most up-to-date stage
       const context = this.contextManager.getContext();
       if (context && isContinuation) {
-        logStepInfo(context.currentStep, context.maxSteps, context.originalPrompt);
+        logStepInfo(context.continueStep, context.continueLimit, context.originalPrompt);
       }
 
-      // Check if we've exceeded max steps (strictly greater). Allow the current
-      // call when currentStep === maxSteps so the final step can still run.
-      if (context && context.currentStep > context.maxSteps) {
+      // Check if we've exceeded continuation limit (strictly greater). Allow the current
+      // call when continueStep === continueLimit so the final step can still run.
+      if (context && context.continueStep > context.continueLimit) {
         console.warn(
-          `[Harmony] Reached maximum steps (${context.maxSteps}) for task: "${context.originalPrompt}"`
+          `[Harmony] Reached maximum continuation steps (${context.continueLimit}) for task: "${context.originalPrompt}"`
         );
         const verboseInfo = this.verboseInfoManager.buildVerboseInfo(
           context.currentStage,
@@ -1109,8 +1113,9 @@ export class HarmonyClient {
       }
 
       if (context) {
+        const stepInfo = this.contextManager.getDisplayStepInfo();
         console.log(
-          `[Harmony] Current stage: ${currentStage} (step ${context.currentStep}/${context.maxSteps})`
+          `[Harmony] Current stage: ${currentStage} (step ${stepInfo?.currentStep || 0}/${stepInfo?.totalSteps || 0})`
         );
       } else {
         console.log(`[Harmony] Current stage: ${currentStage} (no active conversation context)`);
@@ -1785,7 +1790,7 @@ export class HarmonyClient {
           }
 
           console.log(
-            `[Harmony] Continuing to step ${context.currentStep + 1} to get model to make tool calls...`
+            `[Harmony] Continuing to step ${context.continueStep + 1} to get model to make tool calls...`
           );
 
           const continuationPrompt = `Call the tools now. Use code from conversation history if available, otherwise generate it. Use create_file or replace_file to create the files.`;
@@ -1823,7 +1828,7 @@ export class HarmonyClient {
       if (context) {
         // Only show step info when there's a ProgressPlan (real multi-step task)
         const stepInfo = context.progressPlan 
-          ? `, step: ${context.currentStep}/${context.maxSteps}` 
+          ? `, step: ${context.continueStep}/${context.continueLimit}` 
           : '';
         console.log(
           `[Harmony] Response complete - stage: ${currentStage}${stepInfo}, isContinuation: ${isContinuation}`

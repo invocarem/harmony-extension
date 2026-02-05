@@ -1196,9 +1196,7 @@ describe("HarmonyClient - Implementation Stage", () => {
           isError: false,
         });
 
-      const result = await client.callServer(
-        "@cmd:step create empty file"
-      );
+      const result = await client.callServer("@cmd:step create empty file");
 
       // Verify create_file was called with empty content (check actual tool execution via mocks)
       // Note: Tool should be called even if result.toolCalls is undefined
@@ -1353,9 +1351,7 @@ describe("HarmonyClient - Implementation Stage", () => {
         .mockReturnValueOnce([]) // From rawToolCalls
         .mockReturnValueOnce([]); // From content fallback
 
-      const result = await client.callServer(
-        "@cmd:step call invalid tool"
-      );
+      const result = await client.callServer("@cmd:step call invalid tool");
 
       // Should handle gracefully - no tool calls executed
       expect(result.toolCalls).toBeUndefined();
