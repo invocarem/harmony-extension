@@ -449,6 +449,10 @@ class ImplementationStageHandler implements StageHandler {
         result?: any;
       }> = [];
 
+      // Capture current step ONCE before processing files to prevent step changes mid-loop
+      const currentStepBeforeLoop = this.implementationManager.getCurrentStep();
+      const stepNumber = currentStepBeforeLoop?.stepNumber || 0;
+
       for (const codeContext of filteredCodeContexts) {
         if (
           codeContext.waitForCreate &&
@@ -470,9 +474,6 @@ class ImplementationStageHandler implements StageHandler {
                 content: content,
               }
             );
-
-            const currentStep = this.implementationManager.getCurrentStep();
-            const stepNumber = currentStep?.stepNumber || 0;
 
             if (!createResult.isError) {
               createdFiles.push(filePath);
