@@ -224,15 +224,6 @@ export class AssumptionsManager {
       return null;
     }
 
-    // Use AutoTransitionManager for complexity detection
-    let complexity: "simple" | "hard" =
-      this.autoTransitionManager.detectTaskComplexity(
-        content,
-        reasoning,
-        toolCalls,
-        originalPrompt
-      ) || "simple";
-
     // Extract steps from LLM content only; no plan/steps → do not update, stay in assumptions
     let steps = this.autoTransitionManager.getStepsFromContent(content);
     if (steps.length === 0) {
@@ -242,13 +233,16 @@ export class AssumptionsManager {
       return null;
     }
 
-    // If the content only yields 0-2 actionable steps, treat it as a simple task
+    // Determine complexity from step count
+    let complexity: "simple" | "hard" = steps.length >= 3 ? "hard" : "simple";
+
+    // If the content only yields generic fallback, treat it as a simple task
     const isGenericFallback =
       steps.length > 0 && /^complete\s+the\s+task$/i.test(steps[0].description);
-    if ((complexity === "hard" && steps.length <= 2) || isGenericFallback) {
+    if (isGenericFallback) {
       complexity = "simple";
       console.log(
-        `[AssumptionsManager] Detected <3 steps or generic fallback with hard complexity, reverting to simple plan (${steps.length} step(s))`
+        `[AssumptionsManager] Detected generic fallback, treating as simple plan (${steps.length} step(s))`
       );
     }
 

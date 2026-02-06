@@ -21,10 +21,7 @@ Complexity assessment – This task is simple (1 step).
 
 Here's my implementation plan. Should I proceed to the Implementation stage to execute it?`;
 
-    const complexity = manager.detectTaskComplexity(content, undefined, undefined, undefined);
-    expect(complexity).toBe("simple");
-
-    const steps = manager.extractStepsFromText(content, undefined, complexity);
+    const steps = manager.extractStepsFromText(content, undefined, "simple");
     expect(steps.length).toBe(1);
     expect(steps[0].description).toContain("Execute the command python calc.py add 2 3");
   });
@@ -44,10 +41,8 @@ Step 1: Execute the command python calc.py add 2 3 in the repository root using 
 
 This is a simple task that can be completed in one step.`;
 
-    const complexity = manager.detectTaskComplexity(content, undefined, undefined, undefined);
-    expect(complexity).toBe("simple");
 
-    const steps = manager.extractStepsFromText(content, undefined, complexity);
+    const steps = manager.extractStepsFromText(content, undefined, "simple");
     expect(steps.length).toBe(1);
     expect(steps[0].description).toContain("Execute the command python calc.py add 2 3");
     expect(steps[0].description).not.toContain("Read the file");
@@ -67,8 +62,5 @@ Step 3: Verify results`;
     expect(steps[1].description).toContain("Capture the output");
     expect(steps[2].description).toContain("Verify results");
 
-    // Then check complexity detection
-    const complexity = manager.detectTaskComplexity(content, undefined, undefined, undefined);
-    expect(complexity).toBe("hard"); // 3 steps
   });
 });

@@ -10,56 +10,6 @@ export class AutoTransitionManager {
   constructor(private progressPlanManager: ProgressPlanManager) {}
 
   /**
-   * Detect task complexity from assumptions stage response
-   * Returns: 'simple' (1-2 steps), 'hard' (3+ steps), or null if unable to determine
-   *
-   * Priority:
-   * 1. Check LLM response (content + reasoning) - this is the LLM's analysis
-   * 2. Fall back to originalPrompt if LLM response doesn't have clear steps
-   *    (especially important for jinja-only models where reasoning is empty)
-   */
-  detectTaskComplexity(
-    content: string,
-    reasoning?: string,
-    toolCalls?: MCPToolCall[],
-    originalPrompt?: string
-  ): "simple" | "hard" | null {
-    const llmText = [content, reasoning].filter(Boolean).join(" \n");
-    const llmComplexity = this.detectComplexityUsingParser(llmText);
-    const promptComplexity = originalPrompt
-      ? this.detectComplexityUsingParser(originalPrompt)
-      : null;
-
-    if (llmComplexity === "hard" || promptComplexity === "hard") {
-      return "hard";
-    }
-    if (llmComplexity === "simple" || promptComplexity === "simple") {
-      return "simple";
-    }
-
-    return "simple";
-  }
-
-  private detectComplexityUsingParser(
-    text: string
-  ): "simple" | "hard" | null {
-    if (!text || text.trim().length === 0) {
-      return null;
-    }
-
-    const parsedSteps = this.extractNormalizedSteps(text);
-
-    if (parsedSteps.length >= 3) {
-      return "hard";
-    }
-    if (parsedSteps.length >= 1) {
-      return "simple";
-    }
-
-    return null;
-  }
-
-  /**
    * Get steps from LLM content only (no prompt, no fallbacks).
    * Used when we require a detected plan/steps to create or update a plan.
    * Returns empty array when no plan or steps are detected.
@@ -159,8 +109,8 @@ export class AutoTransitionManager {
   }
 
   /**
-   * Check if we should auto-transition from Assumptions to Implementation
-   * Returns the transition decision and created plan (if any)
+   * Check if we should create a plan from Assumptions stage
+   * Returns the created plan (if any) - user must manually transition
    */
   shouldAutoTransitionFromAssumptions(
     content: string,
@@ -173,47 +123,20 @@ export class AutoTransitionManager {
       return { shouldTransition: false };
     }
 
-    // Trigger 1: Tool calls include replace_file or create_file
-    const fileModificationTools = ["create_file", "replace_file"];
-    if (
-      toolCalls &&
-      toolCalls.some((tc) => fileModificationTools.includes(tc.name))
-    ) {
+    // Detect task complexity from steps
+    const steps = this.getStepsFromContent(content);
+    if (steps.length === 0) {
       console.log(
-        `[Harmony] Auto-transition: Tool calls include file modification tools`
+        `[Harmony] No plan or steps detected in content`
       );
-      return { shouldTransition: true };
-    }
-
-    // Trigger 2: Detect task complexity
-    const complexity = this.detectTaskComplexity(
-      content,
-      reasoning,
-      toolCalls,
-      originalPrompt
-    );
-    if (!complexity) {
       return { shouldTransition: false };
     }
 
-    console.log(`[Harmony] Detected task complexity: ${complexity}`);
+    const complexity = steps.length >= 3 ? "hard" : "simple";
+    console.log(`[Harmony] Detected task complexity: ${complexity} (${steps.length} steps)`);
 
-    if (complexity === "simple") {
-      // Simple task: auto-transition immediately
-      console.log(
-        `[Harmony] Auto-transition: Simple task (1-2 steps), transitioning to implementation`
-      );
-      return { shouldTransition: true };
-    } else if (complexity === "hard") {
-      // Hard task: create plan only when steps are detected from LLM output
-      const steps = this.getStepsFromContent(content);
-      if (steps.length === 0) {
-        console.log(
-          `[Harmony] Auto-transition: No plan or steps detected in content, staying in assumptions`
-        );
-        return { shouldTransition: false };
-      }
-
+    if (complexity === "hard") {
+      // Hard task: create plan with detected steps (user must manually transition)
       const taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       const prompt = originalPrompt || conversationContext.originalPrompt;
       const plan = this.progressPlanManager.createPlan(
@@ -225,11 +148,15 @@ export class AutoTransitionManager {
 
       conversationContext.progressPlan = plan;
       console.log(
-        `[Harmony] Auto-transition: Hard task (3+ steps), created plan with ${plan.totalSteps} steps, transitioning to implementation`
+        `[Harmony] Hard task (3+ steps), created plan with ${plan.totalSteps} steps`
       );
-      return { shouldTransition: true, plan };
+      return { shouldTransition: false, plan };
     }
 
+    // Simple task: no auto-transition, user must manually transition
+    console.log(
+      `[Harmony] Simple task (1-2 steps), waiting for user to transition`
+    );
     return { shouldTransition: false };
   }
 
