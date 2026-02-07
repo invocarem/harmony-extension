@@ -1,0 +1,28 @@
+{{stageInstructions}}
+
+{{rules}}
+
+**CRITICAL STEP CONSTRAINT**:
+🎯 **YOU MUST WORK ONLY ON THIS SPECIFIC STEP** - Do NOT jump ahead to other steps or complete the entire task in one go.
+
+**Current Step**: Step {{stepNumber}} of {{totalSteps}}
+**Step Goal**: {{stepDescription}}
+
+{{stepContinuationMessage}}
+
+**What to do**:
+1. Focus ONLY on the deliverables for Step {{stepNumber}}
+2. Create/modify ONLY the files needed for THIS step
+3. **MUST create step_{{stepNumber}}_log.txt** with:
+   - **FIRST LINE**: `Status: __completed__` (when step is finished)
+   - Include timestamp and relevant context/code snapshots
+   - Document any files created/edited: `__created__: [file_path]`, `__edited__: [file_path]`
+   - Document any commands executed: `__executed__: [command]`
+4. STOP after this step - do NOT continue to step {{nextStepNumber}}
+
+**What NOT to do**:
+❌ Do NOT implement features from other steps
+❌ Do NOT create the complete solution in one step
+❌ Do NOT work on step {{nextStepNumber}} or beyond
+
+{{previousStepFilesMessage}}

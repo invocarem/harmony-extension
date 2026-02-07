@@ -8,9 +8,9 @@
 
 import { MCPToolCall } from "../mcpClient";
 import { HtmlEntityDecoder } from "./htmlEntityDecoder";
-import { JsonProcessor } from './jsonProcessor';
-import { XmlProcessor } from './xmlProcessor';
-import { Logger } from './logger';
+import { JsonProcessor } from "./jsonProcessor";
+import { XmlProcessor } from "./xmlProcessor";
+import { Logger } from "./logger";
 
 export interface ExtractedToolCall {
   raw: string;
@@ -24,17 +24,17 @@ export class ToolCallExtractor {
    */
   static looksLikeToolCall(text: string): boolean {
     const trimmed = text.trim();
-    
+
     // Check for MCP-style tool calls: to=function_name {...}
     if (/^to=\w+\s*\{/.test(trimmed)) {
       return true;
     }
-    
+
     // Check for JSON format using JsonProcessor
     if (JsonProcessor.looksLikeToolCall(trimmed)) {
       return true;
     }
-    
+
     return false;
   }
 
@@ -48,50 +48,56 @@ export class ToolCallExtractor {
    */
   static extractFromText(text: string): ExtractedToolCall[] {
     const results: ExtractedToolCall[] = [];
-    
-    Logger.logVerbose('ToolCallExtractor', `extractFromText called with text (${text.length} chars): "${text.substring(0, 300)}${text.length > 300 ? '...' : ''}"`);
-    
+
+    Logger.logVerbose(
+      "ToolCallExtractor",
+      `extractFromText called with text (${text.length} chars): "${text.substring(0, 300)}${text.length > 300 ? "..." : ""}"`
+    );
+
     // Track ranges of full elements that have been processed to avoid duplicate JSON extraction
     const matchedFullElementRanges: Array<{ start: number; end: number }> = [];
-    
+
     // First, extract XML tool calls using XmlProcessor
     const xmlResults = XmlProcessor.extractToolCalls(text);
     for (const xmlResult of xmlResults) {
       results.push({
         raw: xmlResult.raw,
         name: xmlResult.name,
-        args: xmlResult.args
+        args: xmlResult.args,
       });
-      
+
       // Track XML element positions to avoid duplicate JSON extraction
       const xmlStartPos = text.indexOf(xmlResult.raw);
       if (xmlStartPos !== -1) {
         matchedFullElementRanges.push({
           start: xmlStartPos,
-          end: xmlStartPos + xmlResult.raw.length
+          end: xmlStartPos + xmlResult.raw.length,
         });
       }
     }
-    
+
     // Then, extract JSON tool calls using JsonProcessor
     const jsonResults = JsonProcessor.extractAllToolCalls(text);
     for (const jsonResult of jsonResults) {
       // Skip if this JSON is inside an XML element that was already processed
       const jsonStartPos = text.indexOf(jsonResult.raw);
       const isInsideXmlElement = matchedFullElementRanges.some(
-        range => jsonStartPos >= range.start && jsonStartPos < range.end
+        (range) => jsonStartPos >= range.start && jsonStartPos < range.end
       );
-      
+
       if (!isInsideXmlElement) {
         results.push({
           raw: jsonResult.raw,
           name: jsonResult.name,
-          args: jsonResult.arguments
+          args: jsonResult.arguments,
         });
       }
     }
-    
-    Logger.logVerbose('ToolCallExtractor', `Found ${results.length} tool calls`);
+
+    Logger.logVerbose(
+      "ToolCallExtractor",
+      `Found ${results.length} tool calls`
+    );
     return results;
   }
 
@@ -99,90 +105,120 @@ export class ToolCallExtractor {
    * Parse tool call attributes from a string
    * Note: This is now primarily used by XmlProcessor, but kept here for backward compatibility
    */
-  private static parseToolCallAttributes(attributes: string, raw: string): ExtractedToolCall | null {
+  private static parseToolCallAttributes(
+    attributes: string,
+    raw: string
+  ): ExtractedToolCall | null {
     // Extract name
     const nameMatch = attributes.match(/name=["']([^"']+)["']/);
     if (!nameMatch) {
-      Logger.logWarn('ToolCallExtractor', `No name in tool call: ${raw.substring(0, 100)}`);
+      Logger.logWarn(
+        "ToolCallExtractor",
+        `No name in tool call: ${raw.substring(0, 100)}`
+      );
       return null;
     }
-    
+
     // Extract args - handle both single and double quotes, escaped quotes, and HTML entities
     let argsStr: string | null = null;
-    
+
     // Manually parse the args attribute value to handle HTML entities correctly
     // Look for args=" or args=''
     const argsDoubleQuoteMatch = attributes.match(/args\s*=\s*"/);
     const argsSingleQuoteMatch = attributes.match(/args\s*=\s*'/);
-    
+
     if (argsDoubleQuoteMatch || argsSingleQuoteMatch) {
       const quoteChar = argsDoubleQuoteMatch ? '"' : "'";
-      const startPos = (argsDoubleQuoteMatch?.index ?? argsSingleQuoteMatch!.index)! + (argsDoubleQuoteMatch?.[0].length ?? argsSingleQuoteMatch![0].length);
+      const startPos =
+        (argsDoubleQuoteMatch?.index ?? argsSingleQuoteMatch!.index)! +
+        (argsDoubleQuoteMatch?.[0].length ?? argsSingleQuoteMatch![0].length);
       let endPos = startPos;
-      
+
       // Find the matching closing quote, accounting for HTML entities and escaped quotes
       while (endPos < attributes.length) {
         // Check if we're at the start of an HTML entity
-        if (attributes[endPos] === '&') {
+        if (attributes[endPos] === "&") {
           // Skip the entire HTML entity (e.g., &quot; or &#34;)
-          const entityMatch = attributes.substring(endPos).match(/&(?:quot|apos|amp|lt|gt|#\d+|#x[0-9a-fA-F]+);/i);
+          const entityMatch = attributes
+            .substring(endPos)
+            .match(/&(?:quot|apos|amp|lt|gt|#\d+|#x[0-9a-fA-F]+);/i);
           if (entityMatch) {
             endPos += entityMatch[0].length;
             continue;
           }
         }
-        
+
         // Check for escaped quote
-        if (attributes[endPos] === '\\' && endPos + 1 < attributes.length && attributes[endPos + 1] === quoteChar) {
+        if (
+          attributes[endPos] === "\\" &&
+          endPos + 1 < attributes.length &&
+          attributes[endPos + 1] === quoteChar
+        ) {
           endPos += 2;
           continue;
         }
-        
+
         // Check for closing quote
         if (attributes[endPos] === quoteChar) {
           break;
         }
-        
+
         endPos++;
       }
-      
+
       if (endPos < attributes.length) {
         argsStr = attributes.substring(startPos, endPos);
         // Handle escaped quotes
         if (quoteChar === '"') {
-          argsStr = argsStr.replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+          argsStr = argsStr.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
         } else {
-          argsStr = argsStr.replace(/\\'/g, "'").replace(/\\\\/g, '\\');
+          argsStr = argsStr.replace(/\\'/g, "'").replace(/\\\\/g, "\\");
         }
       }
     }
-    
+
     if (!argsStr) {
-      Logger.logWarn('ToolCallExtractor', `No args in tool call: ${raw.substring(0, 100)}`);
+      Logger.logWarn(
+        "ToolCallExtractor",
+        `No args in tool call: ${raw.substring(0, 100)}`
+      );
       return null;
     }
-    
-    Logger.logVerbose('ToolCallExtractor', `Extracted args string (${argsStr.length} chars): "${argsStr.substring(0, 200)}${argsStr.length > 200 ? '...' : ''}"`);
-    
+
+    Logger.logVerbose(
+      "ToolCallExtractor",
+      `Extracted args string (${argsStr.length} chars): "${argsStr.substring(0, 200)}${argsStr.length > 200 ? "..." : ""}"`
+    );
+
     // Decode HTML entities (e.g., &quot; -> ", &amp; -> &, &lt; -> <, &gt; -> >)
     const decodedArgsStr = HtmlEntityDecoder.decode(argsStr);
-    Logger.logVerbose('ToolCallExtractor', `After HTML entity decoding (${decodedArgsStr.length} chars): "${decodedArgsStr.substring(0, 200)}${decodedArgsStr.length > 200 ? '...' : ''}"`);
-    
+    Logger.logVerbose(
+      "ToolCallExtractor",
+      `After HTML entity decoding (${decodedArgsStr.length} chars): "${decodedArgsStr.substring(0, 200)}${decodedArgsStr.length > 200 ? "..." : ""}"`
+    );
+
     // Parse JSON arguments
     let args: any;
     try {
       args = JSON.parse(decodedArgsStr);
     } catch (error) {
-      console.error(`[ToolCallExtractor] Failed to parse JSON args: ${decodedArgsStr.substring(0, 200)}`, error);
+      console.error(
+        `[ToolCallExtractor] Failed to parse JSON args: ${decodedArgsStr.substring(0, 200)}`,
+        error
+      );
       return null;
     }
-    
-    Logger.logVerbose('ToolCallExtractor', `Successfully parsed tool: ${nameMatch[1]}`, args);
-    
+
+    Logger.logVerbose(
+      "ToolCallExtractor",
+      `Successfully parsed tool: ${nameMatch[1]}`,
+      args
+    );
+
     return {
       raw,
       name: nameMatch[1],
-      args
+      args,
     };
   }
 
@@ -195,92 +231,158 @@ export class ToolCallExtractor {
    */
   static extractToolCalls(rawToolCalls: string[]): MCPToolCall[] {
     const toolCalls: MCPToolCall[] = [];
-    
-    Logger.logVerbose('ToolCallExtractor', `extractToolCalls called with ${rawToolCalls.length} raw calls`);
-    
+
+    Logger.logVerbose(
+      "ToolCallExtractor",
+      `extractToolCalls called with ${rawToolCalls.length} raw calls`
+    );
+    console.log(
+      `[ToolCallExtractor] Starting extraction of ${rawToolCalls.length} raw tool call(s)`
+    );
+
     try {
-      for (const raw of rawToolCalls) {
+      for (let rawIdx = 0; rawIdx < rawToolCalls.length; rawIdx++) {
+        const raw = rawToolCalls[rawIdx];
+        const beforeCount = toolCalls.length;
+
         // Log the raw tool call string for debugging
-        Logger.logVerbose('ToolCallExtractor', `Processing raw tool call (${raw.length} chars): "${raw.substring(0, 200)}${raw.length > 200 ? '...' : ''}"`);
-        
+        Logger.logVerbose(
+          "ToolCallExtractor",
+          `Processing raw tool call (${raw.length} chars): "${raw.substring(0, 200)}${raw.length > 200 ? "..." : ""}"`
+        );
+        console.log(
+          `[ToolCallExtractor] Processing rawToolCall[${rawIdx}]: ${raw.length} chars`
+        );
+
         let extracted: ExtractedToolCall[] = [];
         try {
           // First try to extract as <tool_call> pattern using extractFromText
-          Logger.logVerbose('ToolCallExtractor', `Calling extractFromText...`);
+          Logger.logVerbose("ToolCallExtractor", `Calling extractFromText...`);
           extracted = this.extractFromText(raw);
-          Logger.logVerbose('ToolCallExtractor', `extractFromText found ${extracted.length} tool call(s)`);
+          Logger.logVerbose(
+            "ToolCallExtractor",
+            `extractFromText found ${extracted.length} tool call(s)`
+          );
+          console.log(
+            `[ToolCallExtractor] extractFromText returned ${extracted.length} tool call(s) for rawToolCall[${rawIdx}]`
+          );
+
           extracted.forEach((item, idx) => {
-            Logger.logVerbose('ToolCallExtractor', `Extracted tool call ${idx}: name="${item.name}", args keys: ${Object.keys(item.args || {}).join(', ')}`);
+            Logger.logVerbose(
+              "ToolCallExtractor",
+              `Extracted tool call ${idx}: name="${item.name}", args keys: ${Object.keys(item.args || {}).join(", ")}`
+            );
             toolCalls.push({
               name: item.name,
-              arguments: item.args || {}
+              arguments: item.args || {},
             });
           });
         } catch (extractError: any) {
-          console.error(`[ToolCallExtractor] Error in extractFromText for raw tool call:`, extractError);
-          console.error(`[ToolCallExtractor] Raw tool call that failed: "${raw.substring(0, 300)}"`);
+          console.error(
+            `[ToolCallExtractor] Error in extractFromText for rawToolCall[${rawIdx}]:`,
+            extractError
+          );
+          console.error(
+            `[ToolCallExtractor] Raw tool call that failed: "${raw.substring(0, 300)}"`
+          );
           extracted = []; // Reset to empty array on error
         }
-      
+
+        const afterCount = toolCalls.length;
+        const addedCount = afterCount - beforeCount;
+        if (addedCount === 0 && extracted.length === 0) {
+          console.warn(
+            `[ToolCallExtractor] ⚠️ No tool calls extracted from rawToolCall[${rawIdx}] (${raw.length} chars). Will try fallback formats.`
+          );
+        } else {
+          console.log(
+            `[ToolCallExtractor] ✓ Extracted ${addedCount} tool call(s) from rawToolCall[${rawIdx}]`
+          );
+        }
+
         // If no <tool_call> found, check for MCP commentary format: to=analyze_latin {...}
         if (extracted.length === 0) {
-        // Try MCP format: to=function_name {...}
-        const mcpMatch = raw.match(/to=([^\s=]+)\s*(\{[\s\S]*\})/);
-        if (mcpMatch) {
-          try {
-            const args = JSON.parse(mcpMatch[2]);
-            toolCalls.push({
-              name: mcpMatch[1],
-              arguments: args
-            });
-            Logger.logVerbose('ToolCallExtractor', `Extracted from MCP format: ${mcpMatch[1]}`);
-            continue;
-          } catch (error) {
-            console.error(`[ToolCallExtractor] Failed to parse JSON in MCP format: ${mcpMatch[2].substring(0, 100)}`, error);
-          }
-        }
-        
-        // Try simpler format: to=function_name with args on next line
-        const simpleMcpMatch = raw.match(/to=([^\s\n]+)/);
-        if (simpleMcpMatch) {
-          const jsonMatch = raw.match(/(\{[\s\S]*\})/);
-          if (jsonMatch) {
+          // Try MCP format: to=function_name {...}
+          const mcpMatch = raw.match(/to=([^\s=]+)\s*(\{[\s\S]*\})/);
+          if (mcpMatch) {
             try {
-              const args = JSON.parse(jsonMatch[0]);
+              const args = JSON.parse(mcpMatch[2]);
               toolCalls.push({
-                name: simpleMcpMatch[1],
-                arguments: args
+                name: mcpMatch[1],
+                arguments: args,
               });
-              Logger.logVerbose('ToolCallExtractor', `Extracted from simple MCP format: ${simpleMcpMatch[1]}`);
+              Logger.logVerbose(
+                "ToolCallExtractor",
+                `Extracted from MCP format: ${mcpMatch[1]}`
+              );
+              continue;
             } catch (error) {
-              console.error(`[ToolCallExtractor] Failed to parse JSON in simple MCP format: ${jsonMatch[0].substring(0, 100)}`, error);
+              console.error(
+                `[ToolCallExtractor] Failed to parse JSON in MCP format: ${mcpMatch[2].substring(0, 100)}`,
+                error
+              );
             }
           }
-        }
-        
-        // Use JsonProcessor for JSON tool call format
-        const jsonToolCall = JsonProcessor.extractToolCall(raw);
-        if (jsonToolCall) {
-          toolCalls.push({
-            name: jsonToolCall.name,
-            arguments: jsonToolCall.arguments
-          });
-          Logger.logVerbose('ToolCallExtractor', `Extracted from JSON format: ${jsonToolCall.name}`);
-          continue;
-        }
-        
+
+          // Try simpler format: to=function_name with args on next line
+          const simpleMcpMatch = raw.match(/to=([^\s\n]+)/);
+          if (simpleMcpMatch) {
+            const jsonMatch = raw.match(/(\{[\s\S]*\})/);
+            if (jsonMatch) {
+              try {
+                const args = JSON.parse(jsonMatch[0]);
+                toolCalls.push({
+                  name: simpleMcpMatch[1],
+                  arguments: args,
+                });
+                Logger.logVerbose(
+                  "ToolCallExtractor",
+                  `Extracted from simple MCP format: ${simpleMcpMatch[1]}`
+                );
+              } catch (error) {
+                console.error(
+                  `[ToolCallExtractor] Failed to parse JSON in simple MCP format: ${jsonMatch[0].substring(0, 100)}`,
+                  error
+                );
+              }
+            }
+          }
+
+          // Use JsonProcessor for JSON tool call format
+          const jsonToolCall = JsonProcessor.extractToolCall(raw);
+          if (jsonToolCall) {
+            toolCalls.push({
+              name: jsonToolCall.name,
+              arguments: jsonToolCall.arguments,
+            });
+            Logger.logVerbose(
+              "ToolCallExtractor",
+              `Extracted from JSON format: ${jsonToolCall.name}`
+            );
+            continue;
+          }
+
           // If still nothing found, only warn if it looked like it should be a tool call
           if (toolCalls.length === 0 && this.looksLikeToolCall(raw)) {
-            Logger.logWarn('ToolCallExtractor', `Could not extract tool call from raw string that looked like a tool call. Raw content: "${raw.substring(0, 500)}"`);
+            Logger.logWarn(
+              "ToolCallExtractor",
+              `Could not extract tool call from raw string that looked like a tool call. Raw content: "${raw.substring(0, 500)}"`
+            );
           }
         }
       }
     } catch (error: any) {
-      console.error(`[ToolCallExtractor] Fatal error in extractToolCalls:`, error);
+      console.error(
+        `[ToolCallExtractor] Fatal error in extractToolCalls:`,
+        error
+      );
       console.error(`[ToolCallExtractor] Stack:`, error.stack);
     }
-    
-    Logger.logVerbose('ToolCallExtractor', `Returning ${toolCalls.length} tool calls`);
+
+    Logger.logVerbose(
+      "ToolCallExtractor",
+      `Returning ${toolCalls.length} tool calls`
+    );
     return toolCalls;
   }
 }

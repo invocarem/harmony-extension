@@ -750,9 +750,36 @@ export class HarmonyProcessor {
             );
             setters.rawToolCalls(xmlToolCall.raw);
           });
-          // Mark that we've processed tool calls (skip remaining processing)
+          // Mark that we've processed tool calls (skip fallback XML regex matching below)
           // Set toolCallText to indicate we processed tool calls
           toolCallText = xmlToolCalls[0].raw; // For the conditional check below
+
+          // BUGFIX: After extracting XML tool calls, also check for JSON/MCP format tool calls
+          // in the same buffer (mixed format support)
+          const jsonToolCallMatch = trimmed.match(
+            /\{"name"\s*:\s*"[^"]+"\s*,\s*"arguments"\s*:/
+          );
+          if (jsonToolCallMatch) {
+            console.log(
+              `[HarmonyProcessor] Buffer contains JSON tool call(s) in addition to XML`
+            );
+            // Extract JSON tool calls by removing all XML tool calls from buffer
+            let remainingText = trimmed;
+            xmlToolCalls.forEach((xmlToolCall) => {
+              remainingText = remainingText.replace(xmlToolCall.raw, "").trim();
+            });
+
+            // Check if remaining text looks like JSON tool call(s)
+            if (
+              remainingText &&
+              ToolCallExtractor.looksLikeToolCall(remainingText)
+            ) {
+              console.log(
+                `[HarmonyProcessor] Saving JSON tool call from mixed buffer, length: ${remainingText.length}`
+              );
+              setters.rawToolCalls(remainingText);
+            }
+          }
         } else {
           // Fallback: Try to extract incomplete tool calls using a more robust approach
           // Look for tool_call start and try to find the end using brace matching

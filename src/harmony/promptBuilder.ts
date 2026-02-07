@@ -34,7 +34,8 @@ export class PromptBuilder {
       context: any,
       history?: readonly ChatMessage[]
     ) => Promise<string>,
-    isFirstPrinciplesMode?: boolean
+    isFirstPrinciplesMode?: boolean,
+    trigger?: string
   ): Promise<string> {
     // Build tools context
     const toolsContext = this.buildToolsContext(currentStage);
@@ -214,25 +215,62 @@ export class PromptBuilder {
 
             // Inject file content ONLY when step requires file modification
             if (needsFileCreation) {
-              // Inject ALL files from previous steps when step modifies files (relaxed matching)
-              const stepText = currentStep.description.toLowerCase();
-              const filesToInject = filesFromPreviousSteps.filter(
-                (fileName) => {
-                  const lower = fileName.toLowerCase();
-                  const baseName =
-                    fileName.split("/").pop()?.toLowerCase() || lower;
-                  return (
-                    stepText.includes(lower) || stepText.includes(baseName)
-                  );
-                }
+              // Helper to check if a file is a diagnostic/log file (shouldn't count for injection logic)
+              const isDiagnosticFile = (fileName: string): boolean => {
+                const baseName = fileName.split("/").pop() || fileName;
+                return (
+                  /^step[_-]?\d+_log\.(txt|md)$/i.test(baseName) ||
+                  baseName === "assumption_data.json" ||
+                  baseName === "aggregated_prompt.json" ||
+                  /^implementation_step_\d+\.json$/i.test(baseName)
+                );
+              };
+
+              // Separate diagnostic files from actual code/content files
+              const codeFiles = filesFromPreviousSteps.filter(
+                (f) => !isDiagnosticFile(f)
               );
-              // Fallback: if only one file from previous steps, inject it (common: both steps touch same file)
+              const diagnosticFiles = filesFromPreviousSteps.filter((f) =>
+                isDiagnosticFile(f)
+              );
+
+              console.log(
+                `[PromptBuilder] Step ${currentStep.stepNumber}: Found ${codeFiles.length} code file(s) and ${diagnosticFiles.length} diagnostic file(s) from previous steps`
+              );
+
+              // Try to match filename in step description
+              const stepText = currentStep.description.toLowerCase();
+              const filesToInject = codeFiles.filter((fileName) => {
+                const lower = fileName.toLowerCase();
+                const baseName =
+                  fileName.split("/").pop()?.toLowerCase() || lower;
+                // Try matching full filename or base name (without extension)
+                const baseNameNoExt = baseName.replace(/\.[^.]+$/, "");
+                return (
+                  stepText.includes(lower) ||
+                  stepText.includes(baseName) ||
+                  stepText.includes(baseNameNoExt)
+                );
+              });
+
+              // Improved fallback logic: inject all code files if there are 1-2 files
+              // (Common pattern: step 1 creates file, step 2 modifies it)
               const filesToInjectFinal =
                 filesToInject.length > 0
                   ? filesToInject
-                  : filesFromPreviousSteps.length === 1
-                    ? filesFromPreviousSteps
+                  : codeFiles.length <= 2
+                    ? codeFiles
                     : [];
+
+              if (filesToInjectFinal.length > 0) {
+                console.log(
+                  `[PromptBuilder] Injecting content for ${filesToInjectFinal.length} file(s): ${filesToInjectFinal.join(", ")}`
+                );
+              } else if (codeFiles.length > 0) {
+                console.log(
+                  `[PromptBuilder] No files matched for injection. Available code files: ${codeFiles.join(", ")}`
+                );
+              }
 
               if (filesToInjectFinal.length > 0) {
                 stageInstructions += `\n\n**FILES FROM PREVIOUS STEPS - CONTENT FOR MODIFICATION**:\n`;
@@ -319,9 +357,58 @@ export class PromptBuilder {
       isContinuation
     );
 
+    // Override template to "step" if trigger is "step" (for dedicated step execution)
+    let effectiveTemplateName = templateName;
+    if (trigger === "step" && currentStage === "implementation") {
+      effectiveTemplateName = "step";
+    }
+
     // Apply template if specified
-    if (templateName && applyTemplate) {
+    if (effectiveTemplateName && applyTemplate) {
       const clarityLevel = this.config.clarityLevel ?? 2; // Default to 2 (full)
+
+      // Build step-specific context for step.j2 template
+      let stepContext: any = {};
+      if (trigger === "step" && conversationContext?.progressPlan) {
+        const plan = conversationContext.progressPlan;
+        const currentStep = plan.steps.find(
+          (s) => s.status === "in_progress" || s.status === "pending"
+        );
+        if (currentStep) {
+          const isStepContinuation = currentStep.status === "in_progress";
+
+          stepContext = {
+            stepNumber: currentStep.stepNumber,
+            totalSteps: plan.totalSteps,
+            stepDescription: currentStep.description,
+            nextStepNumber: currentStep.stepNumber + 1,
+            // Generate continuation message
+            stepContinuationMessage: isStepContinuation
+              ? "⚠️ **CONTINUATION**: This step was started but not completed. Review what's been done and continue until this step is fully complete."
+              : "✨ **NEW STEP**: This is a fresh start for this step. Implement exactly what this step requires - nothing more, nothing less.",
+          };
+
+          // Get files from previous steps for context
+          const previousFiles: string[] = [];
+          if (conversationContext.implementationStepContexts) {
+            for (const [
+              fileName,
+              contexts,
+            ] of conversationContext.implementationStepContexts) {
+              const hasPrevious = contexts.some(
+                (cc) => (cc.stepNumber ?? 0) < currentStep.stepNumber
+              );
+              if (hasPrevious) previousFiles.push(fileName);
+            }
+          }
+          if (previousFiles.length > 0) {
+            stepContext.previousStepFilesMessage = `**Context from previous steps**: ${previousFiles.join(", ")}\nYou may read these files if needed, but focus on THIS step's goals.`;
+          } else {
+            stepContext.previousStepFilesMessage = "";
+          }
+        }
+      }
+
       const templateContext = {
         prompt: prompt + toolsContext + continuationContext,
         rules: rulesContext || undefined,
@@ -338,8 +425,14 @@ export class PromptBuilder {
           currentStage === "chat"
             ? this.getClarityAssessmentCriteria(clarityLevel)
             : undefined,
+        // Add step-specific context for step.j2 template
+        ...stepContext,
       };
-      return await applyTemplate(templateName, templateContext);
+      return await applyTemplate(
+        effectiveTemplateName,
+        templateContext,
+        conversationHistory
+      );
     }
 
     // Build plain prompt

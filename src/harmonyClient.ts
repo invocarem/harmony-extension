@@ -434,7 +434,8 @@ export class HarmonyClient {
       conversationHistory,
       templateName,
       applyTemplate,
-      this.isFirstPrinciplesMode()
+      this.isFirstPrinciplesMode(),
+      detectedTrigger
     );
 
     const previewLength = 500;
@@ -1197,7 +1198,9 @@ export class HarmonyClient {
         isContinuation,
         conversationHistory,
         templateName,
-        applyTemplate
+        applyTemplate,
+        this.isFirstPrinciplesMode(),
+        detectedTrigger
       );
 
       // Log prompt preview

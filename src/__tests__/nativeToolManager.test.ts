@@ -1158,7 +1158,7 @@ function hello() {
 
       const result = await manager.callTool("edit_file", {
         file_path: filePath,
-        old_text: "something",
+        old_text: "something with enough context\nto pass validation",
         new_text: "something else",
       });
 

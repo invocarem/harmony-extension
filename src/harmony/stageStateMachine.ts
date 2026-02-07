@@ -949,20 +949,6 @@ export class StageStateMachine {
 
 **PRIMARY GOAL**: Execute the implementation plan from Analysis stage
 
-**EXECUTION RULES For Each Step**:
-1. Implement and generate code or context. 
-2. Do not work on previous or future steps.
-3. All tools are available in this step. Use appropriate tools, see TOOL USAGE GUIDE below.
-4. You MUST produce a tangible file output named step_[N]_log.txt, N is current step number.
-5. You MUST save status message in step_[N]_log.txt, N is current step number.:
-   - **CRITICAL** FIRST LINE "__completed__: [file_path]" to indicate successful implementation of the step.
-   Other status:
-   - "__created__: [file_path]" for create_file
-   - "__edited__: [file_path]" for edit_file
-   - "__replaced__: [file_path]" for replace_file
-   - "__executed__: [command]" for exec_terminal
-
-
 ${
   harmonyMode
     ? `**RESPONSE FORMAT** (CRITICAL):
