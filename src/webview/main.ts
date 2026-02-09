@@ -123,8 +123,11 @@ fileButton.addEventListener("click", () => {
 });
 
 // Stage transition arrows
-const arrowChatToAssumptions = document.getElementById(
-  "arrow-chat-to-assumptions"
+const arrowChatToSimple = document.getElementById(
+  "arrow-chat-to-simple"
+);
+const arrowSimpleToAssumptions = document.getElementById(
+  "arrow-simple-to-assumptions"
 );
 const arrowAssumptionsToImplementation = document.getElementById(
   "arrow-assumptions-to-implementation"
@@ -165,10 +168,28 @@ if (stageLightImplementation) {
   });
 }
 
-if (arrowChatToAssumptions) {
-  arrowChatToAssumptions.addEventListener("click", () => {
+if (arrowChatToSimple) {
+  arrowChatToSimple.addEventListener("click", () => {
     // Don't allow transition if arrow is disabled
-    if (arrowChatToAssumptions.classList.contains("disabled")) {
+    if (arrowChatToSimple.classList.contains("disabled")) {
+      return;
+    }
+    // Send message using @cmd:move_to_simple format
+    const message = "@cmd:move_to_simple";
+    addMessage(message, true, undefined, undefined);
+    addTypingIndicator();
+    vscode.postMessage({
+      command: "sendMessage",
+      text: message,
+    });
+    messageInput.focus();
+  });
+}
+
+if (arrowSimpleToAssumptions) {
+  arrowSimpleToAssumptions.addEventListener("click", () => {
+    // Don't allow transition if arrow is disabled
+    if (arrowSimpleToAssumptions.classList.contains("disabled")) {
       return;
     }
     // Send message using @cmd:move_to_assumptions format
@@ -232,8 +253,11 @@ updateStageIndicator("chat");
 messageInput.focus();
 
 // Initialize stage arrows as disabled (will be enabled when stage is known)
-if (arrowChatToAssumptions) {
-  arrowChatToAssumptions.classList.add("disabled");
+if (arrowChatToSimple) {
+  arrowChatToSimple.classList.add("disabled");
+}
+if (arrowSimpleToAssumptions) {
+  arrowSimpleToAssumptions.classList.add("disabled");
 }
 if (arrowAssumptionsToImplementation) {
   arrowAssumptionsToImplementation.classList.add("disabled");

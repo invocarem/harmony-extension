@@ -4,10 +4,10 @@
  */
 
 export interface VerboseInfo {
-    stage?: 'init' | 'chat' | 'assumptions' | 'implementation';
+    stage?: 'init' | 'chat' | 'simple' | 'assumptions' | 'implementation';
     stageTransition?: {
-        from: 'init' | 'chat' | 'assumptions' | 'implementation';
-        to: 'init' | 'chat' | 'assumptions' | 'implementation';
+        from: 'init' | 'chat' | 'simple' | 'assumptions' | 'implementation';
+        to: 'init' | 'chat' | 'simple' | 'assumptions' | 'implementation';
     };
     step?: number;
     maxSteps?: number;
@@ -82,7 +82,7 @@ export interface VerboseInfo {
     
     toolCalls?: Array<{
         name: string;
-        stage: 'init' | 'chat' | 'assumptions' | 'implementation';
+        stage: 'init' | 'chat' | 'simple' | 'assumptions' | 'implementation';
         success: boolean;
         error?: string;
         file?: string;
@@ -102,6 +102,8 @@ export function verboseInfoToString(verboseInfo: VerboseInfo | undefined | null)
     switch (verboseInfo.stage) {
         case 'chat':
             return formatChatVerboseInfo(verboseInfo);
+        case 'simple':
+            return formatSimpleVerboseInfo(verboseInfo);
         case 'assumptions':
             return formatAssumptionVerboseInfo(verboseInfo);
         case 'implementation':
@@ -157,6 +159,48 @@ function formatChatVerboseInfo(info: VerboseInfo): string {
             info.extractedFiles.ambiguousMatches.forEach(match => {
                 lines.push(`     • ${match.path} (${match.reason})`);
             });
+        }
+    }
+    
+    if (info.toolCalls && info.toolCalls.length > 0) {
+        lines.push(`\n🔧 Tool Calls:`);
+        info.toolCalls.forEach(tc => {
+            const status = tc.success ? '✅' : '❌';
+            const fileInfo = tc.file ? ` (${tc.file})` : '';
+            lines.push(`   ${status} ${tc.name}${fileInfo}`);
+            if (tc.error) {
+                lines.push(`      Error: ${tc.error}`);
+            }
+        });
+    }
+    
+    return lines.join('\n');
+}
+
+function formatSimpleVerboseInfo(info: VerboseInfo): string {
+    const lines: string[] = [];
+    lines.push(`✨ Simple Stage Verbose Info`);
+    lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+    
+    if (info.stageTransition) {
+        lines.push(`\n🔄 Stage Transition: ${info.stageTransition.from} → ${info.stageTransition.to}`);
+    }
+    
+    if (info.step !== undefined && info.maxSteps !== undefined) {
+        lines.push(`\n📊 Progress: Step ${info.step}/${info.maxSteps}`);
+    }
+    if (info.isComplete) {
+        lines.push(`✅ Complete`);
+    }
+    
+    if (info.problemSummary) {
+        lines.push(`\n📝 Request Summary:`);
+        lines.push(`   Original Query: ${info.problemSummary.originalQuery}`);
+        if (info.problemSummary.restatedProblem) {
+            lines.push(`   Restated: ${info.problemSummary.restatedProblem}`);
+            if (info.problemSummary.extractedFrom) {
+                lines.push(`   (Extracted from: ${info.problemSummary.extractedFrom})`);
+            }
         }
     }
     

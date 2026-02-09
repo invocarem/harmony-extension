@@ -152,6 +152,35 @@ export interface AssumptionVerboseInfo {
 }
 
 /**
+ * Simple stage verbose info
+ */
+export interface SimpleVerboseInfo {
+  stage: "simple";
+  stageTransition?: {
+    from: WorkflowStage;
+    to: WorkflowStage;
+  };
+  step?: number;
+  maxSteps?: number;
+  readonly isComplete?: boolean;
+
+  problemSummary?: {
+    originalQuery: string;
+    restatedProblem?: string;
+    extractedFrom?: "content" | "reasoning";
+    extractedAt: number;
+  };
+
+  toolCalls?: Array<{
+    name: string;
+    stage: WorkflowStage;
+    success: boolean;
+    error?: string;
+    file?: string;
+  }>;
+}
+
+/**
  * Implementation stage verbose info
  */
 export interface ImplementationVerboseInfo {
@@ -226,6 +255,7 @@ export interface ImplementationVerboseInfo {
  */
 export type VerboseInfo =
   | ChatVerboseInfo
+  | SimpleVerboseInfo
   | AssumptionVerboseInfo
   | ImplementationVerboseInfo;
 
@@ -444,6 +474,64 @@ export class VerboseInfoBuilder {
         explicitFiles: extractedFiles.explicitFiles || [],
         detectedFiles: extractedFiles.detectedFiles || [],
         ambiguousMatches: extractedFiles.ambiguousMatches,
+      };
+    }
+
+    // Add tool calls
+    if (toolCalls && toolCalls.length > 0) {
+      verboseInfo.toolCalls = toolCalls;
+    }
+
+    return verboseInfo;
+  }
+
+  /**
+   * Build verbose info for simple stage
+   */
+  static forSimpleStage(
+    context: ConversationContext | null,
+    contextManager: import("../harmony/conversationContext").ConversationContextManager,
+    responseContent?: string,
+    responseReasoning?: string,
+    toolCalls?: Array<{
+      name: string;
+      stage: WorkflowStage;
+      success: boolean;
+      error?: string;
+    }>,
+    conversationHistory?: readonly ChatMessage[]
+  ): SimpleVerboseInfo {
+    // Extract all user queries from conversation history
+    const allUserQueries = this.extractAllUserQueries(conversationHistory);
+
+    // Prefer conversation history queries if available, otherwise fall back to originalPrompt
+    const originalQuery =
+      conversationHistory !== undefined && allUserQueries
+        ? allUserQueries
+        : context?.originalPrompt || "";
+
+    const problemRestatement = this.extractProblemRestatement(
+      responseContent,
+      responseReasoning,
+      originalQuery
+    );
+
+    const stepInfo = contextManager.getDisplayStepInfo();
+
+    const verboseInfo: SimpleVerboseInfo = {
+      stage: "simple",
+      stageTransition: context?.lastStageTransition,
+      step: stepInfo?.currentStep,
+      maxSteps: stepInfo?.totalSteps,
+      // isComplete is not meaningful for simple stage
+    };
+
+    // Add problem summary if we have original query or restatement
+    if (originalQuery || problemRestatement.restatedProblem) {
+      verboseInfo.problemSummary = {
+        originalQuery: originalQuery,
+        ...problemRestatement,
+        extractedAt: Date.now(),
       };
     }
 

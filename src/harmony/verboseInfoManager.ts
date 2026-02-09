@@ -72,6 +72,17 @@ export class VerboseInfoManager {
       );
     }
 
+    if (stage === "simple") {
+      return VerboseInfoBuilder.forSimpleStage(
+        context,
+        this.contextManager,
+        content,
+        reasoning,
+        mappedToolCalls,
+        conversationHistory
+      );
+    }
+
     if (stage === "assumptions") {
       return VerboseInfoBuilder.forAssumptionStage(
         context,

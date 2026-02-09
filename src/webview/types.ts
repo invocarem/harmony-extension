@@ -24,10 +24,10 @@ export interface ExtensionToWebviewMessage {
     files?: Array<{ label: string; path: string }>;
     contextSummary?: ContextSummary;
     verboseInfo?: {
-        stage?: 'init' | 'chat' | 'assumptions' | 'implementation';
+        stage?: 'init' | 'chat' | 'simple' | 'assumptions' | 'implementation';
         stageTransition?: {
-            from: 'init' | 'chat' | 'assumptions' | 'implementation';
-            to: 'init' | 'chat' | 'assumptions' | 'implementation';
+            from: 'init' | 'chat' | 'simple' | 'assumptions' | 'implementation';
+            to: 'init' | 'chat' | 'simple' | 'assumptions' | 'implementation';
         };
         step?: number;
         maxSteps?: number;
@@ -103,7 +103,7 @@ export interface ExtensionToWebviewMessage {
         
         toolCalls?: Array<{
             name: string;
-            stage: 'init' | 'chat' | 'assumptions' | 'implementation';
+            stage: 'init' | 'chat' | 'simple' | 'assumptions' | 'implementation';
             success: boolean;
             error?: string;
             file?: string;

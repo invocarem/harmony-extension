@@ -719,11 +719,11 @@ export class StageStateMachine {
     if (!this.contextManager) return;
 
     if (!this.contextManager.hasContext()) {
-      this.contextManager.initialize(prompt, "simple");
+      this.contextManager.initialize(prompt, "chat");
       const context = this.contextManager.getContext();
 
-      if (context && context.currentStage === "simple") {
-        console.log(`[Harmony] Initializing conversation at simple stage`);
+      if (context && context.currentStage === "chat") {
+        console.log(`[Harmony] Initializing conversation at chat stage`);
 
         // Create .harmony folder if it doesn't exist (only on first conversation initialization)
         try {

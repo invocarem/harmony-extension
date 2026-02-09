@@ -204,7 +204,7 @@ export function removeTypingIndicator(): void {
  * Update stage indicator lights based on current stage
  * Also enables/disables arrows based on valid transitions
  */
-export function updateStageIndicator(stage?: 'init' | 'chat' | 'assumptions' | 'implementation', hasPlan?: boolean): void {
+export function updateStageIndicator(stage?: 'init' | 'chat' | 'simple' | 'assumptions' | 'implementation', hasPlan?: boolean): void {
     // Update plan status if provided
     // hasPlan indicates whether user has explicitly created/updated plan via @cmd:plan
     if (hasPlan !== undefined) {
@@ -232,21 +232,32 @@ export function updateStageIndicator(stage?: 'init' | 'chat' | 'assumptions' | '
     
     // Update arrow states based on valid transitions
     // Valid transitions:
-    // - chat -> assumptions
+    // - chat -> simple
+    // - simple -> assumptions
     // - assumptions -> implementation (only if user has explicitly created plan via @cmd:plan)
     // - assumptions -> chat (backward)
     // - implementation -> chat (backward)
     // - implementation -> assumptions (backward)
     
-    const arrowChatToAssumptions = document.getElementById('arrow-chat-to-assumptions');
+    const arrowChatToSimple = document.getElementById('arrow-chat-to-simple');
+    const arrowSimpleToAssumptions = document.getElementById('arrow-simple-to-assumptions');
     const arrowAssumptionsToImplementation = document.getElementById('arrow-assumptions-to-implementation');
     
-    if (arrowChatToAssumptions) {
+    if (arrowChatToSimple) {
         // Enable if we're in chat stage
         if (stage === 'chat') {
-            arrowChatToAssumptions.classList.remove('disabled');
+            arrowChatToSimple.classList.remove('disabled');
         } else {
-            arrowChatToAssumptions.classList.add('disabled');
+            arrowChatToSimple.classList.add('disabled');
+        }
+    }
+    
+    if (arrowSimpleToAssumptions) {
+        // Enable if we're in simple stage
+        if (stage === 'simple') {
+            arrowSimpleToAssumptions.classList.remove('disabled');
+        } else {
+            arrowSimpleToAssumptions.classList.add('disabled');
         }
     }
     
