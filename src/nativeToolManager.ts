@@ -58,14 +58,17 @@ export class NativeToolsManager {
     }
   }
 
-  private shouldExcludeFolder(folderName: string, relativePath: string): boolean {
+  private shouldExcludeFolder(
+    folderName: string,
+    relativePath: string
+  ): boolean {
     // Check if folder name is in excluded list
     if (EXCLUDED_FOLDERS.has(folderName)) {
       return true;
     }
     // Also check if any path segment is excluded (e.g., node_modules anywhere in the path)
     const pathSegments = relativePath.split(path.sep);
-    return pathSegments.some(segment => EXCLUDED_FOLDERS.has(segment));
+    return pathSegments.some((segment) => EXCLUDED_FOLDERS.has(segment));
   }
 
   getAvailableTools(): NativeTool[] {
@@ -1080,7 +1083,7 @@ export class NativeToolsManager {
 
       // If the working directory is inside .harmony folder, use the workspace root instead
       // .harmony is just for storing files, not for executing commands
-      if (cwd.includes(path.sep + '.harmony')) {
+      if (cwd.includes(path.sep + ".harmony")) {
         // First try to use the stored workspace root
         if (this.workspaceRoot) {
           console.log(
@@ -1089,7 +1092,7 @@ export class NativeToolsManager {
           cwd = this.workspaceRoot;
         } else {
           // Fallback: extract workspace root from the path
-          const workspaceRoot = cwd.split(path.sep + '.harmony')[0];
+          const workspaceRoot = cwd.split(path.sep + ".harmony")[0];
           console.log(
             `[NativeTools] Working directory is inside .harmony folder, using extracted workspace root: "${workspaceRoot}"`
           );
@@ -1213,6 +1216,30 @@ export class NativeToolsManager {
       console.log(
         `[NativeTools] Editing file: "${filePath}" -> resolved to: "${resolvedPath}"`
       );
+
+      // Validate old_text has sufficient context to avoid ambiguous matches
+      const oldTextTrimmed = oldText.trim();
+      const lineCount = oldTextTrimmed.split("\n").length;
+
+      // Reject if old_text is too short (likely too generic)
+      if (oldTextTrimmed.length < 10) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: old_text is too short (${oldTextTrimmed.length} chars). Please include at least 3 lines of context before and after the text you want to change to ensure a unique match. Consider using read_file first to see the file content, or use replace_file for complete file replacement.`,
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      // Warn if old_text has insufficient context (less than 2 lines)
+      if (lineCount < 2) {
+        console.warn(
+          `[NativeTools] Warning: old_text has only ${lineCount} line(s). This may match multiple locations.`
+        );
+      }
 
       // Read the file content
       const content = await readFile(resolvedPath, "utf-8");

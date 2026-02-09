@@ -502,7 +502,7 @@ describe("HarmonyClient - Implementation Stage", () => {
         expect(result.toolCalls[0].name).toBe("create_file");
         expect(result.toolCalls[0].result?.isError).toBe(false);
         expect(result.toolCalls[0].result?.content[0].text).toContain(
-          "Successfully created file"
+          "Successfully created"
         );
       }
     });

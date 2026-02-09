@@ -20,88 +20,6 @@ export class AutoTransitionManager {
   }
 
   /**
-   * Extract steps from text (content or originalPrompt)
-   * Returns array of step objects with goal and description
-   */
-  extractStepsFromText(
-    content: string,
-    originalPrompt?: string,
-    complexity?: "simple" | "hard" | null
-  ): Array<{ description: string }> {
-    let steps: Array<{ description: string }> = [];
-
-    const contentSteps = this.extractNormalizedSteps(content);
-    const promptSteps = originalPrompt
-      ? this.extractNormalizedSteps(originalPrompt)
-      : [];
-
-    console.log(`[AutoTransitionManager] extractStepsFromText: complexity=${complexity}, contentSteps=${contentSteps.length}, promptSteps=${promptSteps.length}`);
-    console.log(`[AutoTransitionManager] Content being parsed (first 500 chars): "${content.substring(0, 500)}"`);
-    if (contentSteps.length > 0) {
-      console.log(`[AutoTransitionManager] Extracted contentSteps:`, contentSteps.map(s => `Step ${s.number}: ${s.content.substring(0, 100)}`));
-    }
-
-    // Always prefer contentSteps (LLM response) over promptSteps (original prompt)
-    // The LLM response is the source of truth for the plan
-    let selectedSteps = contentSteps;
-    const requiredCount = complexity === "hard" ? 3 : 1;
-
-    // Only use promptSteps as a fallback if contentSteps is completely empty
-    // Never prefer promptSteps over contentSteps, even if promptSteps has more steps
-    if (contentSteps.length === 0 && promptSteps.length >= requiredCount) {
-      selectedSteps = promptSteps;
-      console.log(`[AutoTransitionManager] Using promptSteps as fallback (contentSteps is empty)`);
-    } else if (contentSteps.length > 0) {
-      console.log(`[AutoTransitionManager] Using contentSteps (LLM response) - ${contentSteps.length} step(s)`);
-    }
-
-    if (selectedSteps.length >= requiredCount) {
-      steps = selectedSteps.map((step) => ({
-        description: step.content,
-      }));
-      console.log(`[AutoTransitionManager] Extracted ${steps.length} steps from selectedSteps`);
-    } else {
-      console.log(`[AutoTransitionManager] selectedSteps.length (${selectedSteps.length}) < requiredCount (${requiredCount}), will apply fallback`);
-    }
-
-    if (complexity === "hard" && steps.length < 3) {
-      const filePattern =
-        /\b(create|write|make|implement|add|generate)\s+(\w+\.\w{2,4})/gi;
-      const textToSearch = content + " " + (originalPrompt || "");
-      const fileMatches = Array.from(textToSearch.matchAll(filePattern));
-      const files: string[] = [];
-
-      for (const match of fileMatches) {
-        const file = match[2];
-        if (!files.includes(file)) {
-          files.push(file);
-        }
-      }
-
-      if (files.length >= 3) {
-        steps = files.map((file) => ({
-          description: `Implement ${file} based on requirements`,
-        }));
-      } else {
-        steps = [
-          { description: "Understand the task requirements" },
-          { description: "Plan the implementation approach" },
-          { description: "Execute the implementation" },
-        ];
-      }
-    }
-
-    if ((complexity === "simple" || !complexity) && steps.length === 0) {
-      const description = originalPrompt
-        ? `Execute the task: ${originalPrompt.substring(0, 100)}${originalPrompt.length > 100 ? "..." : ""}`
-        : "Execute the task implementation";
-      steps = [{ description }];
-    }
-
-    return steps;
-  }
-
-  /**
    * Helper method to detect generic/unhelpful step descriptions
    */
   private isGenericStepDescription(description: string): boolean {
@@ -126,14 +44,14 @@ export class AutoTransitionManager {
     // Detect task complexity from steps
     const steps = this.getStepsFromContent(content);
     if (steps.length === 0) {
-      console.log(
-        `[Harmony] No plan or steps detected in content`
-      );
+      console.log(`[Harmony] No plan or steps detected in content`);
       return { shouldTransition: false };
     }
 
     const complexity = steps.length >= 3 ? "hard" : "simple";
-    console.log(`[Harmony] Detected task complexity: ${complexity} (${steps.length} steps)`);
+    console.log(
+      `[Harmony] Detected task complexity: ${complexity} (${steps.length} steps)`
+    );
 
     if (complexity === "hard") {
       // Hard task: create plan with detected steps (user must manually transition)
@@ -185,7 +103,9 @@ export class AutoTransitionManager {
   private normalizeSteps(
     steps: Array<{ number: number; content: string; isPlanStep: boolean }>
   ): Array<{ number: number; content: string; isPlanStep: boolean }> {
-    const filtered = steps.filter((step) => this.isMeaningfulStep(step.content));
+    const filtered = steps.filter((step) =>
+      this.isMeaningfulStep(step.content)
+    );
     const grouped = this.groupStepsBySequence(filtered);
     const bestGroup = this.selectBestStepGroup(grouped);
 
@@ -208,7 +128,11 @@ export class AutoTransitionManager {
       Array<{ number: number; content: string; isPlanStep: boolean }>
     > = [];
 
-    let current: Array<{ number: number; content: string; isPlanStep: boolean }> = [];
+    let current: Array<{
+      number: number;
+      content: string;
+      isPlanStep: boolean;
+    }> = [];
     let lastNumber = 0;
 
     for (const step of steps) {
@@ -232,7 +156,9 @@ export class AutoTransitionManager {
   }
 
   private selectBestStepGroup(
-    groups: Array<Array<{ number: number; content: string; isPlanStep: boolean }>>
+    groups: Array<
+      Array<{ number: number; content: string; isPlanStep: boolean }>
+    >
   ): Array<{ number: number; content: string; isPlanStep: boolean }> {
     if (groups.length === 0) {
       return [];
@@ -242,12 +168,13 @@ export class AutoTransitionManager {
     const candidates = startingAtOne.length > 0 ? startingAtOne : groups;
 
     // Prefer plan section steps (isPlanStep=true) over casual numbered lists
-    const planGroups = candidates.filter((group) => 
+    const planGroups = candidates.filter((group) =>
       group.some((step) => step.isPlanStep)
     );
     const finalCandidates = planGroups.length > 0 ? planGroups : candidates;
 
-    let best: Array<{ number: number; content: string; isPlanStep: boolean }> = [];
+    let best: Array<{ number: number; content: string; isPlanStep: boolean }> =
+      [];
 
     for (const group of finalCandidates) {
       if (group.length > best.length || group.length === best.length) {
@@ -264,10 +191,11 @@ export class AutoTransitionManager {
     }
 
     const lowerContent = content.toLowerCase();
-    
+
     // Only filter if it's a standalone meta-section header (very short, no meaningful content)
     // Don't filter if it's a step that includes these words in a longer description
-    const standaloneMetaPattern = /^(?:numbered\s+plan|complexity\s+assessment|plan\s+progress|restatement)\s*:?\s*$/i;
+    const standaloneMetaPattern =
+      /^(?:numbered\s+plan|complexity\s+assessment|plan\s+progress|restatement)\s*:?\s*$/i;
     if (standaloneMetaPattern.test(lowerContent) && content.length < 30) {
       return false;
     }
@@ -275,36 +203,109 @@ export class AutoTransitionManager {
     // Expanded action/planning verbs - include analytical and planning activities
     const actionVerbs = [
       // Execution verbs (from StepsMarkdownParser.isExecutionStep)
-      "create", "write", "implement", "generate", "build", "make", "develop",
-      "add", "update", "modify", "edit", "change", "fix", "refactor",
-      "delete", "remove", "replace", "move", "rename",
-      "install", "setup", "set up", "configure", "initialize",
-      "test", "verify", "validate", "check",
-      "deploy", "run", "execute", "launch", "start",
-      "capture", "record", "save", "store", "persist",  // Data capture verbs
+      "create",
+      "write",
+      "implement",
+      "generate",
+      "build",
+      "make",
+      "develop",
+      "add",
+      "update",
+      "modify",
+      "edit",
+      "change",
+      "fix",
+      "refactor",
+      "delete",
+      "remove",
+      "replace",
+      "move",
+      "rename",
+      "install",
+      "setup",
+      "set up",
+      "configure",
+      "initialize",
+      "test",
+      "verify",
+      "validate",
+      "check",
+      "deploy",
+      "run",
+      "execute",
+      "launch",
+      "start",
+      "capture",
+      "record",
+      "save",
+      "store",
+      "persist", // Data capture verbs
       // Analytical and planning verbs
-      "identify", "determine", "analyze", "assess", "evaluate", "examine",
-      "review", "investigate", "explore", "study", "research",
-      "outline", "plan", "design", "draft", "sketch", "structure",
-      "define", "specify", "describe", "document", "list", "enumerate",
-      "calculate", "compute", "measure", "estimate",
-      "summarize", "explain", "clarify", "detail",
-      "confirm", "ensure", "verify", "validate",
-      "prepare", "organize", "arrange", "gather", "collect",
-      "integrate", "combine", "merge", "consolidate",
-      "provide", "supply", "construct", "formulate",
+      "identify",
+      "determine",
+      "analyze",
+      "assess",
+      "evaluate",
+      "examine",
+      "review",
+      "investigate",
+      "explore",
+      "study",
+      "research",
+      "outline",
+      "plan",
+      "design",
+      "draft",
+      "sketch",
+      "structure",
+      "define",
+      "specify",
+      "describe",
+      "document",
+      "list",
+      "enumerate",
+      "calculate",
+      "compute",
+      "measure",
+      "estimate",
+      "summarize",
+      "explain",
+      "clarify",
+      "detail",
+      "confirm",
+      "ensure",
+      "verify",
+      "validate",
+      "prepare",
+      "organize",
+      "arrange",
+      "gather",
+      "collect",
+      "integrate",
+      "combine",
+      "merge",
+      "consolidate",
+      "provide",
+      "supply",
+      "construct",
+      "formulate",
     ];
 
     const hasActionVerb = actionVerbs.some((verb) => {
       // Match whole word at start or after common prefixes
-      const pattern = new RegExp(`^(?:step\\s*\\d+\\s*[:.\\-–—]?\\s*)?${verb}\\b`, "i");
+      const pattern = new RegExp(
+        `^(?:step\\s*\\d+\\s*[:.\\-–—]?\\s*)?${verb}\\b`,
+        "i"
+      );
       return pattern.test(lowerContent);
     });
 
     // If it has an action verb, it's meaningful
     if (hasActionVerb) {
       // Still filter out edge case error descriptions
-      const edgeCaseLeadPattern = /^(?:step\s*\d+\s*[:.\-–—]?\s*)?(file not found|multiple matches|large file|corrupted|binary reading|size limits|error handling|reject)/i;
+      const edgeCaseLeadPattern =
+        /^(?:step\s*\d+\s*[:.\-–—]?\s*)?(file not found|multiple matches|large file|corrupted|binary reading|size limits|error handling|reject)/i;
       if (edgeCaseLeadPattern.test(lowerContent)) {
         return false;
       }
