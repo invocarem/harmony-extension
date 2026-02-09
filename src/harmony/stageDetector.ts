@@ -49,9 +49,9 @@ export class StageDetector {
     // Get current stage from context or default to init
     const currentStage = conversationContext?.currentStage || 'init';
     
-    // Init stage always transitions to chat
+    // Init stage always transitions to simple
     if (currentStage === 'init') {
-      return 'chat';
+      return 'simple';
     }
     
     const promptLower = prompt.toLowerCase().trim();

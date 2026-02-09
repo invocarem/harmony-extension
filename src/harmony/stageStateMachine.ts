@@ -12,7 +12,7 @@ import { logStepInfo } from "../utils/logger";
 import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
-export type WorkflowStage = "chat" | "assumptions" | "implementation";
+export type WorkflowStage = "chat" | "simple" | "assumptions" | "implementation";
 
 /**
  * Trigger types for state transitions
@@ -21,6 +21,7 @@ export type TransitionTrigger =
   | "move_to_implementation"
   | "move_to_assumptions"
   | "move_to_chat"
+  | "move_to_simple"
   | "step" // Execute one step, stay in implementation
   | "auto" // Execute one step, stay in implementation (auto mode)
   | "verbose_info" // Generate verboseInfo, stay in current stage (works from any stage)
@@ -138,6 +139,79 @@ const TRANSITION_TABLE: TransitionRule[] = [
     action: (ctx) => {
       console.log(`[Action] move_to_chat: ${ctx.currentStage} -> chat`);
       return "chat";
+    },
+    priority: 100,
+  },
+  {
+    from: "assumptions",
+    to: "chat",
+    trigger: "move_to_chat",
+    action: (ctx) => {
+      console.log(`[Action] move_to_chat: ${ctx.currentStage} -> chat`);
+      return "chat";
+    },
+    priority: 100,
+  },
+  {
+    from: "simple",
+    to: "chat",
+    trigger: "move_to_chat",
+    action: (ctx) => {
+      console.log(`[Action] move_to_chat: ${ctx.currentStage} -> chat`);
+      return "chat";
+    },
+    priority: 100,
+  },
+  {
+    from: "chat",
+    to: "simple",
+    trigger: "move_to_simple",
+    action: (ctx) => {
+      console.log(`[Action] move_to_simple: ${ctx.currentStage} -> simple`);
+      return "simple";
+    },
+    priority: 100,
+  },
+  {
+    from: "assumptions",
+    to: "simple",
+    trigger: "move_to_simple",
+    action: (ctx) => {
+      console.log(`[Action] move_to_simple: ${ctx.currentStage} -> simple`);
+      return "simple";
+    },
+    priority: 100,
+  },
+  {
+    from: "implementation",
+    to: "simple",
+    trigger: "move_to_simple",
+    action: (ctx) => {
+      console.log(`[Action] move_to_simple: ${ctx.currentStage} -> simple`);
+      return "simple";
+    },
+    priority: 100,
+  },
+  {
+    from: "simple",
+    to: "assumptions",
+    trigger: "move_to_assumptions",
+    action: async (ctx) => {
+      console.log(`[Action] move_to_assumptions: simple -> assumptions`);
+      const {
+        prompt,
+        conversationHistory,
+        transitionHandler,
+        nativeToolsManager,
+      } = ctx;
+      if (transitionHandler) {
+        await transitionHandler.handleChatToAssumptionsTransition(
+          prompt,
+          conversationHistory,
+          nativeToolsManager
+        );
+      }
+      return "assumptions" as WorkflowStage;
     },
     priority: 100,
   },
@@ -302,6 +376,13 @@ const TRANSITION_TABLE: TransitionRule[] = [
     priority: 100,
   },
   {
+    from: "simple",
+    to: "simple",
+    trigger: "verbose_info",
+    action: verboseInfoAction,
+    priority: 100,
+  },
+  {
     from: "assumptions",
     to: "assumptions",
     trigger: "verbose_info",
@@ -325,6 +406,16 @@ const TRANSITION_TABLE: TransitionRule[] = [
       if (ctx.transitionHandler)
         await ctx.transitionHandler.handleChatPromptAction();
       return "chat" as WorkflowStage;
+    },
+    priority: 10,
+  },
+  {
+    from: "simple",
+    to: "simple",
+    trigger: "prompt",
+    action: async (ctx) => {
+      console.log(`[Action] prompt: staying in simple stage`);
+      return "simple" as WorkflowStage;
     },
     priority: 10,
   },
@@ -353,9 +444,10 @@ const TRANSITION_TABLE: TransitionRule[] = [
  * Valid transitions map (for quick lookup)
  */
 const VALID_TRANSITIONS: Map<WorkflowStage, Set<WorkflowStage>> = new Map([
-  ["chat", new Set<WorkflowStage>(["assumptions"])],
-  ["assumptions", new Set<WorkflowStage>(["implementation", "chat"])],
-  ["implementation", new Set<WorkflowStage>(["chat", "assumptions"])],
+  ["chat", new Set<WorkflowStage>(["simple", "assumptions"])],
+  ["simple", new Set<WorkflowStage>(["chat", "assumptions"])],
+  ["assumptions", new Set<WorkflowStage>(["implementation", "chat", "simple"])],
+  ["implementation", new Set<WorkflowStage>(["chat", "assumptions", "simple"])],
 ]);
 
 /**
@@ -464,6 +556,16 @@ export class StageStateMachine {
       return "move_to_chat";
     }
 
+    if (
+      /\b(move\s+to|go\s+to|goto|start|begin)\s+(simple|code|snippet|example)\b/i.test(
+        promptLower
+      ) ||
+      /@cmd:move[_-]?to[_-]?simple/i.test(promptLower) ||
+      /@simple/i.test(promptLower)
+    ) {
+      return "move_to_simple";
+    }
+
     // Detect verbose_info command (works from any stage)
     if (
       /@cmd:verbose(?:[_-]?info)?|verbose\s+info|show\s+info|display\s+info/i.test(
@@ -504,6 +606,11 @@ export class StageStateMachine {
     // Default: regular prompt (stage-specific behavior)
     // This allows each stage to handle regular user prompts differently
     if (currentStage === "chat") {
+      return "prompt";
+    }
+
+    // In simple stage, regular prompts stay in simple (generate more code snippets)
+    if (currentStage === "simple") {
       return "prompt";
     }
 
@@ -612,11 +719,11 @@ export class StageStateMachine {
     if (!this.contextManager) return;
 
     if (!this.contextManager.hasContext()) {
-      this.contextManager.initialize(prompt, "chat");
+      this.contextManager.initialize(prompt, "simple");
       const context = this.contextManager.getContext();
 
-      if (context && context.currentStage === "chat") {
-        console.log(`[Harmony] Initializing conversation at chat stage`);
+      if (context && context.currentStage === "simple") {
+        console.log(`[Harmony] Initializing conversation at simple stage`);
 
         // Create .harmony folder if it doesn't exist (only on first conversation initialization)
         try {
@@ -885,6 +992,64 @@ export class StageStateMachine {
 
 `,
 
+      simple: `## Current Stage: SIMPLE/CODE GENERATION
+
+**PRIMARY GOAL:**
+- Generate clean, working code snippets directly from user request
+- Provide code in markdown code blocks with proper syntax highlighting
+- Include brief explanations where helpful
+- No file creation or complex planning required
+
+**DO:**
+✅ Generate complete, working code snippets
+✅ Use proper markdown code blocks with language tags
+✅ Include inline comments for clarity
+✅ Provide multiple examples if request is ambiguous
+✅ Use read-only tools to understand existing code context
+✅ Keep explanations concise and focused on the code
+✅ Suggest filenames/paths where code would logically go
+
+**DO NOT:**
+❌ Create implementation plans or step-by-step breakdowns
+❌ Use file creation/modification tools (create_file, edit_file, etc.)
+❌ Generate incomplete or placeholder code (TODO comments are fine for extension points)
+❌ Provide excessive explanations (code should be well-commented)
+❌ Use MCP tools (not needed for code snippets)
+
+**CODE FORMAT:**
+\`\`\`language
+// Brief description or comment
+// Code snippet here
+\`\`\`
+
+**EXAMPLE OUTPUT:**
+"Here's a Python function to parse JSON:
+
+\`\`\`python
+# Function to safely parse JSON with error handling
+import json
+
+def parse_json_safely(json_string):
+    try:
+        return json.loads(json_string)
+    except json.JSONDecodeError as e:
+        print(f"Error parsing JSON: {e}")
+        return None
+\`\`\`
+
+This could go in \`utils/json_parser.py\`."
+
+**WHEN TO SUGGEST CHANGING STAGES:**
+- If task requires multiple files → suggest "assumptions" stage for planning
+- If user needs clarification → suggest "chat" stage
+- If ready to implement in workspace → suggest "implementation" stage
+- If request is complex with many requirements → suggest "assumptions" stage
+
+**COMPLETION:**
+After providing code, ask: "Does this help? Need modifications, or ready to implement this in your workspace?"
+
+`,
+
       assumptions: `## Current Stage: ASSUMPTIONS/ANALYSIS
 **PRIMARY GOAL:** 
 - Create comprehensive implementation plan to solve user's problems.
@@ -1077,6 +1242,24 @@ Example with multiple tool calls:
           "modify_file",
         ],
       },
+      simple: {
+        allowed: [
+          "read_file",
+          "list_files",
+          "grep_files",
+          "search_files",
+          "read_directory",
+        ],
+        blocked: [
+          "create_file",
+          "replace_file",
+          "write_file",
+          "update_file",
+          "delete_file",
+          "edit_file",
+          "modify_file",
+        ],
+      },
       assumptions: {
         allowed: [], // All tools except blocked ones
         blocked: [
@@ -1107,7 +1290,7 @@ Example with multiple tool calls:
     }
 
     if (rule.allowed.length > 0) {
-      // Only allow specific tools (chat stage)
+      // Only allow specific tools (chat and simple stages)
       return allTools.filter((tool) => rule.allowed.includes(tool.name));
     }
 

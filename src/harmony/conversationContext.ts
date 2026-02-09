@@ -62,7 +62,7 @@ export class ConversationContextManager {
    */
   initialize(
     originalPrompt: string,
-    initialStage: WorkflowStage = "chat"
+    initialStage: WorkflowStage = "simple"
   ): ConversationContext {
     // Preserve existing progressPlan if context is being re-initialized
     const existingPlan = this.context?.progressPlan;
