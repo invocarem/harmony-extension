@@ -4,10 +4,10 @@
  */
 
 export interface VerboseInfo {
-    stage?: 'init' | 'chat' | 'simple' | 'assumptions' | 'implementation';
+    stage?: 'init' | 'chat' | 'snippet' | 'assumptions' | 'implementation';
     stageTransition?: {
-        from: 'init' | 'chat' | 'simple' | 'assumptions' | 'implementation';
-        to: 'init' | 'chat' | 'simple' | 'assumptions' | 'implementation';
+        from: 'init' | 'chat' | 'snippet' | 'assumptions' | 'implementation';
+        to: 'init' | 'chat' | 'snippet' | 'assumptions' | 'implementation';
     };
     step?: number;
     maxSteps?: number;
@@ -82,7 +82,7 @@ export interface VerboseInfo {
     
     toolCalls?: Array<{
         name: string;
-        stage: 'init' | 'chat' | 'simple' | 'assumptions' | 'implementation';
+        stage: 'init' | 'chat' | 'snippet' | 'assumptions' | 'implementation';
         success: boolean;
         error?: string;
         file?: string;
@@ -102,8 +102,8 @@ export function verboseInfoToString(verboseInfo: VerboseInfo | undefined | null)
     switch (verboseInfo.stage) {
         case 'chat':
             return formatChatVerboseInfo(verboseInfo);
-        case 'simple':
-            return formatSimpleVerboseInfo(verboseInfo);
+        case 'snippet':
+            return formatSnippetVerboseInfo(verboseInfo);
         case 'assumptions':
             return formatAssumptionVerboseInfo(verboseInfo);
         case 'implementation':
@@ -177,9 +177,9 @@ function formatChatVerboseInfo(info: VerboseInfo): string {
     return lines.join('\n');
 }
 
-function formatSimpleVerboseInfo(info: VerboseInfo): string {
+function formatSnippetVerboseInfo(info: VerboseInfo): string {
     const lines: string[] = [];
-    lines.push(`✨ Simple Stage Verbose Info`);
+    lines.push(`✨ Snippet Stage Verbose Info`);
     lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
     
     if (info.stageTransition) {

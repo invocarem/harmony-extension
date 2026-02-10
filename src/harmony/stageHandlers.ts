@@ -835,10 +835,10 @@ class AssumptionsStageHandler implements StageHandler {
 }
 
 /**
- * Simple stage handler
+ * Snippet stage handler
  * Generates code snippets without file operations or complex planning
  */
-class SimpleStageHandler implements StageHandler {
+class SnippetStageHandler implements StageHandler {
   async handlePreProcessing(
     context: ConversationContext | null,
     prompt: string,
@@ -865,7 +865,7 @@ class SimpleStageHandler implements StageHandler {
   }
 
   /**
-   * Post-processing for simple stage
+   * Post-processing for snippet stage
    * Validates code snippets are present in response
    */
   async handlePostProcessing(
@@ -882,9 +882,9 @@ class SimpleStageHandler implements StageHandler {
     nativeToolsManager?: NativeToolsManager,
     conversationHistory?: readonly ChatMessage[]
   ): Promise<void> {
-    // Simple stage doesn't need complex post-processing
+    // Snippet stage doesn't need complex post-processing
     // Just log for debugging
-    console.log(`[SimpleStageHandler] Post-processing complete for simple stage`);
+    console.log(`[SnippetStageHandler] Post-processing complete for snippet stage`);
   }
 }
 
@@ -1125,7 +1125,7 @@ export class StageHandlerRegistry {
       "chat",
       new ChatStageHandler(chatManager || new ChatManager())
     );
-    this.handlers.set("simple", new SimpleStageHandler());
+    this.handlers.set("snippet", new SnippetStageHandler());
     this.handlers.set("assumptions", new AssumptionsStageHandler());
     this.handlers.set(
       "implementation",

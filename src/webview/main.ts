@@ -123,11 +123,11 @@ fileButton.addEventListener("click", () => {
 });
 
 // Stage transition arrows
-const arrowChatToSimple = document.getElementById(
-  "arrow-chat-to-simple"
+const arrowChatToSnippet = document.getElementById(
+  "arrow-chat-to-snippet"
 );
-const arrowSimpleToAssumptions = document.getElementById(
-  "arrow-simple-to-assumptions"
+const arrowSnippetToAssumptions = document.getElementById(
+  "arrow-snippet-to-assumptions"
 );
 const arrowAssumptionsToImplementation = document.getElementById(
   "arrow-assumptions-to-implementation"
@@ -168,14 +168,14 @@ if (stageLightImplementation) {
   });
 }
 
-if (arrowChatToSimple) {
-  arrowChatToSimple.addEventListener("click", () => {
+if (arrowChatToSnippet) {
+  arrowChatToSnippet.addEventListener("click", () => {
     // Don't allow transition if arrow is disabled
-    if (arrowChatToSimple.classList.contains("disabled")) {
+    if (arrowChatToSnippet.classList.contains("disabled")) {
       return;
     }
-    // Send message using @cmd:move_to_simple format
-    const message = "@cmd:move_to_simple";
+    // Send message using @cmd:move_to_snippet format
+    const message = "@cmd:move_to_snippet";
     addMessage(message, true, undefined, undefined);
     addTypingIndicator();
     vscode.postMessage({
@@ -186,10 +186,10 @@ if (arrowChatToSimple) {
   });
 }
 
-if (arrowSimpleToAssumptions) {
-  arrowSimpleToAssumptions.addEventListener("click", () => {
+if (arrowSnippetToAssumptions) {
+  arrowSnippetToAssumptions.addEventListener("click", () => {
     // Don't allow transition if arrow is disabled
-    if (arrowSimpleToAssumptions.classList.contains("disabled")) {
+    if (arrowSnippetToAssumptions.classList.contains("disabled")) {
       return;
     }
     // Send message using @cmd:move_to_assumptions format
@@ -253,11 +253,11 @@ updateStageIndicator("chat");
 messageInput.focus();
 
 // Initialize stage arrows as disabled (will be enabled when stage is known)
-if (arrowChatToSimple) {
-  arrowChatToSimple.classList.add("disabled");
+if (arrowChatToSnippet) {
+  arrowChatToSnippet.classList.add("disabled");
 }
-if (arrowSimpleToAssumptions) {
-  arrowSimpleToAssumptions.classList.add("disabled");
+if (arrowSnippetToAssumptions) {
+  arrowSnippetToAssumptions.classList.add("disabled");
 }
 if (arrowAssumptionsToImplementation) {
   arrowAssumptionsToImplementation.classList.add("disabled");

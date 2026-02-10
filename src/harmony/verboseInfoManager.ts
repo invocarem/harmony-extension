@@ -72,8 +72,8 @@ export class VerboseInfoManager {
       );
     }
 
-    if (stage === "simple") {
-      return VerboseInfoBuilder.forSimpleStage(
+    if (stage === "snippet") {
+      return VerboseInfoBuilder.forSnippetStage(
         context,
         this.contextManager,
         content,

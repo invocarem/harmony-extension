@@ -692,8 +692,8 @@ export class HarmonyAssistant {
             console.log(`[Harmony] First-principles mode active in chat stage`);
           }
           break;
-        case "simple":
-          templateName = "simple";
+        case "snippet":
+          templateName = "snippet";
           break;
         case "assumptions":
           templateName = "assumptions";

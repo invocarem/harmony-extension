@@ -12,7 +12,7 @@ import { logStepInfo } from "../utils/logger";
 import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
-export type WorkflowStage = "chat" | "simple" | "assumptions" | "implementation";
+export type WorkflowStage = "chat" | "snippet" | "assumptions" | "implementation";
 
 /**
  * Trigger types for state transitions
@@ -21,7 +21,7 @@ export type TransitionTrigger =
   | "move_to_implementation"
   | "move_to_assumptions"
   | "move_to_chat"
-  | "move_to_simple"
+  | "move_to_snippet"
   | "step" // Execute one step, stay in implementation
   | "auto" // Execute one step, stay in implementation (auto mode)
   | "verbose_info" // Generate verboseInfo, stay in current stage (works from any stage)
@@ -153,7 +153,7 @@ const TRANSITION_TABLE: TransitionRule[] = [
     priority: 100,
   },
   {
-    from: "simple",
+    from: "snippet",
     to: "chat",
     trigger: "move_to_chat",
     action: (ctx) => {
@@ -164,40 +164,40 @@ const TRANSITION_TABLE: TransitionRule[] = [
   },
   {
     from: "chat",
-    to: "simple",
-    trigger: "move_to_simple",
+    to: "snippet",
+    trigger: "move_to_snippet",
     action: (ctx) => {
-      console.log(`[Action] move_to_simple: ${ctx.currentStage} -> simple`);
-      return "simple";
+      console.log(`[Action] move_to_snippet: ${ctx.currentStage} -> snippet`);
+      return "snippet";
     },
     priority: 100,
   },
   {
     from: "assumptions",
-    to: "simple",
-    trigger: "move_to_simple",
+    to: "snippet",
+    trigger: "move_to_snippet",
     action: (ctx) => {
-      console.log(`[Action] move_to_simple: ${ctx.currentStage} -> simple`);
-      return "simple";
+      console.log(`[Action] move_to_snippet: ${ctx.currentStage} -> snippet`);
+      return "snippet";
     },
     priority: 100,
   },
   {
     from: "implementation",
-    to: "simple",
-    trigger: "move_to_simple",
+    to: "snippet",
+    trigger: "move_to_snippet",
     action: (ctx) => {
-      console.log(`[Action] move_to_simple: ${ctx.currentStage} -> simple`);
-      return "simple";
+      console.log(`[Action] move_to_snippet: ${ctx.currentStage} -> snippet`);
+      return "snippet";
     },
     priority: 100,
   },
   {
-    from: "simple",
+    from: "snippet",
     to: "assumptions",
     trigger: "move_to_assumptions",
     action: async (ctx) => {
-      console.log(`[Action] move_to_assumptions: simple -> assumptions`);
+      console.log(`[Action] move_to_assumptions: snippet -> assumptions`);
       const {
         prompt,
         conversationHistory,
@@ -376,8 +376,8 @@ const TRANSITION_TABLE: TransitionRule[] = [
     priority: 100,
   },
   {
-    from: "simple",
-    to: "simple",
+    from: "snippet",
+    to: "snippet",
     trigger: "verbose_info",
     action: verboseInfoAction,
     priority: 100,
@@ -410,12 +410,12 @@ const TRANSITION_TABLE: TransitionRule[] = [
     priority: 10,
   },
   {
-    from: "simple",
-    to: "simple",
+    from: "snippet",
+    to: "snippet",
     trigger: "prompt",
     action: async (ctx) => {
-      console.log(`[Action] prompt: staying in simple stage`);
-      return "simple" as WorkflowStage;
+      console.log(`[Action] prompt: staying in snippet stage`);
+      return "snippet" as WorkflowStage;
     },
     priority: 10,
   },
@@ -444,10 +444,10 @@ const TRANSITION_TABLE: TransitionRule[] = [
  * Valid transitions map (for quick lookup)
  */
 const VALID_TRANSITIONS: Map<WorkflowStage, Set<WorkflowStage>> = new Map([
-  ["chat", new Set<WorkflowStage>(["simple", "assumptions"])],
-  ["simple", new Set<WorkflowStage>(["chat", "assumptions"])],
-  ["assumptions", new Set<WorkflowStage>(["implementation", "chat", "simple"])],
-  ["implementation", new Set<WorkflowStage>(["chat", "assumptions", "simple"])],
+  ["chat", new Set<WorkflowStage>(["snippet", "assumptions"])],
+  ["snippet", new Set<WorkflowStage>(["chat", "assumptions"])],
+  ["assumptions", new Set<WorkflowStage>(["implementation", "chat", "snippet"])],
+  ["implementation", new Set<WorkflowStage>(["chat", "assumptions", "snippet"])],
 ]);
 
 /**
@@ -557,13 +557,13 @@ export class StageStateMachine {
     }
 
     if (
-      /\b(move\s+to|go\s+to|goto|start|begin)\s+(simple|code|snippet|example)\b/i.test(
+      /\b(move\s+to|go\s+to|goto|start|begin)\s+(snippet|code|example)\b/i.test(
         promptLower
       ) ||
-      /@cmd:move[_-]?to[_-]?simple/i.test(promptLower) ||
-      /@simple/i.test(promptLower)
+      /@cmd:move[_-]?to[_-]?snippet/i.test(promptLower) ||
+      /@snippet/i.test(promptLower)
     ) {
-      return "move_to_simple";
+      return "move_to_snippet";
     }
 
     // Detect verbose_info command (works from any stage)
@@ -609,8 +609,8 @@ export class StageStateMachine {
       return "prompt";
     }
 
-    // In simple stage, regular prompts stay in simple (generate more code snippets)
-    if (currentStage === "simple") {
+    // In snippet stage, regular prompts stay in snippet (generate more code snippets)
+    if (currentStage === "snippet") {
       return "prompt";
     }
 
@@ -992,7 +992,7 @@ export class StageStateMachine {
 
 `,
 
-      simple: `## Current Stage: SIMPLE/CODE GENERATION
+      snippet: `## Current Stage: SNIPPET/CODE GENERATION
 
 **PRIMARY GOAL:**
 - Generate clean, working code snippets directly from user request
@@ -1228,7 +1228,7 @@ Example with multiple tool calls:
           "modify_file",
         ],
       },
-      simple: {
+      snippet: {
         allowed: [
           "read_file",
           "list_files",

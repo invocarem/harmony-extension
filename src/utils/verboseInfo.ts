@@ -152,10 +152,10 @@ export interface AssumptionVerboseInfo {
 }
 
 /**
- * Simple stage verbose info
+ * Snippet stage verbose info
  */
-export interface SimpleVerboseInfo {
-  stage: "simple";
+export interface SnippetVerboseInfo {
+  stage: "snippet";
   stageTransition?: {
     from: WorkflowStage;
     to: WorkflowStage;
@@ -255,7 +255,7 @@ export interface ImplementationVerboseInfo {
  */
 export type VerboseInfo =
   | ChatVerboseInfo
-  | SimpleVerboseInfo
+  | SnippetVerboseInfo
   | AssumptionVerboseInfo
   | ImplementationVerboseInfo;
 
@@ -486,9 +486,9 @@ export class VerboseInfoBuilder {
   }
 
   /**
-   * Build verbose info for simple stage
+   * Build verbose info for snippet stage
    */
-  static forSimpleStage(
+  static forSnippetStage(
     context: ConversationContext | null,
     contextManager: import("../harmony/conversationContext").ConversationContextManager,
     responseContent?: string,
@@ -500,7 +500,7 @@ export class VerboseInfoBuilder {
       error?: string;
     }>,
     conversationHistory?: readonly ChatMessage[]
-  ): SimpleVerboseInfo {
+  ): SnippetVerboseInfo {
     // Extract all user queries from conversation history
     const allUserQueries = this.extractAllUserQueries(conversationHistory);
 
@@ -518,12 +518,12 @@ export class VerboseInfoBuilder {
 
     const stepInfo = contextManager.getDisplayStepInfo();
 
-    const verboseInfo: SimpleVerboseInfo = {
-      stage: "simple",
+    const verboseInfo: SnippetVerboseInfo = {
+      stage: "snippet",
       stageTransition: context?.lastStageTransition,
       step: stepInfo?.currentStep,
       maxSteps: stepInfo?.totalSteps,
-      // isComplete is not meaningful for simple stage
+      // isComplete is not meaningful for snippet stage
     };
 
     // Add problem summary if we have original query or restatement
