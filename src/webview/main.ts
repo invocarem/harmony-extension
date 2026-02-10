@@ -123,9 +123,7 @@ fileButton.addEventListener("click", () => {
 });
 
 // Stage transition arrows
-const arrowChatToSnippet = document.getElementById(
-  "arrow-chat-to-snippet"
-);
+const arrowChatToSnippet = document.getElementById("arrow-chat-to-snippet");
 const arrowSnippetToAssumptions = document.getElementById(
   "arrow-snippet-to-assumptions"
 );
@@ -282,9 +280,12 @@ document.addEventListener("click", async (e) => {
   if (!button) return;
 
   const action = button.getAttribute("data-action");
-  const code = button.getAttribute("data-code");
+  const base64Code = button.getAttribute("data-code-base64");
 
-  if (!code || action !== "copy") return;
+  if (!base64Code || action !== "copy") return;
+
+  // Decode base64 to get the original code with proper newlines
+  const code = decodeURIComponent(escape(atob(base64Code)));
 
   try {
     await navigator.clipboard.writeText(code);

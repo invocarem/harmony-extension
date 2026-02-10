@@ -477,6 +477,13 @@ export class PromptBuilder {
       currentStage
     );
 
+    console.log(
+      `[PromptBuilder] Stage: ${currentStage}, Total tools: ${allTools.length}, Allowed tools: ${allowedTools.length}`
+    );
+    console.log(
+      `[PromptBuilder] Allowed tool names: ${allowedTools.map((t) => t.name).join(", ")}`
+    );
+
     if (allowedTools.length === 0) {
       return "";
     }
@@ -498,7 +505,28 @@ export class PromptBuilder {
       }
     });
     toolsContext +=
-      '\nTo call a tool, use the format: <tool_call name="tool_name" args="{...}" />\n';
+      "\n**TOOL CALL FORMAT (XML only, no other formats accepted):**\n";
+    toolsContext +=
+      '<tool_call name="tool_name" args=\'{"param": "value"}\' />\n\n';
+    toolsContext += "**CORRECT examples:**\n";
+    toolsContext +=
+      '- <tool_call name="exec_terminal" args=\'{"command": "python script.py"}\' />\n';
+    toolsContext +=
+      '- <tool_call name="read_file" args=\'{"file_path": "test.py", "start_line": 1, "end_line": 50}\' />\n';
+    toolsContext +=
+      '- <tool_call name="list_files" args=\'{"directory_path": "."}\' />\n\n';
+    toolsContext += "**INCORRECT formats (DO NOT USE):**\n";
+    toolsContext += "❌ <|channel|>analysis to=tool_name<|message|>...\n";
+    toolsContext += '❌ {"tool": "tool_name", "args": {...}}\n';
+    toolsContext +=
+      "❌ Any format other than the XML <tool_call> shown above\n\n";
+    toolsContext += "**⚠️ CRITICAL: DO NOT HALLUCINATE TOOL EXECUTION**\n";
+    toolsContext +=
+      '- NEVER say "I\'ve executed", "I ran", "I checked" without a <tool_call> in your response\n';
+    toolsContext +=
+      "- NEVER make up command outputs - always use exec_terminal to get real results\n";
+    toolsContext +=
+      "- If you claim execution happened, you MUST have a <tool_call> tag in your response\n";
 
     // Add stage-specific tool restrictions warning
     if (currentStage === "chat" || currentStage === "assumptions") {

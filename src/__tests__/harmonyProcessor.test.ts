@@ -221,7 +221,7 @@ const y = 2;
         // The improved fallback uses quote-aware parsing to find the closing /> properly
         const jsonArgs = JSON.stringify({
           file_path: "requirements.txt",
-          content: "pygame>=2.0.0\nmatplotlib>=3.5.0"
+          content: "pygame>=2.0.0\nmatplotlib>=3.5.0",
         });
         const raw = `<tool_call name="create_file" args='${jsonArgs}' />`;
         const result = processor.extractToolCalls([raw]);
@@ -231,7 +231,9 @@ const y = 2;
         expect(result[0].name).toBe("create_file");
         expect(result[0].arguments).toBeDefined();
         expect(result[0].arguments!.file_path).toBe("requirements.txt");
-        expect(result[0].arguments!.content).toBe("pygame>=2.0.0\nmatplotlib>=3.5.0");
+        expect(result[0].arguments!.content).toBe(
+          "pygame>=2.0.0\nmatplotlib>=3.5.0"
+        );
         expect(result[0].arguments!.content).toContain(">=");
       });
     });
@@ -339,28 +341,25 @@ const y = 2;
         expect(Array.isArray(result)).toBe(true);
       });
 
-      it("should extract read_file when file is mentioned in natural language", () => {
-        // When natural language mentions a file name, extract read_file to read it
-        const naturalLanguage = "The system will execute the tool and return the result. After all tools are called and results received, provide your final response. You are to update the `englishText` array in the Psalm101Tests.swift file to add a comment every 5 verses, following the 29 verses of Latin text. I'll analyze the existing structure and add appropriate comments.";
+      it("should NOT extract tool calls from natural language file mentions (disabled auto-extraction)", () => {
+        // Automatic extraction is disabled - LLM must explicitly make tool calls
+        // Mentioning files in natural language should NOT trigger automatic extraction
+        const naturalLanguage =
+          "The system will execute the tool and return the result. After all tools are called and results received, provide your final response. You are to update the `englishText` array in the Psalm101Tests.swift file to add a comment every 5 verses, following the 29 verses of Latin text. I'll analyze the existing structure and add appropriate comments.";
 
         const result = processor.parseResponse(naturalLanguage);
 
-        // Should extract find_files for the mentioned filename (no directory path)
+        // Should preserve content but NOT extract tool calls automatically
         expect(result.content).toContain("The system will execute");
         expect(result.content).toContain("Psalm101Tests.swift");
-        expect(result.rawToolCalls).toBeDefined();
-        expect(result.rawToolCalls!.length).toBeGreaterThan(0);
-
-        // Check that it extracted find_files (not read_file) since it's just a filename
-        const extracted = processor.extractToolCalls(result.rawToolCalls!);
-        expect(extracted.length).toBeGreaterThan(0);
-        expect(extracted[0].name).toBe("find_files");
-        expect(extracted[0].arguments?.name_pattern).toBe("Psalm101Tests.swift");
+        // Automatic extraction is disabled - no tool calls should be extracted
+        expect(result.rawToolCalls).toEqual([]);
       });
 
       it("should still detect actual XML tool calls correctly", () => {
         // Ensure actual tool calls are still detected after the fix
-        const actualToolCall = '<tool_call name="analyze_latin" args=\'{"word": "amo"}\' />';
+        const actualToolCall =
+          '<tool_call name="analyze_latin" args=\'{"word": "amo"}\' />';
         const result = processor.parseResponse(actualToolCall);
 
         // Should detect it as a tool call
@@ -411,7 +410,7 @@ END {}`;
 
         const jsonArgs = JSON.stringify({
           file_path: "filter.awk",
-          content: awkScript
+          content: awkScript,
         });
 
         // Test with complete tool call
@@ -431,7 +430,9 @@ END {}`;
         expect(extracted[0].arguments).toBeDefined();
         expect(extracted[0].arguments!.file_path).toBe("filter.awk");
         expect(extracted[0].arguments!.content).toBe(awkScript);
-        expect(extracted[0].arguments!.content).toContain("in_page = (cur_page == page)");
+        expect(extracted[0].arguments!.content).toContain(
+          "in_page = (cur_page == page)"
+        );
         expect(extracted[0].arguments!.content).toContain("END {}");
       });
 
@@ -458,7 +459,7 @@ in_page && /MC=/ {
 
         const jsonArgs = JSON.stringify({
           file_path: "filter.awk",
-          content: longContent
+          content: longContent,
         });
 
         // Simulate incomplete tool call (missing closing />)
@@ -482,11 +483,12 @@ in_page && /MC=/ {
 
       it("should extract tool call with >= comparison operators in content", () => {
         // Test case for ">=" operators in content (like version requirements)
-        const requirementsContent = "pygame>=2.0.0\nmatplotlib>=3.5.0\nnumpy>=1.20.0";
+        const requirementsContent =
+          "pygame>=2.0.0\nmatplotlib>=3.5.0\nnumpy>=1.20.0";
 
         const jsonArgs = JSON.stringify({
           file_path: "requirements.txt",
-          content: requirementsContent
+          content: requirementsContent,
         });
 
         const toolCall = `<tool_call name="create_file" args='${jsonArgs}' />`;
@@ -675,7 +677,8 @@ The verb is defective, meaning it lacks those forms entirely.<|end|>`;
 
   describe("Plain text (jinja-only) responses", () => {
     it("should parse simple plain text response", () => {
-      const response = ">I want to clarify your problem. You've simply said \"hi\" without specifying what you need help with.";
+      const response =
+        '>I want to clarify your problem. You\'ve simply said "hi" without specifying what you need help with.';
       const result = processor.parseResponse(response);
 
       expect(result.content).toBe(response.trim());
@@ -708,7 +711,8 @@ The verb is defective, meaning it lacks those forms entirely.<|end|>`;
     });
 
     it("should parse plain text response that looks like a tool call", () => {
-      const response = '<tool_call name="analyze_latin" args=\'{"word": "amo"}\' />';
+      const response =
+        '<tool_call name="analyze_latin" args=\'{"word": "amo"}\' />';
       const result = processor.parseResponse(response);
 
       // Should detect it as a tool call even without Harmony tokens
@@ -728,7 +732,8 @@ The verb is defective, meaning it lacks those forms entirely.<|end|>`;
     });
 
     it("should parse plain text response with JSON tool call format", () => {
-      const response = '{"name": "analyze_latin", "arguments": {"word": "amo"}}';
+      const response =
+        '{"name": "analyze_latin", "arguments": {"word": "amo"}}';
       const result = processor.parseResponse(response);
 
       // Should detect it as a tool call
@@ -775,7 +780,8 @@ This is a code example.`;
 
     it("should handle plain text response that starts with > character", () => {
       // This matches the actual response format from the user's logs
-      const response = ">I want to clarify your problem. You've simply said \"hi\" without specifying what you need help with.";
+      const response =
+        '>I want to clarify your problem. You\'ve simply said "hi" without specifying what you need help with.';
       const result = processor.parseResponse(response);
 
       expect(result.content).toBe(response.trim());
@@ -792,26 +798,23 @@ This is a code example.`;
       expect(textResult.rawToolCalls).toEqual([]);
 
       // Tool call should be detected
-      const toolCallResponse = '<tool_call name="test" args=\'{"arg": "value"}\' />';
+      const toolCallResponse =
+        '<tool_call name="test" args=\'{"arg": "value"}\' />';
       const toolCallResult = processor.parseResponse(toolCallResponse);
       expect(toolCallResult.content).toBe("");
       expect(toolCallResult.rawToolCalls?.length).toBeGreaterThan(0);
     });
 
-    it("should extract find_files when filename is mentioned without directory path", () => {
-      // When only a filename is mentioned (no directory path), use find_files to locate it
-      const naturalLanguageResponse = "The system will execute the tool and return the result. After all tools are called and results received, provide your final response. You are to update the `englishText` array in the Psalm101Tests.swift file.";
+    it("should NOT extract tool calls from filename mentions (disabled auto-extraction)", () => {
+      // Automatic extraction is disabled - LLM must explicitly make tool calls
+      const naturalLanguageResponse =
+        "The system will execute the tool and return the result. After all tools are called and results received, provide your final response. You are to update the `englishText` array in the Psalm101Tests.swift file.";
       const result = processor.parseResponse(naturalLanguageResponse);
 
-      // Should extract find_files for the mentioned file
+      // Should preserve content but NOT extract tool calls automatically
       expect(result.content).toContain("The system will execute");
-      expect(result.rawToolCalls).toBeDefined();
-      expect(result.rawToolCalls!.length).toBeGreaterThan(0);
-
-      const toolCalls = processor.extractToolCalls(result.rawToolCalls!);
-      // Filename only (no directory) should use find_files
-      expect(toolCalls[0].name).toBe("find_files");
-      expect(toolCalls[0].arguments?.name_pattern).toBe("Psalm101Tests.swift");
+      // Automatic extraction is disabled - no tool calls should be extracted
+      expect(result.rawToolCalls).toEqual([]);
     });
   });
 
@@ -904,9 +907,9 @@ def hello():
   });
 
   describe("Issue: Model claims file update but doesn't make tool call", () => {
-    it("should detect file update claim with code block and extract as tool call", () => {
-      // This reproduces the exact issue from the logs
-      // Model says it updated the file but doesn't make a tool call
+    it("should NOT auto-extract file operations from descriptions (disabled auto-extraction)", () => {
+      // Automatic extraction is disabled - model must explicitly make tool calls
+      // When model describes file updates but doesn't make explicit tool call, we don't extract
       const response = `<|channel|>analysis<|message|>The user says: "Based on the tool results, continue working on the original task." The original task: earlier they asked "write a simple 'hello world' app in python (file name: hello.py)". We created hello.py. Now they seem to have a follow-up: "update hello.py to include comment". The previous steps mention reading hello.py. We need to update the file to include a comment. So we should modify hello.py to add a comment, e.g., "# This program prints Hello, world!". Use replace_file or create_file to overwrite.<|end|><|start|>assistant<|channel|>final<|message|>Here's the updated \`hello.py\` with a helpful comment at the top:
 
 \`\`\`python
@@ -918,31 +921,12 @@ I've replaced the file's contents accordingly. Let me know if you'd like any fur
 
       const result = processor.parseResponse(response);
 
-      // The issue: model claims to have updated the file but no tool call was made
-      // We should detect this and extract it as a tool call
-      console.log("Test result:", {
-        contentLength: result.content.length,
-        rawToolCallsLength: result.rawToolCalls?.length,
-        content: result.content.substring(0, 200),
-        rawToolCalls: result.rawToolCalls,
-      });
-
-      // After fix: should extract as a replace_file tool call
-      expect(result.rawToolCalls?.length).toBeGreaterThan(0);
-
-      // Extract and verify the tool call
-      const toolCalls = processor.extractToolCalls(result.rawToolCalls || []);
-      expect(toolCalls.length).toBeGreaterThan(0);
-      const firstToolCall = toolCalls[0];
-      expect(firstToolCall).toBeDefined();
-      if (firstToolCall && firstToolCall.arguments) {
-        expect(firstToolCall.name).toBe("replace_file");
-        expect(firstToolCall.arguments).toHaveProperty("file_path");
-        expect(firstToolCall.arguments.file_path).toBe("hello.py");
-        expect(firstToolCall.arguments).toHaveProperty("content");
-        expect(firstToolCall.arguments.content).toContain("# hello.py");
-        expect(firstToolCall.arguments.content).toContain("print(\"Hello, world!\")");
-      }
+      // Automatic extraction is disabled - model should use explicit <tool_call> format
+      // No tool calls should be extracted from descriptions
+      expect(result.rawToolCalls).toEqual([]);
+      // Content should be preserved for display
+      expect(result.content).toContain("Here's the updated");
+      expect(result.content).toContain("hello.py");
     });
 
     it("should not extract tool call from regular code examples", () => {
@@ -984,7 +968,7 @@ This function takes an optional name parameter and returns a greeting string. Pe
       expect(result.content).toContain("I'll create a test function");
       expect(result.content).toContain("```python");
       expect(result.content).toContain("def greet(name: str");
-      expect(result.content).toContain("return f\"Hello, {name}!\"");
+      expect(result.content).toContain('return f"Hello, {name}!"');
       expect(result.content).toContain("```");
       expect(result.content).toContain("This function takes an optional");
       expect(result.content).toContain("Perfect for your use case!");
@@ -1026,7 +1010,9 @@ You can test it by running the file directly. Let me know if you'd like any modi
       // This is critical - text AFTER the code block should be included!
       expect(result.content).toContain("I've created a simple module");
       expect(result.content).toContain("You can test it by running");
-      expect(result.content).toContain("Let me know if you'd like any modifications");
+      expect(result.content).toContain(
+        "Let me know if you'd like any modifications"
+      );
 
       // Verify the text after the code block comes after the closing ```
       const codeBlockEnd = result.content.lastIndexOf("```");
@@ -1046,7 +1032,8 @@ You can test it by running the file directly. Let me know if you'd like any modi
       // When harmony mode is disabled, we don't filter Harmony tokens to preserve content
       // This simulates the actual template structure: <|start|>user<|channel|>final<|message|>
       // When harmony mode is disabled, content is returned as-is (only trimmed)
-      const response = "<|start|>user<|channel|>final<|message|>Hello world<|end|>";
+      const response =
+        "<|start|>user<|channel|>final<|message|>Hello world<|end|>";
       const result = processorDisabled.parseResponse(response);
 
       // Content should be returned as-is (trimmed), without filtering
@@ -1057,7 +1044,8 @@ You can test it by running the file directly. Let me know if you'd like any modi
 
     it("should not filter Harmony protocol keywords when harmony mode is disabled", () => {
       // When harmony mode is disabled, we don't filter - content is returned as-is
-      const response = "<|start|>assistant<|channel|>analysis<|message|>Some reasoning<|end|>";
+      const response =
+        "<|start|>assistant<|channel|>analysis<|message|>Some reasoning<|end|>";
       const result = processorDisabled.parseResponse(response);
 
       // Content should be returned as-is (trimmed), without filtering
@@ -1067,7 +1055,8 @@ You can test it by running the file directly. Let me know if you'd like any modi
 
     it("should handle response with multiple Harmony keywords without filtering", () => {
       // When harmony mode is disabled, we don't filter - content is returned as-is
-      const response = "<|start|>user<|channel|>final<|message|>Content here<|end|><|start|>assistant<|channel|>final<|message|>Response here<|end|>";
+      const response =
+        "<|start|>user<|channel|>final<|message|>Content here<|end|><|start|>assistant<|channel|>final<|message|>Response here<|end|>";
       const result = processorDisabled.parseResponse(response);
 
       // Content should be returned as-is (trimmed), without filtering
@@ -1079,7 +1068,8 @@ You can test it by running the file directly. Let me know if you'd like any modi
     it("should preserve content as-is when harmony mode is disabled", () => {
       // When harmony mode is disabled, we don't filter - content is returned as-is (trimmed)
       // This preserves all content, including words that happen to match Harmony keywords
-      const response = "<|start|>user<|channel|>final<|message|>This is the final answer<|end|>";
+      const response =
+        "<|start|>user<|channel|>final<|message|>This is the final answer<|end|>";
       const result = processorDisabled.parseResponse(response);
 
       // Content should contain the actual message content
@@ -1147,22 +1137,28 @@ class Psalm105ATests: XCTestCase {
       // Should extract as a tool call
       expect(result.rawToolCalls?.length).toBeGreaterThan(0);
 
-      const toolCalls = processorDisabled.extractToolCalls(result.rawToolCalls || []);
+      const toolCalls = processorDisabled.extractToolCalls(
+        result.rawToolCalls || []
+      );
       expect(toolCalls.length).toBeGreaterThan(0);
       expect(toolCalls[0].name).toBe("create_file");
       expect(toolCalls[0].arguments).toBeDefined();
       if (toolCalls[0].arguments) {
         expect(toolCalls[0].arguments).toHaveProperty("file_path");
-        expect(toolCalls[0].arguments.file_path).toBe("Tests/LatinService/Psalm105ATests.swift");
+        expect(toolCalls[0].arguments.file_path).toBe(
+          "Tests/LatinService/Psalm105ATests.swift"
+        );
         expect(toolCalls[0].arguments).toHaveProperty("content");
-        expect(toolCalls[0].arguments.content).toContain("@testable import LatinService");
+        expect(toolCalls[0].arguments.content).toContain(
+          "@testable import LatinService"
+        );
       }
     });
   });
 
   describe("File extraction from plain text (no Harmony tokens)", () => {
-    it("should extract file update from plain text response with file description", () => {
-      // Response without Harmony tokens but with file description
+    it("should NOT auto-extract from file descriptions (disabled auto-extraction)", () => {
+      // Automatic extraction is disabled - LLM must use explicit tool call format
       const response = `**File:** \`src/utils/helper.ts\`
 
 \`\`\`typescript
@@ -1173,20 +1169,13 @@ export function helper() {
 
       const result = processor.parseResponse(response);
 
-      // Should extract as a tool call
-      expect(result.rawToolCalls?.length).toBeGreaterThan(0);
-
-      const toolCalls = processor.extractToolCalls(result.rawToolCalls || []);
-      expect(toolCalls.length).toBeGreaterThan(0);
-      expect(toolCalls[0].name).toBe("create_file");
-      expect(toolCalls[0].arguments).toBeDefined();
-      if (toolCalls[0].arguments) {
-        expect(toolCalls[0].arguments.file_path).toBe("src/utils/helper.ts");
-        expect(toolCalls[0].arguments.content).toContain("export function helper");
-      }
+      // No automatic extraction - model must use explicit <tool_call> format
+      expect(result.rawToolCalls).toEqual([]);
+      // Content should be preserved for display
+      expect(result.content).toContain("src/utils/helper.ts");
     });
 
-    it("should extract file update with File: format (without bold)", () => {
+    it("should NOT auto-extract from File: format (disabled auto-extraction)", () => {
       const response = `File: \`test.py\`
 
 \`\`\`python
@@ -1195,39 +1184,27 @@ print("test")
 
       const result = processor.parseResponse(response);
 
-      expect(result.rawToolCalls?.length).toBeGreaterThan(0);
-      const toolCalls = processor.extractToolCalls(result.rawToolCalls || []);
-      expect(toolCalls[0].name).toBe("create_file");
-      expect(toolCalls[0].arguments).toBeDefined();
-      if (toolCalls[0].arguments) {
-        expect(toolCalls[0].arguments.file_path).toBe("test.py");
-      }
+      // Automatic extraction is disabled
+      expect(result.rawToolCalls).toEqual([]);
+      expect(result.content).toContain("test.py");
     });
 
-    it("should extract read_file when file is mentioned but no code block present", () => {
+    it("should NOT auto-extract read_file from file mentions (disabled auto-extraction)", () => {
       const response = `**File:** \`test.py\`
 
 This is just a description without code.`;
 
       const result = processor.parseResponse(response);
 
-      // Should extract find_files for filename without directory path
-      expect(result.rawToolCalls).toBeDefined();
-      expect(result.rawToolCalls!.length).toBeGreaterThan(0);
-
-      const toolCalls = processor.extractToolCalls(result.rawToolCalls || []);
-      expect(toolCalls.length).toBeGreaterThan(0);
-      // Just a filename should use find_files
-      expect(toolCalls[0].name).toBe("find_files");
-      if (toolCalls[0].arguments) {
-        expect(toolCalls[0].arguments.name_pattern).toBe("test.py");
-      }
+      // Automatic extraction is disabled
+      expect(result.rawToolCalls).toEqual([]);
+      expect(result.content).toContain("test.py");
     });
   });
 
   describe("File extraction from content with Harmony tokens", () => {
-    it("should extract file update from content when Harmony tokens are present", () => {
-      // Model describes file in content instead of making tool call
+    it("should NOT auto-extract from content with Harmony tokens (disabled auto-extraction)", () => {
+      // Automatic extraction is disabled - model must use explicit tool calls
       const response = `<|channel|>final<|message|>**File:** \`Tests/LatinService/Psalm105ATests.swift\`
 
 \`\`\`swift
@@ -1247,29 +1224,20 @@ class Psalm105ATests: XCTestCase {
 
       const result = processor.parseResponse(response);
 
-      // Should extract as a tool call from content
-      expect(result.rawToolCalls?.length).toBeGreaterThan(0);
+      // No automatic extraction
+      expect(result.rawToolCalls).toEqual([]);
 
-      const toolCalls = processor.extractToolCalls(result.rawToolCalls || []);
-      expect(toolCalls.length).toBeGreaterThan(0);
-      expect(toolCalls[0].name).toBe("create_file");
-      expect(toolCalls[0].arguments).toBeDefined();
-      if (toolCalls[0].arguments) {
-        expect(toolCalls[0].arguments.file_path).toBe("Tests/LatinService/Psalm105ATests.swift");
-        expect(toolCalls[0].arguments.content).toContain("@testable import LatinService");
-      }
-
-      // The full content (including code block) should be preserved for display
-      // This allows the AI's explanation AND the code to be shown to the user
-      expect(result.content).toContain("**File:** `Tests/LatinService/Psalm105ATests.swift`");
+      // Content should be preserved for display
+      expect(result.content).toContain(
+        "**File:** `Tests/LatinService/Psalm105ATests.swift`"
+      );
       expect(result.content).toContain("```swift");
       expect(result.content).toContain("@testable import LatinService");
       expect(result.content).toContain("class Psalm105ATests");
     });
 
-    it("should normalize file paths with leading slash to be relative to workspace", () => {
-      // When a path like "/Tests/LatinService/Psalm105ATests.swift" is extracted from content,
-      // it should be normalized to "Tests/LatinService/Psalm105ATests.swift" (relative)
+    it("should NOT auto-extract or normalize paths (disabled auto-extraction)", () => {
+      // Automatic extraction is disabled
       const response = `**File:** \`/Tests/LatinService/Psalm105ATests.swift\`
 
 \`\`\`swift
@@ -1285,21 +1253,14 @@ class Psalm105ATests: XCTestCase {
 
       const result = processor.parseResponse(response);
 
-      // Should extract as a tool call
-      expect(result.rawToolCalls?.length).toBeGreaterThan(0);
-
-      const toolCalls = processor.extractToolCalls(result.rawToolCalls || []);
-      expect(toolCalls.length).toBeGreaterThan(0);
-      expect(toolCalls[0].name).toBe("create_file");
-      expect(toolCalls[0].arguments).toBeDefined();
-      if (toolCalls[0].arguments) {
-        // Leading slash should be removed - path should be relative
-        expect(toolCalls[0].arguments.file_path).toBe("Tests/LatinService/Psalm105ATests.swift");
-        expect(toolCalls[0].arguments.file_path).not.toBe("/Tests/LatinService/Psalm105ATests.swift");
-      }
+      // No automatic extraction
+      expect(result.rawToolCalls).toEqual([]);
+      expect(result.content).toContain(
+        "/Tests/LatinService/Psalm105ATests.swift"
+      );
     });
 
-    it("should extract replace_file when update/replace keywords are present", () => {
+    it("should NOT auto-extract replace_file from update keywords (disabled auto-extraction)", () => {
       const response = `<|channel|>final<|message|>I've updated the file:
 
 **File:** \`src/app.ts\`
@@ -1311,13 +1272,9 @@ export const app = "updated";
 
       const result = processor.parseResponse(response);
 
-      expect(result.rawToolCalls?.length).toBeGreaterThan(0);
-      const toolCalls = processor.extractToolCalls(result.rawToolCalls || []);
-      expect(toolCalls[0].name).toBe("replace_file");
-      expect(toolCalls[0].arguments).toBeDefined();
-      if (toolCalls[0].arguments) {
-        expect(toolCalls[0].arguments.file_path).toBe("src/app.ts");
-      }
+      // No automatic extraction
+      expect(result.rawToolCalls).toEqual([]);
+      expect(result.content).toContain("I've updated the file");
     });
   });
 
@@ -1348,8 +1305,8 @@ The script works correctly.<|end|>`;
       expect(result.content).toContain("Script executed successfully");
     });
 
-    it("should extract file operations from content BEFORE Tool Results section", () => {
-      // File operations before Tool Results should still be extracted
+    it("should NOT auto-extract from content before Tool Results (disabled auto-extraction)", () => {
+      // Automatic extraction is disabled even before Tool Results section
       const response = `<|channel|>final<|message|>I've updated the file:
 
 **File:** \`src/app.ts\`
@@ -1369,18 +1326,9 @@ Successfully replaced file: hello.py
 
       const result = processor.parseResponse(response);
 
-      // Should extract the file operation from the actual content (before Tool Results)
-      expect(result.rawToolCalls?.length).toBeGreaterThan(0);
-      const toolCalls = processor.extractToolCalls(result.rawToolCalls || []);
-      expect(toolCalls.length).toBeGreaterThan(0);
-      expect(toolCalls[0].name).toBe("replace_file");
-      expect(toolCalls[0].arguments).toBeDefined();
-      if (toolCalls[0].arguments) {
-        // Should extract src/app.ts, NOT hello.py from Tool Results
-        expect(toolCalls[0].arguments.file_path).toBe("src/app.ts");
-        expect(toolCalls[0].arguments.file_path).not.toBe("hello.py");
-        expect(toolCalls[0].arguments.content).toContain("export const app");
-      }
+      // No automatic extraction anywhere
+      expect(result.rawToolCalls).toEqual([]);
+      expect(result.content).toContain("I've updated the file");
     });
 
     it("should NOT extract when all content is in Tool Results section", () => {
@@ -1438,50 +1386,36 @@ Successfully replaced file: hello.py`;
     });
 
     describe("Handling existing files with MODIFY intent", () => {
-      it("should extract read_file for full file paths (with directory structure)", () => {
-        // When file path includes directory structure, use read_file directly
+      it("should NOT auto-extract read_file for full paths (disabled auto-extraction)", () => {
+        // Automatic extraction is disabled
         const response = `**File:** \`Tests/LatinService/Psalm12Tests.swift\`
 
 Let me review this file to understand its structure.`;
 
         const result = processor.parseResponse(response);
 
-        // Should extract read_file for full paths
-        expect(result.rawToolCalls).toBeDefined();
-        expect(result.rawToolCalls!.length).toBeGreaterThan(0);
-
-        const toolCalls = processor.extractToolCalls(result.rawToolCalls!);
-        expect(toolCalls.length).toBeGreaterThan(0);
-
-        // Full path should use read_file
-        const toolCall = toolCalls[0];
-        expect(toolCall.name).toBe("read_file");
-        expect(toolCall.arguments?.file_path).toBe("Tests/LatinService/Psalm12Tests.swift");
+        // No automatic extraction
+        expect(result.rawToolCalls).toEqual([]);
+        expect(result.content).toContain(
+          "Tests/LatinService/Psalm12Tests.swift"
+        );
       });
 
-      it("should extract find_files for incomplete file names (without directory)", () => {
-        // When only filename is provided (no directory path), use find_files to locate it
+      it("should NOT auto-extract find_files for incomplete paths (disabled auto-extraction)", () => {
+        // Automatic extraction is disabled
         const response = `**File:** \`Psalm12Tests.swift\`
 
 Let me find and review this file.`;
 
         const result = processor.parseResponse(response);
 
-        // Should extract find_files for incomplete paths
-        expect(result.rawToolCalls).toBeDefined();
-        expect(result.rawToolCalls!.length).toBeGreaterThan(0);
-
-        const toolCalls = processor.extractToolCalls(result.rawToolCalls!);
-        expect(toolCalls.length).toBeGreaterThan(0);
-
-        // Filename only should use find_files
-        const toolCall = toolCalls[0];
-        expect(toolCall.name).toBe("find_files");
-        expect(toolCall.arguments?.name_pattern).toBe("Psalm12Tests.swift");
+        // No automatic extraction
+        expect(result.rawToolCalls).toEqual([]);
+        expect(result.content).toContain("Psalm12Tests.swift");
       });
 
-      it("should use replace_file when content explicitly mentions modification with code block", () => {
-        // When content mentions "modify", "update", "change" etc WITH code block, use replace_file
+      it("should NOT auto-extract replace_file from modification descriptions (disabled auto-extraction)", () => {
+        // Automatic extraction is disabled
         const response = `<|channel|>final<|message|>I'll modify the structuralThemes array in Tests/LatinService/Psalm12Tests.swift:
 
 **File:** \`Tests/LatinService/Psalm12Tests.swift\`
@@ -1498,18 +1432,9 @@ I've added the Blessing theme as requested.<|end|>`;
 
         const result = processor.parseResponse(response);
 
-        // Should extract file operations
-        expect(result.rawToolCalls).toBeDefined();
-        expect(result.rawToolCalls!.length).toBeGreaterThan(0);
-
-        const toolCalls = processor.extractToolCalls(result.rawToolCalls!);
-        expect(toolCalls.length).toBeGreaterThan(0);
-
-        // Since content mentions "modify" and has code block, should use replace_file
-        const toolCall = toolCalls[0];
-        expect(toolCall.name).toBe("replace_file");
-        expect(toolCall.arguments?.file_path).toBe("Tests/LatinService/Psalm12Tests.swift");
-        expect(toolCall.arguments?.content).toContain("structuralThemes");
+        // No automatic extraction
+        expect(result.rawToolCalls).toEqual([]);
+        expect(result.content).toContain("I'll modify the structuralThemes");
       });
 
       it("should NOT extract create_file when user references an existing file path", () => {
@@ -1526,14 +1451,19 @@ struct Psalm101Tests {
 }
 \`\`\`<|end|>`;
 
-        const result = processor.parseResponse(response, "review Tests/LatinService/Psalm101Tests.swift");
+        const result = processor.parseResponse(
+          response,
+          "review Tests/LatinService/Psalm101Tests.swift"
+        );
 
         // If extracted, should be replace_file, not create_file
         if (result.rawToolCalls && result.rawToolCalls.length > 0) {
           const toolCalls = processor.extractToolCalls(result.rawToolCalls);
           expect(toolCalls[0].name).not.toBe("create_file");
           if (toolCalls[0].name === "replace_file") {
-            expect(toolCalls[0].arguments?.file_path).toContain("Psalm101Tests.swift");
+            expect(toolCalls[0].arguments?.file_path).toContain(
+              "Psalm101Tests.swift"
+            );
           }
         }
       });
@@ -1552,7 +1482,10 @@ struct NewTest {
 
 This new test file is ready.<|end|>`;
 
-        const result = processor.parseResponse(response, "create a new test file");
+        const result = processor.parseResponse(
+          response,
+          "create a new test file"
+        );
 
         // Should extract create_file when explicitly creating
         if (result.rawToolCalls && result.rawToolCalls.length > 0) {
@@ -1564,59 +1497,40 @@ This new test file is ready.<|end|>`;
     });
 
     describe("extractFileUpdateFromContent - find_files vs read_file logic", () => {
-      it("should use find_files tool for incomplete paths (no directory separators)", () => {
-        // When content mentions a file without directory path AND no code block
+      it("should NOT auto-extract find_files for incomplete paths (disabled auto-extraction)", () => {
+        // Automatic extraction is disabled
         const response = `<|channel|>final<|message|>Let me read the calc.py file to check it.<|end|>`;
 
         const result = processor.parseResponse(response, "check calc.py");
 
-        // With no code block, extractFileUpdateFromContent will try to extract
-        // a tool call based on file reference
-        expect(result.rawToolCalls).toBeDefined();
-
-        if (result.rawToolCalls && result.rawToolCalls.length > 0) {
-          const toolCalls = processor.extractToolCalls(result.rawToolCalls);
-          expect(toolCalls.length).toBeGreaterThan(0);
-
-          const toolCall = toolCalls[0];
-          // Tool name should be find_files (plural), not find_file (singular)
-          expect(toolCall.name).toBe("find_files");
-          // Should have name_pattern parameter (not pattern)
-          expect(toolCall.arguments?.name_pattern).toBe("calc.py");
-        }
+        // No automatic extraction
+        expect(result.rawToolCalls).toEqual([]);
+        expect(result.content).toContain("calc.py");
       });
 
-      it("should use read_file tool for complete paths (with directory separators)", () => {
-        // When content mentions a file with full path AND no code block
+      it("should NOT auto-extract read_file for complete paths (disabled auto-extraction)", () => {
+        // Automatic extraction is disabled
         const response = `<|channel|>final<|message|>Let me read the src/utils/calc.py file to check it.<|end|>`;
 
-        const result = processor.parseResponse(response, "check src/utils/calc.py");
+        const result = processor.parseResponse(
+          response,
+          "check src/utils/calc.py"
+        );
 
-        expect(result.rawToolCalls).toBeDefined();
-
-        if (result.rawToolCalls && result.rawToolCalls.length > 0) {
-          const toolCalls = processor.extractToolCalls(result.rawToolCalls);
-          expect(toolCalls.length).toBeGreaterThan(0);
-
-          const toolCall = toolCalls[0];
-          // Tool name should be read_file for paths with directory separators
-          expect(toolCall.name).toBe("read_file");
-          // Should have file_path parameter
-          expect(toolCall.arguments?.file_path).toBe("src/utils/calc.py");
-        }
+        // No automatic extraction
+        expect(result.rawToolCalls).toEqual([]);
+        expect(result.content).toContain("src/utils/calc.py");
       });
 
-      it("should use find_files for filename-only references without code blocks", () => {
-        // Ensure find_files is used for references like "test.js" without path or code block
+      it("should NOT auto-extract from filename references (disabled auto-extraction)", () => {
+        // Automatic extraction is disabled
         const response = `<|channel|>final<|message|>I need to check test.js first.<|end|>`;
 
         const result = processor.parseResponse(response, "check test.js");
 
-        if (result.rawToolCalls && result.rawToolCalls.length > 0) {
-          const toolCalls = processor.extractToolCalls(result.rawToolCalls);
-          expect(toolCalls[0].name).toBe("find_files");
-          expect(toolCalls[0].arguments?.name_pattern).toBe("test.js");
-        }
+        // No automatic extraction
+        expect(result.rawToolCalls).toEqual([]);
+        expect(result.content).toContain("test.js");
       });
 
       it("should correctly parse find_files JSON tool calls from LLM", () => {

@@ -298,17 +298,24 @@ export class HarmonyProcessor {
     //     );
     //   } else {
     if (rawToolCalls.length === 0 && content) {
-      // Check for file operations that should be tool calls
-      const extractedFileOps =
-        this.extractFileOperationsFromDescription(content);
-      if (extractedFileOps.length > 0) {
-        console.log(
-          `[HarmonyProcessor] Extracted ${extractedFileOps.length} file operation(s) from description (with Harmony tokens)`
-        );
-        rawToolCalls.push(...extractedFileOps.map((op) => op.raw));
-        // Clear content since it's been extracted as tool calls
-        content = "";
-      } else {
+      // DISABLED: Automatic extraction of file operations
+      // LLM must explicitly make tool calls using proper format (<tool_call>, MCP, JSON)
+      // This prevents confusion from automatic executions when LLM just mentions files in chat
+      // const extractedFileOps =
+      //   this.extractFileOperationsFromDescription(content);
+      // if (extractedFileOps.length > 0) {
+      //   console.log(
+      //     `[HarmonyProcessor] Extracted ${extractedFileOps.length} file operation(s) from description (with Harmony tokens)`
+      //   );
+      //   rawToolCalls.push(...extractedFileOps.map((op) => op.raw));
+      //   // DON'T clear content - preserve AI's explanation for user
+      //   // extractFileOperationsFromDescription only extracts read_file operations,
+      //   // so the content contains useful context that should be displayed
+      //   console.log(
+      //     `[HarmonyProcessor] Preserved ${content.length} chars of content for display`
+      //   );
+      // } else {
+      if (true) {
         // Warn if model claims to have created/modified files but extraction failed
         const fileCreationPhrases = [
           /(?:created|added|wrote|generated).*file/i,
@@ -993,21 +1000,35 @@ export class HarmonyProcessor {
           //   // Return early since we've extracted the tool call
           //   return;
           // } else {
-          // Check if content describes file operations that should be tool calls
-          const extractedFileOps =
-            this.extractFileOperationsFromDescription(trimmed);
-          if (extractedFileOps.length > 0) {
-            console.log(
-              `[HarmonyProcessor] Extracted ${extractedFileOps.length} file operation(s) from description`
-            );
-            // Save all extracted file operations, not just the first one
-            extractedFileOps.forEach((op, idx) => {
-              console.log(
-                `[HarmonyProcessor] Saving file operation ${idx + 1}/${extractedFileOps.length}: ${op.name}`
-              );
-              setters.rawToolCalls(op.raw);
-            });
-          } else {
+          // DISABLED: Automatic extraction of file operations
+          // LLM must explicitly make tool calls using proper format (<tool_call>, MCP, JSON)
+          // This prevents confusion from automatic executions when LLM just mentions files in chat
+          // const extractedFileOps =
+          //   this.extractFileOperationsFromDescription(trimmed);
+          // if (extractedFileOps.length > 0) {
+          //   console.log(
+          //     `[HarmonyProcessor] Extracted ${extractedFileOps.length} file operation(s) from description`
+          //   );
+          //   // Save all extracted file operations, not just the first one
+          //   extractedFileOps.forEach((op, idx) => {
+          //     console.log(
+          //       `[HarmonyProcessor] Saving file operation ${idx + 1}/${extractedFileOps.length}: ${op.name}`
+          //     );
+          //     setters.rawToolCalls(op.raw);
+          //   });
+          //   // Also save the content for display to user
+          //   // extractFileOperationsFromDescription only extracts read_file operations,
+          //   // so the content contains useful context that should be displayed
+          //   console.log(
+          //     `[HarmonyProcessor] Preserved ${trimmed.length} chars of content for display`
+          //   );
+          //   if (setters.final) {
+          //     setters.final(this.preserveCodeBlocks(trimmed));
+          //   } else {
+          //     setters.content(this.preserveCodeBlocks(trimmed));
+          //   }
+          // } else {
+          if (true) {
             // Regular content in final channel - save to final field
             if (setters.final) {
               setters.final(this.preserveCodeBlocks(trimmed));

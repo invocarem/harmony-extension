@@ -83,6 +83,15 @@ export class ContinuationManager {
       );
     }
 
+    if (currentStage === "snippet") {
+      return this.shouldContinueInSnippetStage(
+        originalPrompt,
+        executedToolCalls,
+        currentContent,
+        isAlreadyContinuation
+      );
+    }
+
     // Implementation stage
     return this.shouldContinueInImplementationStage(
       originalPrompt,
@@ -162,6 +171,85 @@ export class ContinuationManager {
       return true;
     }
     return false;
+  }
+
+  private shouldContinueInSnippetStage(
+    originalPrompt: string,
+    executedToolCalls: Array<{
+      name: string;
+      arguments: Record<string, any>;
+      result?: MCPToolResult;
+    }>,
+    currentContent: string,
+    isAlreadyContinuation: boolean = false
+  ): boolean {
+    // Snippet stage goal: Generate code snippets directly - may need to read files or explore workspace first
+    // Always continue after read-only tool calls because we need the results to generate code
+
+    // Check if we have code snippets in the response
+    const hasCodeSnippets = /```[\s\S]*?```/.test(currentContent);
+
+    // Check if we've only done discovery/read tools
+    const onlyDiscoveryTools = executedToolCalls.every((tc) =>
+      ["list_files", "read_file", "grep_files", "search", "find"].includes(
+        tc.name
+      )
+    );
+
+    // If we've only used discovery tools and no code is generated yet, continue
+    if (onlyDiscoveryTools && !hasCodeSnippets) {
+      console.log(
+        `[Harmony] Snippet stage: Only discovery tools used, no code generated yet, continuing`
+      );
+      return true;
+    }
+
+    // Check for completion phrases
+    const hasCompletionPhrase =
+      /(?:here'?s|here is|below is|this (?:could|should|would) go)/i.test(
+        currentContent.toLowerCase()
+      );
+
+    // If we have code snippets and completion phrases, task is done
+    if (hasCodeSnippets && hasCompletionPhrase) {
+      console.log(
+        `[Harmony] Snippet stage: Code snippets generated with completion phrase, task complete`
+      );
+      return false;
+    }
+
+    // If we have code snippets but no completion phrase, check for continuation hints
+    if (hasCodeSnippets) {
+      const hasContinuationHint =
+        /(?:next|another|also|additionally|further|more)/i.test(
+          currentContent.toLowerCase()
+        );
+      if (hasContinuationHint) {
+        console.log(
+          `[Harmony] Snippet stage: Has continuation hints, continuing`
+        );
+        return true;
+      }
+      // Has code but no continuation hint - task complete
+      console.log(
+        `[Harmony] Snippet stage: Code snippets generated, no continuation hints, task complete`
+      );
+      return false;
+    }
+
+    // If response is very short (< 100 chars), it's likely incomplete
+    if (currentContent.trim().length < 100) {
+      console.log(
+        `[Harmony] Snippet stage: Response too short, likely incomplete, continuing`
+      );
+      return true;
+    }
+
+    // Default: if no code has been generated, continue
+    console.log(
+      `[Harmony] Snippet stage: Default - continuing to generate code`
+    );
+    return true;
   }
 
   private shouldContinueInAssumptionsStage(
