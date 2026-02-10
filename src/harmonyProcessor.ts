@@ -109,26 +109,27 @@ export class HarmonyProcessor {
         // For now, return as content and let extractToolCalls handle it later
       }
 
-      // Check if content describes a file update with code blocks
-      // This handles cases where the model describes a file instead of making a tool call
-      // Note: extractFileUpdateFromContent will check user intent if available
-      const extractedToolCall = this.extractFileUpdateFromContent(
-        contentWithoutThinks,
-        userPrompt
-      );
-      if (extractedToolCall) {
-        console.log(
-          `[HarmonyProcessor] Extracted file update from plain jinja content: ${extractedToolCall.name} for ${extractedToolCall.arguments.file_path}`
-        );
-        // Preserve FULL content including code blocks (for user display)
-        // The tool call extraction happens separately and doesn't affect the user-visible response
-        return {
-          content: contentWithoutThinks, // Preserve full response including code blocks for webview display
-          reasoning: reasoning.length > 0 ? reasoning.join("\n\n") : undefined,
-          rawToolCalls: [extractedToolCall.raw],
-          remaining: response,
-        };
-      }
+      // COMMENTED OUT: Automatic tool call extraction - LLM should generate tool calls explicitly
+      // // Check if content describes a file update with code blocks
+      // // This handles cases where the model describes a file instead of making a tool call
+      // // Note: extractFileUpdateFromContent will check user intent if available
+      // const extractedToolCall = this.extractFileUpdateFromContent(
+      //   contentWithoutThinks,
+      //   userPrompt
+      // );
+      // if (extractedToolCall) {
+      //   console.log(
+      //     `[HarmonyProcessor] Extracted file update from plain jinja content: ${extractedToolCall.name} for ${extractedToolCall.arguments.file_path}`
+      //   );
+      //   // Preserve FULL content including code blocks (for user display)
+      //   // The tool call extraction happens separately and doesn't affect the user-visible response
+      //   return {
+      //     content: contentWithoutThinks, // Preserve full response including code blocks for webview display
+      //     reasoning: reasoning.length > 0 ? reasoning.join("\n\n") : undefined,
+      //     rawToolCalls: [extractedToolCall.raw],
+      //     remaining: response,
+      //   };
+      // }
 
       // Otherwise, return as content and also set as final for simple responses
       console.log(
@@ -166,25 +167,26 @@ export class HarmonyProcessor {
         };
       }
 
-      // Check if content describes a file update with code blocks
-      // This handles cases where the model describes a file instead of making a tool call
-      // Note: extractFileUpdateFromContent will check user intent if available
-      const extractedToolCall = this.extractFileUpdateFromContent(
-        trimmed,
-        userPrompt
-      );
-      if (extractedToolCall) {
-        console.log(
-          `[HarmonyProcessor] Extracted file update from plain text content: ${extractedToolCall.name} for ${extractedToolCall.arguments.file_path}`
-        );
-        // Preserve FULL content including code blocks (for user display)
-        // The tool call extraction happens separately and doesn't affect the user-visible response
-        return {
-          content: trimmed, // Preserve full response including code blocks for webview display
-          rawToolCalls: [extractedToolCall.raw],
-          remaining: response,
-        };
-      }
+      // COMMENTED OUT: Automatic tool call extraction - LLM should generate tool calls explicitly
+      // // Check if content describes a file update with code blocks
+      // // This handles cases where the model describes a file instead of making a tool call
+      // // Note: extractFileUpdateFromContent will check user intent if available
+      // const extractedToolCall = this.extractFileUpdateFromContent(
+      //   trimmed,
+      //   userPrompt
+      // );
+      // if (extractedToolCall) {
+      //   console.log(
+      //     `[HarmonyProcessor] Extracted file update from plain text content: ${extractedToolCall.name} for ${extractedToolCall.arguments.file_path}`
+      //   );
+      //   // Preserve FULL content including code blocks (for user display)
+      //   // The tool call extraction happens separately and doesn't affect the user-visible response
+      //   return {
+      //     content: trimmed, // Preserve full response including code blocks for webview display
+      //     rawToolCalls: [extractedToolCall.raw],
+      //     remaining: response,
+      //   };
+      // }
 
       // Otherwise, return as content and also set as final for simple responses
       console.log(
@@ -382,26 +384,28 @@ export class HarmonyProcessor {
       }
     }
 
-    // Extract file updates from content if model describes files but didn't make tool calls
+    // COMMENTED OUT: Automatic tool call extraction - LLM should generate tool calls explicitly
+    // // Extract file updates from content if model describes files but didn't make tool calls
+    // if (rawToolCalls.length === 0 && content) {
+    //   // Try to extract file update from content (handles cases where model describes file with code block)
+    //   // Note: extractFileUpdateFromContent will check user intent if available
+    //   const extractedToolCall = this.extractFileUpdateFromContent(
+    //     content,
+    //     userPrompt
+    //   );
+    //   if (extractedToolCall) {
+    //     console.log(
+    //       `[HarmonyProcessor] Extracted file update from content (with Harmony tokens): ${extractedToolCall.name} for ${extractedToolCall.arguments.file_path}`
+    //     );
+    //     rawToolCalls.push(extractedToolCall.raw);
+    //     // Preserve FULL content including code blocks (for user display)
+    //     // The tool call extraction happens separately and doesn't affect the user-visible response
+    //     console.log(
+    //       `[HarmonyProcessor] Preserved ${content.length} chars of content including code block`
+    //     );
+    //   } else {
     if (rawToolCalls.length === 0 && content) {
-      // Try to extract file update from content (handles cases where model describes file with code block)
-      // Note: extractFileUpdateFromContent will check user intent if available
-      const extractedToolCall = this.extractFileUpdateFromContent(
-        content,
-        userPrompt
-      );
-      if (extractedToolCall) {
-        console.log(
-          `[HarmonyProcessor] Extracted file update from content (with Harmony tokens): ${extractedToolCall.name} for ${extractedToolCall.arguments.file_path}`
-        );
-        rawToolCalls.push(extractedToolCall.raw);
-        // Preserve FULL content including code blocks (for user display)
-        // The tool call extraction happens separately and doesn't affect the user-visible response
-        console.log(
-          `[HarmonyProcessor] Preserved ${content.length} chars of content including code block`
-        );
-      } else {
-        // Check for file operations that should be tool calls
+      // Check for file operations that should be tool calls
         const extractedFileOps =
           this.extractFileOperationsFromDescription(content);
         if (extractedFileOps.length > 0) {
@@ -458,7 +462,6 @@ export class HarmonyProcessor {
           }
         }
       }
-    }
 
     // If final is set but content is not, use final as content
     if (final && !content) {
@@ -951,53 +954,53 @@ export class HarmonyProcessor {
             setters.rawToolCalls(toolCallText);
           }
         } else {
-          // Check if content contains file update claims with code blocks
-          // Note: extractFileUpdateFromContent will check user intent if available
-          const extractedToolCall = this.extractFileUpdateFromContent(
-            trimmed,
-            userPrompt
-          );
-          if (extractedToolCall) {
+          // COMMENTED OUT: Automatic tool call extraction - LLM should generate tool calls explicitly
+          // // Check if content contains file update claims with code blocks
+          // // Note: extractFileUpdateFromContent will check user intent if available
+          // const extractedToolCall = this.extractFileUpdateFromContent(
+          //   trimmed,
+          //   userPrompt
+          // );
+          // if (extractedToolCall) {
+          //   console.log(
+          //     `[HarmonyProcessor] Extracted file update from content: ${extractedToolCall.name} for ${extractedToolCall.arguments.file_path}`
+          //   );
+          //   setters.rawToolCalls(extractedToolCall.raw);
+          //   // Preserve FULL content including code blocks (for user display)
+          //   // The tool call extraction happens separately and doesn't affect the user-visible response
+          //   console.log(
+          //     `[HarmonyProcessor] Preserved ${trimmed.length} chars of content including code block in saveBuffer`
+          //   );
+          //   // Save full content to final or content field
+          //   if (setters.final) {
+          //     setters.final(this.preserveCodeBlocks(trimmed));
+          //   } else {
+          //     setters.content(this.preserveCodeBlocks(trimmed));
+          //   }
+          //   // Return early since we've extracted the tool call
+          //   return;
+          // } else {
+          // Check if content describes file operations that should be tool calls
+          const extractedFileOps =
+            this.extractFileOperationsFromDescription(trimmed);
+          if (extractedFileOps.length > 0) {
             console.log(
-              `[HarmonyProcessor] Extracted file update from content: ${extractedToolCall.name} for ${extractedToolCall.arguments.file_path}`
+              `[HarmonyProcessor] Extracted ${extractedFileOps.length} file operation(s) from description`
             );
-            setters.rawToolCalls(extractedToolCall.raw);
-            // Preserve FULL content including code blocks (for user display)
-            // The tool call extraction happens separately and doesn't affect the user-visible response
-            console.log(
-              `[HarmonyProcessor] Preserved ${trimmed.length} chars of content including code block in saveBuffer`
-            );
-            // Save full content to final or content field
+            // Save all extracted file operations, not just the first one
+            extractedFileOps.forEach((op, idx) => {
+              console.log(
+                `[HarmonyProcessor] Saving file operation ${idx + 1}/${extractedFileOps.length}: ${op.name}`
+              );
+              setters.rawToolCalls(op.raw);
+            });
+          } else {
+            // Regular content in final channel - save to final field
             if (setters.final) {
               setters.final(this.preserveCodeBlocks(trimmed));
             } else {
+              // Fallback to content if final setter not available
               setters.content(this.preserveCodeBlocks(trimmed));
-            }
-            // Return early since we've extracted the tool call
-            return;
-          } else {
-            // Check if content describes file operations that should be tool calls
-            const extractedFileOps =
-              this.extractFileOperationsFromDescription(trimmed);
-            if (extractedFileOps.length > 0) {
-              console.log(
-                `[HarmonyProcessor] Extracted ${extractedFileOps.length} file operation(s) from description`
-              );
-              // Save all extracted file operations, not just the first one
-              extractedFileOps.forEach((op, idx) => {
-                console.log(
-                  `[HarmonyProcessor] Saving file operation ${idx + 1}/${extractedFileOps.length}: ${op.name}`
-                );
-                setters.rawToolCalls(op.raw);
-              });
-            } else {
-              // Regular content in final channel - save to final field
-              if (setters.final) {
-                setters.final(this.preserveCodeBlocks(trimmed));
-              } else {
-                // Fallback to content if final setter not available
-                setters.content(this.preserveCodeBlocks(trimmed));
-              }
             }
           }
         }
