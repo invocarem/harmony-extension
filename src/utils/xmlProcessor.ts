@@ -1,5 +1,9 @@
 // xmlProcessor.ts
 import { HtmlEntityDecoder } from "./htmlEntityDecoder";
+import { AttributeParser } from "./parsers/AttributeParser";
+import { SimpleQuoteParser } from "./parsers/SimpleQuoteParser";
+import { BraceMatchingParser } from "./parsers/BraceMatchingParser";
+import { LenientParser } from "./parsers/LenientParser";
 
 export interface XmlToolCall {
   name: string;
@@ -8,6 +12,11 @@ export interface XmlToolCall {
 }
 
 export class XmlProcessor {
+  private static parsers: AttributeParser[] = [
+    new SimpleQuoteParser(),
+    new BraceMatchingParser(),
+    new LenientParser(),
+  ];
   /**
    * Extract XML tool calls from text
    */
@@ -37,18 +46,45 @@ export class XmlProcessor {
 
         if (tagEnd !== -1) {
           const raw = text.substring(startPos, tagEnd);
-          // Extract attributes (everything between <tagName and />)
-          const attributesMatch = raw.match(
-            new RegExp(`<${tagName}\\s+(.+?)\\s*/>`, "s")
-          );
-          if (attributesMatch) {
-            const attributes = attributesMatch[1];
+          
+          // Extract attributes: everything between <tagName and />
+          // Don't use regex - it can match /> inside string values!
+          // Instead, use string manipulation since we already found the correct tagEnd
+          const tagNameWithBracket = `<${tagName}`;
+          const tagStart = raw.indexOf(tagNameWithBracket);
+          if (tagStart !== -1) {
+            // Find where attributes start (after tagName and any whitespace)
+            const attrsStart = tagStart + tagNameWithBracket.length;
+            // Find where they end (before the closing />)
+            const attrsEnd = raw.lastIndexOf('/>');
+            
+            if (attrsEnd > attrsStart) {
+              const attributes = raw.substring(attrsStart, attrsEnd).trim();
 
-            const parsed = this.parseAttributes(attributes, raw);
-            if (parsed) {
-              results.push(parsed);
-              // Track this processed position
-              processedPositions.push({ start: startPos, end: tagEnd });
+              console.log(
+                `[XmlProcessor] Extracted attributes (${attributes.length} chars) from raw (${raw.length} chars)`
+              );
+              
+              if (attributes.length < raw.length - 20) {
+                // Attributes seem truncated compared to raw
+                console.warn(
+                  `[XmlProcessor] ⚠️ Attributes may be truncated. Raw ends with: "${raw.slice(-50)}"`
+                );
+                console.warn(
+                  `[XmlProcessor] ⚠️ Attributes end with: "${attributes.slice(-50)}"`
+                );
+                console.warn(
+                  `[XmlProcessor] ⚠️ This likely means the regex matched the wrong closing />, ` +
+                  `possibly finding a /> sequence inside the JSON string content.`
+                );
+              }
+
+              const parsed = this.parseAttributesWithParsers(attributes, raw, false);
+              if (parsed) {
+                results.push(parsed);
+                // Track this processed position
+                processedPositions.push({ start: startPos, end: tagEnd });
+              }
             }
           }
         }
@@ -84,7 +120,7 @@ export class XmlProcessor {
             );
             if (attributesMatch) {
               const attributes = attributesMatch[1];
-              const parsed = this.parseAttributes(attributes, raw);
+              const parsed = this.parseAttributesWithParsers(attributes, raw, false);
               if (parsed) {
                 results.push(parsed);
                 processedRanges.push({ start: variantStart, end: tagEnd });
@@ -129,7 +165,7 @@ export class XmlProcessor {
               );
               if (attributesMatch) {
                 const attributes = attributesMatch[1];
-                const parsed = this.parseAttributes(attributes, raw);
+                const parsed = this.parseAttributesWithParsers(attributes, raw, false);
                 if (parsed) {
                   results.push(parsed);
                   processedPositions.push({ start: variantStart, end: tagEnd });
@@ -186,7 +222,7 @@ export class XmlProcessor {
           // Try to extract from attributes
           const attrMatch = raw.match(/<(?:tool_call|MCP_CALL)\s+([^>]+)>/);
           if (attrMatch) {
-            const parsed = this.parseAttributes(attrMatch[1], raw);
+            const parsed = this.parseAttributesWithParsers(attrMatch[1], raw, false);
             if (parsed) {
               results.push(parsed);
               processedPositions.push({ start: matchStart, end: matchEnd });
@@ -238,7 +274,7 @@ export class XmlProcessor {
         if (lenientMatch) {
           const attributes = lenientMatch[1];
           const raw = lenientMatch[0];
-          const parsed = this.parseAttributes(attributes, raw);
+          const parsed = this.parseAttributesWithParsers(attributes, raw, false);
           if (parsed) {
             const rawEnd = startPos + raw.length;
             results.push(parsed);
@@ -271,7 +307,7 @@ export class XmlProcessor {
         let parsed: XmlToolCall | null = null;
 
         // First try with just attributes
-        parsed = this.parseAttributes(attributes, raw, true);
+        parsed = this.parseAttributesWithParsers(attributes, raw, true);
 
         // If that failed and we have args=' or args=" in the raw string, try extracting from raw
         if (!parsed && (raw.includes("args='") || raw.includes('args="'))) {
@@ -486,7 +522,22 @@ export class XmlProcessor {
    * This replicates the logic from ToolCallExtractor.parseToolCallAttributes
    * @param allowIncomplete If true, be more lenient when parsing incomplete/truncated tool calls
    */
+  /**
+   * Parse attributes using the parser chain
+   * @deprecated Use parseAttributesWithParsers instead
+   */
   private static parseAttributes(
+    attributes: string,
+    raw: string,
+    allowIncomplete: boolean = false
+  ): XmlToolCall | null {
+    return this.parseAttributesWithParsers(attributes, raw, allowIncomplete);
+  }
+
+  /**
+   * Parse attributes using the strategy pattern with multiple parser implementations
+   */
+  private static parseAttributesWithParsers(
     attributes: string,
     raw: string,
     allowIncomplete: boolean = false
@@ -498,236 +549,42 @@ export class XmlProcessor {
       `[XmlProcessor.parseAttributes] Attributes length: ${attributes.length}`
     );
 
-    // Extract name
-    const nameMatch = attributes.match(/name=["']([^"']+)["']/);
-    if (!nameMatch) {
-      console.warn(
-        `[XmlProcessor.parseAttributes] No name match found in attributes`
+    // Log large tool calls for debugging, but don't reject them
+    if (raw.length > 5000) {
+      console.log(
+        `[XmlProcessor] Large tool call detected (${raw.length} chars). ` +
+        `This is normal for code generation with large content blocks.`
       );
-      return null;
     }
-    console.log(`[XmlProcessor.parseAttributes] Found name: "${nameMatch[1]}"`);
 
-    // Extract args - handle both single and double quotes, escaped quotes, and HTML entities
-    let argsStr: string | null = null;
-
-    // Manually parse the args attribute value to handle HTML entities correctly
-    // Look for args=" or args=''
-    const argsDoubleQuoteMatch = attributes.match(/args\s*=\s*"/);
-    const argsSingleQuoteMatch = attributes.match(/args\s*=\s*'/);
-
-    if (argsDoubleQuoteMatch || argsSingleQuoteMatch) {
-      const quoteChar = argsDoubleQuoteMatch ? '"' : "'";
-      const startPos =
-        (argsDoubleQuoteMatch?.index ?? argsSingleQuoteMatch!.index)! +
-        (argsDoubleQuoteMatch?.[0].length ?? argsSingleQuoteMatch![0].length);
-      let endPos = startPos;
-
-      // Track if we're inside JSON string delimiters (to handle nested quotes correctly)
-      // When XML uses args='...' and JSON inside has "string with 'quotes'",
-      // we need to ignore the internal ' when inside JSON ""
-      let inJsonString = false;
-      let jsonStringChar = "";
-      let escapeNext = false;
-
-      // Find the matching closing quote, accounting for HTML entities, escaped quotes, and nested JSON strings
-      while (endPos < attributes.length) {
-        const char = attributes[endPos];
-
-        // Handle escape sequences
-        if (escapeNext) {
-          escapeNext = false;
-          endPos++;
-          continue;
-        }
-
-        if (char === "\\") {
-          escapeNext = true;
-          endPos++;
-          continue;
-        }
-
-        // Check if we're at the start of an HTML entity
-        if (char === "&") {
-          // Skip the entire HTML entity (e.g., &quot; or &#34;)
-          const entityMatch = attributes
-            .substring(endPos)
-            .match(/&(?:quot|apos|amp|lt|gt|#\d+|#x[0-9a-fA-F]+);/i);
-          if (entityMatch) {
-            endPos += entityMatch[0].length;
-            continue;
-          }
-        }
-
-        // Track JSON string state (to handle nested quotes correctly)
-        // JSON uses double quotes for strings, so when inside JSON string, ignore XML quote chars
-        if (char === '"' || char === "'") {
-          if (inJsonString) {
-            // We're inside a JSON string, check if this closes it
-            if (char === jsonStringChar) {
-              inJsonString = false;
-              jsonStringChar = "";
-            }
-          } else {
-            // Check if this starts a JSON string or closes the XML attribute
-            // If this is the XML closing quote and we're not in a JSON string, we're done
-            if (char === quoteChar) {
-              // This might be the XML closing quote, but we need to verify
-              // it's not just another string inside the JSON
-              // Look back to see if we're in a JSON context (after : or [ or ,)
-              let isJsonContext = false;
-              for (let i = endPos - 1; i >= startPos; i--) {
-                const prevChar = attributes[i];
-                if (
-                  prevChar === ":" ||
-                  prevChar === "[" ||
-                  prevChar === "," ||
-                  prevChar === "{"
-                ) {
-                  isJsonContext = true;
-                  break;
-                }
-                if (!/\s/.test(prevChar)) {
-                  break;
-                }
-              }
-
-              if (isJsonContext && char !== quoteChar) {
-                // This starts a JSON string
-                inJsonString = true;
-                jsonStringChar = char;
-              } else if (char === quoteChar) {
-                // This is the XML attribute closing quote
-                break;
-              }
-            } else {
-              // Starts a JSON string
-              inJsonString = true;
-              jsonStringChar = char;
-            }
-          }
-        }
-
-        endPos++;
+    // Try each parser in order
+    for (const parser of this.parsers) {
+      if (!parser.canParse(attributes)) {
+        continue;
       }
 
-      if (endPos < attributes.length) {
-        argsStr = attributes.substring(startPos, endPos);
-        // Only unescape XML-level quote escaping, not JSON-level backslash escaping
-        // When args="..." (double quotes), \" in XML represents a literal quote for JSON
-        // When args='...' (single quotes), \' in XML represents a literal quote for JSON
-        // But \\ is JSON-level escaping and must be preserved for JSON.parse()
-        if (quoteChar === '"') {
-          argsStr = argsStr.replace(/\\"/g, '"');
-        } else {
-          argsStr = argsStr.replace(/\\'/g, "'");
-        }
-      } else {
-        // If we didn't find a closing quote and allowIncomplete is true, try brace matching
-        // This handles cases where the XML is truncated but the JSON might still be complete
-        if (allowIncomplete) {
-          argsStr = this.extractArgsUsingBraceMatching(attributes);
-          if (argsStr) {
-          }
-        } else {
-        }
-      }
-    }
+      const parserName = parser.constructor.name;
+      console.log(`[XmlProcessor] Trying ${parserName}...`);
 
-    // If quote-based extraction failed, try brace matching as fallback
-    if (!argsStr) {
-      console.log(
-        `[XmlProcessor.parseAttributes] Quote-based extraction failed, trying brace matching`
-      );
-      argsStr = this.extractArgsUsingBraceMatching(attributes);
-    }
-
-    if (!argsStr) {
-      console.warn(
-        `[XmlProcessor.parseAttributes] Failed to extract args string from attributes`
-      );
-      return null;
-    }
-
-    console.log(
-      `[XmlProcessor.parseAttributes] Extracted args string (${argsStr.length} chars): "${argsStr.substring(0, 200)}${argsStr.length > 200 ? "..." : ""}"`
-    );
-
-    // Decode HTML entities (e.g., &quot; -> ", &amp; -> &, &lt; -> <, &gt; -> >)
-    let decodedArgsStr = HtmlEntityDecoder.decode(argsStr);
-    console.log(
-      `[XmlProcessor.parseAttributes] After HTML decode (${decodedArgsStr.length} chars)`
-    );
-
-    // Check for placeholder/example patterns (e.g., "{...}", "{ ... }", etc.)
-    // These are commonly used in documentation/example tool calls and should be skipped
-    const trimmedArgs = decodedArgsStr.trim();
-    if (
-      trimmedArgs === "{...}" ||
-      trimmedArgs === "{ ... }" ||
-      trimmedArgs.match(/^\{\s*\.{3}\s*\}$/)
-    ) {
-      console.warn(
-        `[XmlProcessor.parseAttributes] Args is a placeholder pattern, returning null`
-      );
-      return null;
-    }
-
-    // Parse JSON arguments
-    let args: any;
-    try {
-      args = JSON.parse(decodedArgsStr);
-      console.log(
-        `[XmlProcessor.parseAttributes] Successfully parsed JSON args`
-      );
-    } catch (error) {
-      console.warn(
-        `[XmlProcessor.parseAttributes] JSON parse failed: ${error}, trying brace matching fallback`
-      );
-      // If parsing fails, try brace matching as fallback (in case quote extraction got wrong boundaries)
-      const braceMatchStr = this.extractArgsUsingBraceMatching(attributes);
-      if (braceMatchStr && braceMatchStr !== argsStr) {
+      const result = parser.parse(attributes, allowIncomplete);
+      if (result) {
         console.log(
-          `[XmlProcessor.parseAttributes] Brace matching returned different result, retrying`
+          `[XmlProcessor] ✓ ${parserName} succeeded for name="${result.name}"`
         );
-        decodedArgsStr = HtmlEntityDecoder.decode(braceMatchStr);
-        // Check for placeholder patterns in brace-matched result too
-        const trimmedBraceArgs = decodedArgsStr.trim();
-        if (
-          trimmedBraceArgs === "{...}" ||
-          trimmedBraceArgs === "{ ... }" ||
-          trimmedBraceArgs.match(/^\{\s*\.{3}\s*\}$/)
-        ) {
-          return null;
-        }
-        try {
-          args = JSON.parse(decodedArgsStr);
-          console.log(
-            `[XmlProcessor.parseAttributes] Successfully parsed JSON after brace matching fallback`
-          );
-        } catch (braceError) {
-          console.error(
-            `[XmlProcessor.parseAttributes] Brace matching fallback also failed to parse JSON: ${braceError}`
-          );
-          // Brace matching extraction failed to parse JSON
-          return null;
-        }
-      } else {
-        console.error(
-          `[XmlProcessor.parseAttributes] JSON parse failed and brace matching didn't help`
-        );
-        return null;
+        return {
+          raw,
+          name: result.name,
+          args: result.args,
+        };
       }
+
+      console.log(`[XmlProcessor] ${parserName} failed, trying next parser`);
     }
 
-    console.log(
-      `[XmlProcessor.parseAttributes] ✓ Successfully created XmlToolCall: name="${nameMatch[1]}"`
+    console.warn(
+      `[XmlProcessor.parseAttributes] All parsers failed for attributes`
     );
-    return {
-      raw,
-      name: nameMatch[1],
-      args,
-    };
+    return null;
   }
 
   /**
@@ -806,15 +663,30 @@ export class XmlProcessor {
     attributes: string
   ): string | null {
     // Look for args=" or args=' followed by {
-    const argsPattern = /args\s*=\s*(["'])\s*\{/;
+    // Be lenient - allow whitespace between quote and opening brace
+    const argsPattern = /args\s*=\s*(["'])/;
     const match = attributes.match(argsPattern);
 
-    if (!match) {
+    if (!match || !match.index) {
       return null;
     }
 
     const quoteChar = match[1];
-    const jsonStartPos = match.index! + match[0].length - 1; // Position of the {
+    const argsValueStart = match.index + match[0].length;
+    
+    // Find the opening brace after the args=quote
+    let jsonStartPos = argsValueStart;
+    while (jsonStartPos < attributes.length && attributes[jsonStartPos] !== '{') {
+      // Only skip whitespace - if we hit anything else, bail out
+      if (!/\s/.test(attributes[jsonStartPos])) {
+        return null;
+      }
+      jsonStartPos++;
+    }
+    
+    if (jsonStartPos >= attributes.length) {
+      return null; // No opening brace found
+    }
 
     // Use brace matching to find the closing brace
     // We need to properly handle strings, escaped characters, and HTML entities
