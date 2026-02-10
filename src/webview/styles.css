@@ -627,6 +627,11 @@ tr:nth-child(even) {
     border-color: #4EC9B0;
     box-shadow: 0 0 12px rgba(78, 201, 176, 0.6), 0 0 24px rgba(78, 201, 176, 0.3);
 }
+.stage-light.active#stage-light-snippet .light-bulb {
+    background: #569CD6;
+    border-color: #569CD6;
+    box-shadow: 0 0 12px rgba(86, 156, 214, 0.6), 0 0 24px rgba(86, 156, 214, 0.3);
+}
 .stage-light.active#stage-light-assumptions .light-bulb {
     background: #DCDCAA;
     border-color: #DCDCAA;

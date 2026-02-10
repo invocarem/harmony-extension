@@ -123,8 +123,11 @@ fileButton.addEventListener("click", () => {
 });
 
 // Stage transition arrows
-const arrowChatToAssumptions = document.getElementById(
-  "arrow-chat-to-assumptions"
+const arrowChatToSnippet = document.getElementById(
+  "arrow-chat-to-snippet"
+);
+const arrowSnippetToAssumptions = document.getElementById(
+  "arrow-snippet-to-assumptions"
 );
 const arrowAssumptionsToImplementation = document.getElementById(
   "arrow-assumptions-to-implementation"
@@ -165,10 +168,28 @@ if (stageLightImplementation) {
   });
 }
 
-if (arrowChatToAssumptions) {
-  arrowChatToAssumptions.addEventListener("click", () => {
+if (arrowChatToSnippet) {
+  arrowChatToSnippet.addEventListener("click", () => {
     // Don't allow transition if arrow is disabled
-    if (arrowChatToAssumptions.classList.contains("disabled")) {
+    if (arrowChatToSnippet.classList.contains("disabled")) {
+      return;
+    }
+    // Send message using @cmd:move_to_snippet format
+    const message = "@cmd:move_to_snippet";
+    addMessage(message, true, undefined, undefined);
+    addTypingIndicator();
+    vscode.postMessage({
+      command: "sendMessage",
+      text: message,
+    });
+    messageInput.focus();
+  });
+}
+
+if (arrowSnippetToAssumptions) {
+  arrowSnippetToAssumptions.addEventListener("click", () => {
+    // Don't allow transition if arrow is disabled
+    if (arrowSnippetToAssumptions.classList.contains("disabled")) {
       return;
     }
     // Send message using @cmd:move_to_assumptions format
@@ -232,8 +253,11 @@ updateStageIndicator("chat");
 messageInput.focus();
 
 // Initialize stage arrows as disabled (will be enabled when stage is known)
-if (arrowChatToAssumptions) {
-  arrowChatToAssumptions.classList.add("disabled");
+if (arrowChatToSnippet) {
+  arrowChatToSnippet.classList.add("disabled");
+}
+if (arrowSnippetToAssumptions) {
+  arrowSnippetToAssumptions.classList.add("disabled");
 }
 if (arrowAssumptionsToImplementation) {
   arrowAssumptionsToImplementation.classList.add("disabled");

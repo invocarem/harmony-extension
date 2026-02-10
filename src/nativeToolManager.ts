@@ -1217,6 +1217,33 @@ export class NativeToolsManager {
         `[NativeTools] Editing file: "${filePath}" -> resolved to: "${resolvedPath}"`
       );
 
+      // Validate parameters exist (fix "cannot read 'trim' of undefined" error)
+      if (oldText === undefined || oldText === null) {
+        console.error('[NativeTools] editFile called with undefined/null oldText');
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: old_text parameter is missing or undefined. This usually means the tool call was not parsed correctly. Check the XML processor logs for parsing errors.`,
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      if (newText === undefined || newText === null) {
+        console.error('[NativeTools] editFile called with undefined/null newText');
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: new_text parameter is missing or undefined. This usually means the tool call was not parsed correctly. Check the XML processor logs for parsing errors.`,
+            },
+          ],
+          isError: true,
+        };
+      }
+
       // Validate old_text has sufficient context to avoid ambiguous matches
       const oldTextTrimmed = oldText.trim();
       const lineCount = oldTextTrimmed.split("\n").length;

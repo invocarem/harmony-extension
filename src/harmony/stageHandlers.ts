@@ -835,6 +835,60 @@ class AssumptionsStageHandler implements StageHandler {
 }
 
 /**
+ * Snippet stage handler
+ * Generates code snippets without file operations or complex planning
+ */
+class SnippetStageHandler implements StageHandler {
+  async handlePreProcessing(
+    context: ConversationContext | null,
+    prompt: string,
+    nativeToolsManager?: NativeToolsManager,
+    contextManager?: ConversationContextManager,
+    progressPlanManager?: ProgressPlanManager,
+    trigger?: TransitionTrigger,
+    harmonyClient?: any
+  ): Promise<{ shouldSkipLLM: boolean; response?: any }> {
+    // Handle verbose_info trigger
+    if (trigger === "verbose_info" && harmonyClient) {
+      const verboseInfo = harmonyClient.getCurrentVerboseInfo();
+      const formattedVerboseInfo = VerboseInfoFormatter.format(verboseInfo);
+      return {
+        shouldSkipLLM: true,
+        response: {
+          content: formattedVerboseInfo,
+          verboseInfo: verboseInfo,
+        },
+      };
+    }
+
+    return { shouldSkipLLM: false };
+  }
+
+  /**
+   * Post-processing for snippet stage
+   * Validates code snippets are present in response
+   */
+  async handlePostProcessing(
+    context: ConversationContext | null,
+    content: string,
+    parsed: HarmonyParseResult,
+    toolCalls: MCPToolCall[],
+    executedToolCalls:
+      | Array<{ name: string; arguments: Record<string, any>; result?: any }>
+      | undefined,
+    contextManager: ConversationContextManager,
+    progressPlanManager: ProgressPlanManager,
+    autoTransitionManager: AutoTransitionManager,
+    nativeToolsManager?: NativeToolsManager,
+    conversationHistory?: readonly ChatMessage[]
+  ): Promise<void> {
+    // Snippet stage doesn't need complex post-processing
+    // Just log for debugging
+    console.log(`[SnippetStageHandler] Post-processing complete for snippet stage`);
+  }
+}
+
+/**
  * Chat stage handler
  * Handles chat stage logic: validates tool calls, tracks queries, extracts problem summaries
  */
@@ -1071,6 +1125,7 @@ export class StageHandlerRegistry {
       "chat",
       new ChatStageHandler(chatManager || new ChatManager())
     );
+    this.handlers.set("snippet", new SnippetStageHandler());
     this.handlers.set("assumptions", new AssumptionsStageHandler());
     this.handlers.set(
       "implementation",

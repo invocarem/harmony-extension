@@ -221,13 +221,13 @@ export function formatMarkdown(text: string): string {
             highlightedCode = escapeHtml(code.trim());
         }
         
-        // Add copy button for JSON code blocks (inline with language label)
+        // Add copy button for all code blocks (inline with language label)
         const isJson = originalLang.toLowerCase() === 'json';
         // Properly escape code for data attribute
         const escapedCode = escapeHtmlAttribute(code.trim());
-        const copyButton = isJson ? `<button class="code-action-btn" data-action="copy" data-code="${escapedCode}" title="Copy JSON">📋</button>` : '';
+        const copyButton = `<button class="code-action-btn" data-action="copy" data-code="${escapedCode}" title="Copy code">📋</button>`;
         
-        const codeBlockHtml = `<div class="code-block ${isJson ? 'code-block-json' : ''}">${originalLang ? `<div class="code-lang">${originalLang}${copyButton}</div>` : (copyButton ? `<div class="code-lang">${copyButton}</div>` : '')}<pre><code class="${languageClass}">${highlightedCode}</code></pre></div>`;
+        const codeBlockHtml = `<div class="code-block ${isJson ? 'code-block-json' : ''}">${originalLang ? `<div class="code-lang">${originalLang}${copyButton}</div>` : `<div class="code-lang">${copyButton}</div>`}<pre><code class="${languageClass}">${highlightedCode}</code></pre></div>`;
         formatted = formatted.replace(placeholder, codeBlockHtml);
     }
     

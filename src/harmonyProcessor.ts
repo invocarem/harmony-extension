@@ -60,25 +60,26 @@ export class HarmonyProcessor {
         };
       }
 
-      // Check if content describes a file update with code blocks
-      // This handles cases where the model describes a file instead of making a tool call
-      // Note: extractFileUpdateFromContent will check user intent if available
-      const extractedToolCall = this.extractFileUpdateFromContent(
-        trimmed,
-        userPrompt
-      );
-      if (extractedToolCall) {
-        console.log(
-          `[HarmonyProcessor] Extracted file update from plain text content: ${extractedToolCall.name} for ${extractedToolCall.arguments.file_path}`
-        );
-        // Preserve FULL content including code blocks (for user display)
-        // The tool call extraction happens separately and doesn't affect the user-visible response
-        return {
-          content: trimmed, // Preserve full response including code blocks for webview display
-          rawToolCalls: [extractedToolCall.raw],
-          remaining: response,
-        };
-      }
+      // COMMENTED OUT: Automatic tool call extraction - LLM should generate tool calls explicitly
+      // // Check if content describes a file update with code blocks
+      // // This handles cases where the model describes a file instead of making a tool call
+      // // Note: extractFileUpdateFromContent will check user intent if available
+      // const extractedToolCall = this.extractFileUpdateFromContent(
+      //   trimmed,
+      //   userPrompt
+      // );
+      // if (extractedToolCall) {
+      //   console.log(
+      //     `[HarmonyProcessor] Extracted file update from plain text content: ${extractedToolCall.name} for ${extractedToolCall.arguments.file_path}`
+      //   );
+      //   // Preserve FULL content including code blocks (for user display)
+      //   // The tool call extraction happens separately and doesn't affect the user-visible response
+      //   return {
+      //     content: trimmed, // Preserve full response including code blocks for webview display
+      //     rawToolCalls: [extractedToolCall.raw],
+      //     remaining: response,
+      //   };
+      // }
 
       // Otherwise, return as content and also set as final for simple responses
       console.log(
@@ -276,80 +277,81 @@ export class HarmonyProcessor {
       }
     }
 
-    // Extract file updates from content if model describes files but didn't make tool calls
+    // COMMENTED OUT: Automatic tool call extraction - LLM should generate tool calls explicitly
+    // // Extract file updates from content if model describes files but didn't make tool calls
+    // if (rawToolCalls.length === 0 && content) {
+    //   // Try to extract file update from content (handles cases where model describes file with code block)
+    //   // Note: extractFileUpdateFromContent will check user intent if available
+    //   const extractedToolCall = this.extractFileUpdateFromContent(
+    //     content,
+    //     userPrompt
+    //   );
+    //   if (extractedToolCall) {
+    //     console.log(
+    //       `[HarmonyProcessor] Extracted file update from content (with Harmony tokens): ${extractedToolCall.name} for ${extractedToolCall.arguments.file_path}`
+    //     );
+    //     rawToolCalls.push(extractedToolCall.raw);
+    //     // Preserve FULL content including code blocks (for user display)
+    //     // The tool call extraction happens separately and doesn't affect the user-visible response
+    //     console.log(
+    //       `[HarmonyProcessor] Preserved ${content.length} chars of content including code block`
+    //     );
+    //   } else {
     if (rawToolCalls.length === 0 && content) {
-      // Try to extract file update from content (handles cases where model describes file with code block)
-      // Note: extractFileUpdateFromContent will check user intent if available
-      const extractedToolCall = this.extractFileUpdateFromContent(
-        content,
-        userPrompt
-      );
-      if (extractedToolCall) {
+      // Check for file operations that should be tool calls
+      const extractedFileOps =
+        this.extractFileOperationsFromDescription(content);
+      if (extractedFileOps.length > 0) {
         console.log(
-          `[HarmonyProcessor] Extracted file update from content (with Harmony tokens): ${extractedToolCall.name} for ${extractedToolCall.arguments.file_path}`
+          `[HarmonyProcessor] Extracted ${extractedFileOps.length} file operation(s) from description (with Harmony tokens)`
         );
-        rawToolCalls.push(extractedToolCall.raw);
-        // Preserve FULL content including code blocks (for user display)
-        // The tool call extraction happens separately and doesn't affect the user-visible response
-        console.log(
-          `[HarmonyProcessor] Preserved ${content.length} chars of content including code block`
-        );
+        rawToolCalls.push(...extractedFileOps.map((op) => op.raw));
+        // Clear content since it's been extracted as tool calls
+        content = "";
       } else {
-        // Check for file operations that should be tool calls
-        const extractedFileOps =
-          this.extractFileOperationsFromDescription(content);
-        if (extractedFileOps.length > 0) {
-          console.log(
-            `[HarmonyProcessor] Extracted ${extractedFileOps.length} file operation(s) from description (with Harmony tokens)`
-          );
-          rawToolCalls.push(...extractedFileOps.map((op) => op.raw));
-          // Clear content since it's been extracted as tool calls
-          content = "";
-        } else {
-          // Warn if model claims to have created/modified files but extraction failed
-          const fileCreationPhrases = [
-            /(?:created|added|wrote|generated).*file/i,
-            /file.*(?:has been|was).*(?:created|added|written|generated)/i,
-            /(?:I've|I have).*(?:created|added|written|generated).*file/i,
-            /\*\*File:\*\*\s*`[^`]+`/i, // Matches "**File:** `filename`"
-            /File:\s*`[^`]+`/i, // Matches "File: `filename`"
-            /(?:here'?s|here is).*file.*`[^`]+`/i, // Matches "Here's a file `filename`"
-            /(?:the|a) file.*`[^`]+`.*(?:has been|was|is)/i, // Matches "the file `filename` has been..."
-          ];
+        // Warn if model claims to have created/modified files but extraction failed
+        const fileCreationPhrases = [
+          /(?:created|added|wrote|generated).*file/i,
+          /file.*(?:has been|was).*(?:created|added|written|generated)/i,
+          /(?:I've|I have).*(?:created|added|written|generated).*file/i,
+          /\*\*File:\*\*\s*`[^`]+`/i, // Matches "**File:** `filename`"
+          /File:\s*`[^`]+`/i, // Matches "File: `filename`"
+          /(?:here'?s|here is).*file.*`[^`]+`/i, // Matches "Here's a file `filename`"
+          /(?:the|a) file.*`[^`]+`.*(?:has been|was|is)/i, // Matches "the file `filename` has been..."
+        ];
 
-          const fileOperationPhrases = [
-            /(?:I'll|I will|going to|need to|should|will).*(?:open|read|view|see|check|examine|edit|modify|update|change|replace).*(?:file|content)/i,
-            /(?:open|read|view|see|check|examine|edit|modify|update|change|replace).*(?:the|this|that|a|an).*(?:file|content)/i,
-          ];
+        const fileOperationPhrases = [
+          /(?:I'll|I will|going to|need to|should|will).*(?:open|read|view|see|check|examine|edit|modify|update|change|replace).*(?:file|content)/i,
+          /(?:open|read|view|see|check|examine|edit|modify|update|change|replace).*(?:the|this|that|a|an).*(?:file|content)/i,
+        ];
 
-          const hasFileCreationClaim = fileCreationPhrases.some((phrase) =>
-            phrase.test(content)
-          );
-          const hasFileOperation = fileOperationPhrases.some((phrase) =>
-            phrase.test(content)
-          );
+        const hasFileCreationClaim = fileCreationPhrases.some((phrase) =>
+          phrase.test(content)
+        );
+        const hasFileOperation = fileOperationPhrases.some((phrase) =>
+          phrase.test(content)
+        );
 
-          if (hasFileCreationClaim) {
-            console.warn(
-              `[HarmonyProcessor] ⚠️ Model claims to have created/modified files but extraction failed!`
-            );
-            console.warn(
-              `[HarmonyProcessor] Content preview: "${content.substring(0, 300)}..."`
-            );
-            console.warn(
-              `[HarmonyProcessor] The model should use <tool_call name="create_file" ... /> instead of just describing the file.`
-            );
-          } else if (hasFileOperation) {
-            console.warn(
-              `[HarmonyProcessor] ⚠️ Model describes file operations but extraction failed!`
-            );
-            console.warn(
-              `[HarmonyProcessor] Content preview: "${content.substring(0, 300)}..."`
-            );
-            console.warn(
-              `[HarmonyProcessor] The model should use tool calls (e.g., <tool_call name="read_file" ... /> or <tool_call name="replace_file" ... />) instead of just describing actions.`
-            );
-          }
+        if (hasFileCreationClaim) {
+          console.warn(
+            `[HarmonyProcessor] ⚠️ Model claims to have created/modified files but extraction failed!`
+          );
+          console.warn(
+            `[HarmonyProcessor] Content preview: "${content.substring(0, 300)}..."`
+          );
+          console.warn(
+            `[HarmonyProcessor] The model should use <tool_call name="create_file" ... /> instead of just describing the file.`
+          );
+        } else if (hasFileOperation) {
+          console.warn(
+            `[HarmonyProcessor] ⚠️ Model describes file operations but extraction failed!`
+          );
+          console.warn(
+            `[HarmonyProcessor] Content preview: "${content.substring(0, 300)}..."`
+          );
+          console.warn(
+            `[HarmonyProcessor] The model should use tool calls (e.g., <tool_call name="read_file" ... /> or <tool_call name="replace_file" ... />) instead of just describing actions.`
+          );
         }
       }
     }
@@ -965,53 +967,53 @@ export class HarmonyProcessor {
             setters.rawToolCalls(toolCallText);
           }
         } else {
-          // Check if content contains file update claims with code blocks
-          // Note: extractFileUpdateFromContent will check user intent if available
-          const extractedToolCall = this.extractFileUpdateFromContent(
-            trimmed,
-            userPrompt
-          );
-          if (extractedToolCall) {
+          // COMMENTED OUT: Automatic tool call extraction - LLM should generate tool calls explicitly
+          // // Check if content contains file update claims with code blocks
+          // // Note: extractFileUpdateFromContent will check user intent if available
+          // const extractedToolCall = this.extractFileUpdateFromContent(
+          //   trimmed,
+          //   userPrompt
+          // );
+          // if (extractedToolCall) {
+          //   console.log(
+          //     `[HarmonyProcessor] Extracted file update from content: ${extractedToolCall.name} for ${extractedToolCall.arguments.file_path}`
+          //   );
+          //   setters.rawToolCalls(extractedToolCall.raw);
+          //   // Preserve FULL content including code blocks (for user display)
+          //   // The tool call extraction happens separately and doesn't affect the user-visible response
+          //   console.log(
+          //     `[HarmonyProcessor] Preserved ${trimmed.length} chars of content including code block in saveBuffer`
+          //   );
+          //   // Save full content to final or content field
+          //   if (setters.final) {
+          //     setters.final(this.preserveCodeBlocks(trimmed));
+          //   } else {
+          //     setters.content(this.preserveCodeBlocks(trimmed));
+          //   }
+          //   // Return early since we've extracted the tool call
+          //   return;
+          // } else {
+          // Check if content describes file operations that should be tool calls
+          const extractedFileOps =
+            this.extractFileOperationsFromDescription(trimmed);
+          if (extractedFileOps.length > 0) {
             console.log(
-              `[HarmonyProcessor] Extracted file update from content: ${extractedToolCall.name} for ${extractedToolCall.arguments.file_path}`
+              `[HarmonyProcessor] Extracted ${extractedFileOps.length} file operation(s) from description`
             );
-            setters.rawToolCalls(extractedToolCall.raw);
-            // Preserve FULL content including code blocks (for user display)
-            // The tool call extraction happens separately and doesn't affect the user-visible response
-            console.log(
-              `[HarmonyProcessor] Preserved ${trimmed.length} chars of content including code block in saveBuffer`
-            );
-            // Save full content to final or content field
+            // Save all extracted file operations, not just the first one
+            extractedFileOps.forEach((op, idx) => {
+              console.log(
+                `[HarmonyProcessor] Saving file operation ${idx + 1}/${extractedFileOps.length}: ${op.name}`
+              );
+              setters.rawToolCalls(op.raw);
+            });
+          } else {
+            // Regular content in final channel - save to final field
             if (setters.final) {
               setters.final(this.preserveCodeBlocks(trimmed));
             } else {
+              // Fallback to content if final setter not available
               setters.content(this.preserveCodeBlocks(trimmed));
-            }
-            // Return early since we've extracted the tool call
-            return;
-          } else {
-            // Check if content describes file operations that should be tool calls
-            const extractedFileOps =
-              this.extractFileOperationsFromDescription(trimmed);
-            if (extractedFileOps.length > 0) {
-              console.log(
-                `[HarmonyProcessor] Extracted ${extractedFileOps.length} file operation(s) from description`
-              );
-              // Save all extracted file operations, not just the first one
-              extractedFileOps.forEach((op, idx) => {
-                console.log(
-                  `[HarmonyProcessor] Saving file operation ${idx + 1}/${extractedFileOps.length}: ${op.name}`
-                );
-                setters.rawToolCalls(op.raw);
-              });
-            } else {
-              // Regular content in final channel - save to final field
-              if (setters.final) {
-                setters.final(this.preserveCodeBlocks(trimmed));
-              } else {
-                // Fallback to content if final setter not available
-                setters.content(this.preserveCodeBlocks(trimmed));
-              }
             }
           }
         }

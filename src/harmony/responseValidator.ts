@@ -28,8 +28,8 @@ export class ResponseValidator {
       this.fileModificationTools.includes(tc.name)
     );
 
-    // Block file modification tools in chat and assumptions stages
-    if (restrictedToolCalls.length > 0 && (currentStage === 'assumptions' || currentStage === 'chat')) {
+    // Block file modification tools in chat, snippet, and assumptions stages
+    if (restrictedToolCalls.length > 0 && (currentStage === 'assumptions' || currentStage === 'chat' || currentStage === 'snippet')) {
       const allowedToolCalls = toolCalls.filter(tc => 
         !this.fileModificationTools.includes(tc.name)
       );
@@ -60,8 +60,8 @@ export class ResponseValidator {
   ): void {
     let hasContent = !!(parsed.content && parsed.content.trim());
 
-    // For Assumptions stage: Always extract code from blocked tool calls to display
-    if (currentStage === 'assumptions' && blockedToolCalls.length > 0) {
+    // For Assumptions and Snippet stages: Always extract code from blocked tool calls to display
+    if ((currentStage === 'assumptions' || currentStage === 'snippet') && blockedToolCalls.length > 0) {
       const codeFromToolCalls = CodeExtractor.extractCodeFromToolCalls(blockedToolCalls);
       
       if (codeFromToolCalls.length > 0) {
@@ -86,6 +86,14 @@ export class ResponseValidator {
         } else {
           // No content from AI - use generic message (AI should have restated per template)
           stageWarning = `I understand you want to create files. In the Analysis stage, I should provide code snippets first.\n\n⚠️ **Note**: File modification tools (${blockedToolCalls.map(tc => tc.name).join(', ')}) are not available in the Analysis stage. Please provide code snippets instead. To create files, say "move to implementation" after the code is ready.`;
+        }
+      } else if (currentStage === 'snippet') {
+        if (hasContent) {
+          // Preserve AI's code snippet content and append warning
+          stageWarning = `${parsed.content}\n\n⚠️ **Note**: File modification tools (${blockedToolCalls.map(tc => tc.name).join(', ')}) are not available in the Snippet stage. Code snippets are shown above. To create files, say "move to implementation".`;
+        } else {
+          // No content from AI - use generic message
+          stageWarning = `I understand you want to create files. In the Snippet stage, I should provide code snippets only.\n\n⚠️ **Note**: File modification tools (${blockedToolCalls.map(tc => tc.name).join(', ')}) are not available in the Snippet stage. To create files, say "move to implementation".`;
         }
       } else {
         // Chat stage
