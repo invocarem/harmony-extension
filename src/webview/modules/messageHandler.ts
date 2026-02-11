@@ -3,7 +3,7 @@
  */
 
 import { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../types';
-import { addMessage, removeTypingIndicator, updateLastUserMessageContextSummary, updateStageIndicator } from './ui';
+import { addMessage, removeTypingIndicator, updateLastUserMessageContextSummary, updateStageIndicator, startStreamingMessage, updateStreamingMessage, finalizeStreamingMessage } from './ui';
 import { populateAutocomplete, insertFileReference, checkForAutocomplete } from './autocomplete';
 
 declare const vscode: {
@@ -16,7 +16,16 @@ export function handleExtensionMessage(message: ExtensionToWebviewMessage): void
     console.log('Webview: Received message from extension:', message.command);
     
     switch (message.command) {
+        case 'streamingUpdate':
+            // Handle streaming update - create or update the streaming message
+            console.log('Webview: Streaming update received, text length:', message.text?.length || 0);
+            if (message.text) {
+                updateStreamingMessage(message.text);
+            }
+            break;
         case 'receiveMessage':
+            // Finalize any streaming message first
+            finalizeStreamingMessage();
             removeTypingIndicator();
             addMessage(message.text || '', false, message.reasoning, undefined, message.verboseInfo, message.final, message.commentary);
             // Update stage indicator lights
