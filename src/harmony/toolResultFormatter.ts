@@ -19,14 +19,26 @@ export class ToolResultFormatter {
    * Format tool results as plain text
    */
   formatToolResults(
-    executedToolCalls: Array<{ name: string; arguments: Record<string, any>; result?: MCPToolResult }>
+    executedToolCalls: Array<{
+      name: string;
+      arguments: Record<string, any>;
+      result?: MCPToolResult;
+    }>
   ): string {
     if (executedToolCalls.length === 0) {
-      return '';
+      return "";
     }
 
+    // Debug: Log what tool calls are being formatted
+    console.log(
+      `[ToolResultFormatter] Formatting ${executedToolCalls.length} tool result(s): ${executedToolCalls.map((tc) => tc.name).join(", ")}`
+    );
+
     let toolResultsText = "\n\n**Tool Results:**\n";
-    executedToolCalls.forEach((toolCall) => {
+    executedToolCalls.forEach((toolCall, index) => {
+      console.log(
+        `[ToolResultFormatter] Formatting tool #${index + 1}: ${toolCall.name}, hasResult: ${!!toolCall.result}, isError: ${toolCall.result?.isError}`
+      );
       toolResultsText += `\n**${toolCall.name}**:\n`;
       if (toolCall.result?.isError) {
         toolResultsText += `❌ Error: ${toolCall.result.content?.[0]?.text || "Unknown error"}\n`;
@@ -38,7 +50,7 @@ export class ToolResultFormatter {
         });
       }
     });
-    
+
     return toolResultsText;
   }
 
@@ -46,7 +58,11 @@ export class ToolResultFormatter {
    * Format tool results according to applicable rules
    */
   async formatToolResultsWithRules(
-    executedToolCalls: Array<{ name: string; arguments: Record<string, any>; result?: MCPToolResult }>,
+    executedToolCalls: Array<{
+      name: string;
+      arguments: Record<string, any>;
+      result?: MCPToolResult;
+    }>,
     applicableRules: Rule[],
     originalPrompt: string,
     currentStage: WorkflowStage
@@ -72,12 +88,13 @@ export class ToolResultFormatter {
     }
 
     // Create formatting prompt with stage-aware instructions
-    const stageNote = currentStage === 'assumptions' 
-      ? `\n\n⚠️ CRITICAL: You are in the ASSUMPTIONS stage. You MUST provide code snippets only. Do NOT use file modification tools. If rules specify "provide code snippets", you MUST follow them strictly.`
-      : currentStage === 'chat'
-      ? `\n\n⚠️ CRITICAL: You are in the CHAT stage. Focus on clarifying and understanding the problem. Do NOT provide file modifications yet.`
-      : `\n\nYou are in the IMPLEMENTATION stage. You may use file modification tools to implement the solution.`;
-    
+    const stageNote =
+      currentStage === "assumptions"
+        ? `\n\n⚠️ CRITICAL: You are in the ASSUMPTIONS stage. You MUST provide code snippets only. Do NOT use file modification tools. If rules specify "provide code snippets", you MUST follow them strictly.`
+        : currentStage === "chat"
+          ? `\n\n⚠️ CRITICAL: You are in the CHAT stage. Focus on clarifying and understanding the problem. Do NOT provide file modifications yet.`
+          : `\n\nYou are in the IMPLEMENTATION stage. You may use file modification tools to implement the solution.`;
+
     const formattingPrompt = `User request: "${originalPrompt}"
 
 Current Stage: ${currentStage.toUpperCase()}
@@ -101,7 +118,7 @@ ${toolResultsText}
 IMPORTANT: 
 1. First, restate the problem and provide any brief context
 2. Then, output the formatted results following the rules above
-3. In ${currentStage === 'assumptions' ? 'ASSUMPTIONS' : currentStage === 'chat' ? 'CHAT' : 'IMPLEMENTATION'} stage: ${currentStage === 'assumptions' ? 'Provide code snippets only, do NOT use file modification tools' : currentStage === 'chat' ? 'Focus on clarification, no file operations' : 'You may implement using file modification tools'}
+3. In ${currentStage === "assumptions" ? "ASSUMPTIONS" : currentStage === "chat" ? "CHAT" : "IMPLEMENTATION"} stage: ${currentStage === "assumptions" ? "Provide code snippets only, do NOT use file modification tools" : currentStage === "chat" ? "Focus on clarification, no file operations" : "You may implement using file modification tools"}
 4. If rules specify code snippets format, follow them exactly
 
 Response:`;
@@ -109,7 +126,7 @@ Response:`;
     try {
       // Make follow-up API call
       const endpoint = `${this.config.serverUrl}/v1/completions`;
-      
+
       // Use HarmonyProcessor to format the prompt
       const finalPrompt = this.harmonyProcessor.formatPrompt(formattingPrompt);
 
@@ -129,29 +146,33 @@ Response:`;
               Authorization: `Bearer ${this.config.apiKey}`,
             }),
           },
-          responseType: 'stream',
+          responseType: "stream",
         }
       );
 
       // Handle streaming response - collect all chunks
-      let rawResponse: string = '';
-      
-      if (response.data && typeof response.data === 'object' && response.data.pipe) {
+      let rawResponse: string = "";
+
+      if (
+        response.data &&
+        typeof response.data === "object" &&
+        response.data.pipe
+      ) {
         // Stream response
         rawResponse = await new Promise<string>((resolve, reject) => {
-          let buffer = '';
+          let buffer = "";
           const lines: string[] = [];
-          
-          response.data.on('data', (chunk: Buffer) => {
+
+          response.data.on("data", (chunk: Buffer) => {
             buffer += chunk.toString();
-            const parts = buffer.split('\n');
-            
+            const parts = buffer.split("\n");
+
             // Process all complete lines
             for (let i = 0; i < parts.length - 1; i++) {
               const line = parts[i];
               lines.push(line);
-              
-              if (line.startsWith('data: ')) {
+
+              if (line.startsWith("data: ")) {
                 try {
                   const data = JSON.parse(line.slice(6));
                   if (data.choices?.[0]?.text) {
@@ -162,17 +183,17 @@ Response:`;
                 }
               }
             }
-            
+
             // Keep the last incomplete line in buffer
             buffer = parts[parts.length - 1];
           });
-          
-          response.data.on('end', () => {
+
+          response.data.on("end", () => {
             // Reconstruct full response from all data lines
-            let fullText = '';
-            
-            lines.forEach(line => {
-              if (line.startsWith('data: ')) {
+            let fullText = "";
+
+            lines.forEach((line) => {
+              if (line.startsWith("data: ")) {
                 try {
                   const data = JSON.parse(line.slice(6));
                   if (data.choices?.[0]?.text) {
@@ -183,11 +204,11 @@ Response:`;
                 }
               }
             });
-            
+
             resolve(fullText);
           });
-          
-          response.data.on('error', reject);
+
+          response.data.on("error", reject);
         });
       } else {
         // Non-streaming response (fallback)
@@ -204,8 +225,24 @@ Response:`;
 
       if (rawResponse) {
         const parsed = this.harmonyProcessor.parseResponse(rawResponse);
-        if (parsed.content.trim()) {
-          return parsed.content.trim();
+        const trimmedContent = parsed.content.trim();
+        if (trimmedContent) {
+          const hasToolResultsHeader =
+            trimmedContent.includes("**Tool Results:**") ||
+            trimmedContent.includes("Tool Results:");
+          const hasExecTerminal = executedToolCalls.some(
+            (tc) => tc.name === "exec_terminal"
+          );
+          if (
+            currentStage === "snippet" &&
+            hasExecTerminal &&
+            !hasToolResultsHeader
+          ) {
+            return (
+              trimmedContent + this.formatToolResults(executedToolCalls)
+            ).trim();
+          }
+          return trimmedContent;
         }
       }
 
@@ -217,4 +254,3 @@ Response:`;
     }
   }
 }
-

@@ -1,6 +1,6 @@
 import { WorkflowStage } from "./stageStateMachine";
 import { ProgressPlan } from "../progressPlanManager";
-import { CodeContext } from "./codeContext";
+import { CodeContext, CodeContextType } from "./codeContext";
 
 /**
  * Conversation context for managing multi-step workflows
@@ -370,18 +370,39 @@ export class ConversationContextManager {
 
   /**
    * Get all code contexts waiting for creation (active versions only)
+   * Returns only TASK contexts (not REFERENCE contexts)
    */
   getCodeContexts(): CodeContext[] {
     if (!this.context?.codeContexts) return [];
 
     const activeContexts: CodeContext[] = [];
     for (const versions of this.context.codeContexts.values()) {
-      const active = versions.find((cc) => cc.waitForCreate && cc.isActive);
+      const active = versions.find(
+        (cc) => cc.waitForCreate && cc.isActive && cc.type === CodeContextType.TASK
+      );
       if (active) {
         activeContexts.push(active);
       }
     }
     return activeContexts;
+  }
+
+  /**
+   * Get reference code contexts (type REFERENCE, don't count toward completion)
+   */
+  getReferenceCodeContexts(): CodeContext[] {
+    if (!this.context?.codeContexts) return [];
+
+    const refContexts: CodeContext[] = [];
+    for (const versions of this.context.codeContexts.values()) {
+      const active = versions.find(
+        (cc) => cc.isActive && cc.type === CodeContextType.REFERENCE
+      );
+      if (active) {
+        refContexts.push(active);
+      }
+    }
+    return refContexts;
   }
 
   /**

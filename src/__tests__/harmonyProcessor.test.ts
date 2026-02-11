@@ -1154,6 +1154,53 @@ class Psalm105ATests: XCTestCase {
         );
       }
     });
+
+    it("should handle orphaned closing </think> tags correctly (streaming split fix)", () => {
+      // Bug fix: When streaming splits <think>..closing tag, orphaned </think> at end
+      // causes regex to match from first <think> to orphaned </think>,
+      // incorrectly capturing actual response content as "reasoning"
+      // Expected: <think>reasoning</think>response_content</think> (orphaned)
+      // Should parse as: reasoning="reasoning", content="response_content"
+      // NOT as: reasoning="reasoning response_content", content=""
+
+      const response = `<think>Let me analyze what the user wants. They want me to create a hello.py file with a greet function and main block. This is a straightforward request.</think>
+
+Here's the code for \`hello.py\`:
+
+\`\`\`python
+def greet(name="World"):
+    return f"Hello, {name}!"
+
+if __name__ == "__main__":
+    print(greet())
+    print(greet("Python"))
+\`\`\`
+
+**What this code does:**
+- Defines a \`greet()\` function that takes an optional parameter
+- Returns a formatted greeting string
+- Includes a main block that demonstrates usage
+</think>`;
+
+      const result = processorDisabled.parseResponse(response);
+
+      // Should extract reasoning properly (only first think block content)
+      expect(result.reasoning).toBeDefined();
+      if (result.reasoning) {
+        expect(result.reasoning).toContain(
+          "Let me analyze what the user wants"
+        );
+        // Should NOT contain the code response in reasoning
+        expect(result.reasoning).not.toContain("def greet");
+        expect(result.reasoning).not.toContain("python");
+      }
+
+      // Should have actual response content with the code
+      expect(result.content).toBeDefined();
+      expect(result.content).toContain("Here's the code");
+      expect(result.content).toContain("def greet");
+      expect(result.content).toContain("python");
+    });
   });
 
   describe("File extraction from plain text (no Harmony tokens)", () => {

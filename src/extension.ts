@@ -73,7 +73,9 @@ export class HarmonyAssistant {
 
     // Set up callback to send streaming updates to webview
     this.harmonyClient.setStreamingCallback(async (text) => {
-      console.log(`[Extension] Streaming callback invoked, text length: ${text.length}`);
+      console.log(
+        `[Extension] Streaming callback invoked, text length: ${text.length}`
+      );
       await this.webviewManager.sendStreamingUpdate(text);
     });
 
@@ -159,9 +161,11 @@ export class HarmonyAssistant {
               verboseInfo: verboseInfo,
             });
           });
-          this.harmonyClient.setIntermediateResponseCallback(async (response) => {
-            await this.webviewManager.sendMessage(response);
-          });
+          this.harmonyClient.setIntermediateResponseCallback(
+            async (response) => {
+              await this.webviewManager.sendMessage(response);
+            }
+          );
           this.harmonyClient.setStreamingCallback(async (text) => {
             await this.webviewManager.sendStreamingUpdate(text);
           });
@@ -191,11 +195,15 @@ export class HarmonyAssistant {
               verboseInfo: verboseInfo,
             });
           });
-          this.harmonyClient.setIntermediateResponseCallback(async (response) => {
-            await this.webviewManager.sendMessage(response);
-          });
+          this.harmonyClient.setIntermediateResponseCallback(
+            async (response) => {
+              await this.webviewManager.sendMessage(response);
+            }
+          );
           this.harmonyClient.setStreamingCallback(async (text) => {
-            console.log(`[Extension] Streaming callback invoked, text length: ${text.length}`);
+            console.log(
+              `[Extension] Streaming callback invoked, text length: ${text.length}`
+            );
             await this.webviewManager.sendStreamingUpdate(text);
           });
           this.codeActions = new CodeActions(
@@ -217,11 +225,15 @@ export class HarmonyAssistant {
               verboseInfo: verboseInfo,
             });
           });
-          this.harmonyClient.setIntermediateResponseCallback(async (response) => {
-            await this.webviewManager.sendMessage(response);
-          });
+          this.harmonyClient.setIntermediateResponseCallback(
+            async (response) => {
+              await this.webviewManager.sendMessage(response);
+            }
+          );
           this.harmonyClient.setStreamingCallback(async (text) => {
-            console.log(`[Extension] Streaming callback invoked, text length: ${text.length}`);
+            console.log(
+              `[Extension] Streaming callback invoked, text length: ${text.length}`
+            );
             await this.webviewManager.sendStreamingUpdate(text);
           });
           this.codeActions = new CodeActions(
@@ -755,18 +767,39 @@ export class HarmonyAssistant {
       console.log(
         `[Harmony] Sending response to webview. Content length: ${response.content?.length || 0}`
       );
+      console.log(
+        `[Harmony] Response content has tool results: ${response.content?.includes("**Tool Results:**") || false}`
+      );
+      if (response.content?.includes("**Tool Results:**")) {
+        const toolResultsIndex = response.content.indexOf("**Tool Results:**");
+        console.log(
+          `[Harmony] Tool results found at index ${toolResultsIndex}, preview: ${response.content.substring(toolResultsIndex, toolResultsIndex + 100)}`
+        );
+      }
 
       // Clean verbose responses to improve readability (apply cleaning even in verbose mode)
       const cleanedContent = cleanVerboseResponse(response.content || "");
+      console.log(
+        `[Harmony] After cleanVerboseResponse: length=${cleanedContent.length}, has tool results: ${cleanedContent.includes("**Tool Results:**")}`
+      );
       const cleanedResponse = {
         ...response,
         content: cleanedContent,
       };
 
-      // Add assistant response to history (use cleaned content for display)
+      // Strip tool results from content before adding to history
+      // Tool results should not be in conversation history to prevent LLM from echoing them
+      const contentForHistory = cleanedContent
+        .replace(/\n\n\*\*Tool Results:\*\*[\s\S]*$/, "")
+        .trim();
+      console.log(
+        `[Harmony] Content for history: ${contentForHistory.length} chars (stripped tool results)`
+      );
+
+      // Add assistant response to history (use content WITHOUT tool results)
       this.conversationManager.addMessage({
         role: "assistant",
-        content: cleanedContent,
+        content: contentForHistory,
         reasoning: response.reasoning,
       });
 

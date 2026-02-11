@@ -1,18 +1,18 @@
-import { HarmonyClient, HarmonyResponse } from '../../harmonyClient';
-import { LlamaConfig, RuleConfig } from '../../config';
-import { MCPManager } from '../../mcpManager';
-import { RulesManager, Rule } from '../../rulesManager';
-import { NativeToolsManager, NativeTool } from '../../nativeToolManager';
-import { HarmonyProcessor, HarmonyParseResult } from '../../harmonyProcessor';
-import { MCPToolCall, MCPToolResult } from '../../mcpClient';
-import axios from 'axios';
+import { HarmonyClient, HarmonyResponse } from "../../harmonyClient";
+import { LlamaConfig, RuleConfig } from "../../config";
+import { MCPManager } from "../../mcpManager";
+import { RulesManager, Rule } from "../../rulesManager";
+import { NativeToolsManager, NativeTool } from "../../nativeToolManager";
+import { HarmonyProcessor, HarmonyParseResult } from "../../harmonyProcessor";
+import { MCPToolCall, MCPToolResult } from "../../mcpClient";
+import axios from "axios";
 
 // Mock dependencies
-jest.mock('axios');
+jest.mock("axios");
 
 const mockedAxios = axios as jest.Mocked<typeof axios>;
 
-describe('HarmonyClient', () => {
+describe("HarmonyClient", () => {
   let client: HarmonyClient;
   let mockConfig: LlamaConfig;
   let mockMCPManager: jest.Mocked<MCPManager>;
@@ -26,9 +26,9 @@ describe('HarmonyClient', () => {
 
     // Setup config
     mockConfig = {
-      serverUrl: 'http://localhost:8000',
-      apiKey: 'test-api-key',
-      model: 'test-model',
+      serverUrl: "http://localhost:8000",
+      apiKey: "test-api-key",
+      model: "test-model",
       temperature: 0.7,
       maxTokens: 2048,
       mcpServers: [],
@@ -47,11 +47,21 @@ describe('HarmonyClient', () => {
     } as any;
 
     // Create a mock class instead of using jest.mock on the class itself
-    jest.spyOn(HarmonyProcessor.prototype, 'parseResponse').mockImplementation(mockHarmonyProcessor.parseResponse);
-    jest.spyOn(HarmonyProcessor.prototype, 'extractToolCalls').mockImplementation(mockHarmonyProcessor.extractToolCalls);
-    jest.spyOn(HarmonyProcessor.prototype, 'formatPrompt').mockImplementation(mockHarmonyProcessor.formatPrompt);
-    jest.spyOn(HarmonyProcessor.prototype, 'validateResponse').mockImplementation(mockHarmonyProcessor.validateResponse);
-    jest.spyOn(HarmonyProcessor.prototype, 'cleanText').mockImplementation(mockHarmonyProcessor.cleanText);
+    jest
+      .spyOn(HarmonyProcessor.prototype, "parseResponse")
+      .mockImplementation(mockHarmonyProcessor.parseResponse);
+    jest
+      .spyOn(HarmonyProcessor.prototype, "extractToolCalls")
+      .mockImplementation(mockHarmonyProcessor.extractToolCalls);
+    jest
+      .spyOn(HarmonyProcessor.prototype, "formatPrompt")
+      .mockImplementation(mockHarmonyProcessor.formatPrompt);
+    jest
+      .spyOn(HarmonyProcessor.prototype, "validateResponse")
+      .mockImplementation(mockHarmonyProcessor.validateResponse);
+    jest
+      .spyOn(HarmonyProcessor.prototype, "cleanText")
+      .mockImplementation(mockHarmonyProcessor.cleanText);
 
     // Setup MCPManager mock
     mockMCPManager = {
@@ -65,7 +75,7 @@ describe('HarmonyClient', () => {
       getApplicableRules: jest.fn().mockReturnValue([]),
       getApplicableRulesFromHistory: jest.fn().mockReturnValue([]),
       getRulesForTools: jest.fn().mockReturnValue([]),
-      formatRulesForPrompt: jest.fn().mockReturnValue(''),
+      formatRulesForPrompt: jest.fn().mockReturnValue(""),
     } as any;
 
     // Setup NativeToolsManager mock
@@ -83,20 +93,22 @@ describe('HarmonyClient', () => {
     );
   });
 
-  describe('callServer', () => {
-    describe('Basic functionality', () => {
-      it('should make API call with correct parameters', async () => {
+  describe("callServer", () => {
+    describe("Basic functionality", () => {
+      it("should make API call with correct parameters", async () => {
         const mockResponse = {
           status: 200,
           data: {
-            choices: [{ text: '<|channel|>final<|message|>Hello world<|end|>' }],
+            choices: [
+              { text: "<|channel|>final<|message|>Hello world<|end|>" },
+            ],
           },
         };
 
         mockedAxios.post.mockResolvedValue(mockResponse);
 
         const parseResult: HarmonyParseResult = {
-          content: 'Hello world',
+          content: "Hello world",
           reasoning: undefined,
           rawToolCalls: [],
         };
@@ -104,402 +116,520 @@ describe('HarmonyClient', () => {
         mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
         mockHarmonyProcessor.extractToolCalls.mockReturnValue([]);
 
-        const result = await client.callServer('Test prompt');
+        const result = await client.callServer("Test prompt");
 
         expect(mockedAxios.post).toHaveBeenCalledWith(
-          'http://localhost:8000/v1/completions',
+          "http://localhost:8000/v1/completions",
           {
-            model: 'test-model',
-            prompt: expect.stringContaining('Test prompt'),
+            model: "test-model",
+            prompt: expect.stringContaining("Test prompt"),
             temperature: 0.7,
             max_tokens: 2048,
             stream: true,
           },
           {
             headers: {
-              'Content-Type': 'application/json',
-              Authorization: 'Bearer test-api-key',
+              "Content-Type": "application/json",
+              Authorization: "Bearer test-api-key",
             },
-            responseType: 'stream',
+            responseType: "stream",
           }
         );
 
-        expect(result.content).toBe('Hello world');
+        expect(result.content).toBe("Hello world");
         expect(result.toolCalls).toBeUndefined();
       });
 
-      it('should handle response with choices[0].message.content format', async () => {
+      it("should handle response with choices[0].message.content format", async () => {
         const mockResponse = {
           status: 200,
           data: {
-            choices: [{ message: { content: '<|channel|>final<|message|>Response<|end|>' } }],
+            choices: [
+              {
+                message: {
+                  content: "<|channel|>final<|message|>Response<|end|>",
+                },
+              },
+            ],
           },
         };
 
         mockedAxios.post.mockResolvedValue(mockResponse);
 
         const parseResult: HarmonyParseResult = {
-          content: 'Response',
+          content: "Response",
           rawToolCalls: [],
         };
 
         mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
         mockHarmonyProcessor.extractToolCalls.mockReturnValue([]);
 
-        const result = await client.callServer('Test');
+        const result = await client.callServer("Test");
 
-        expect(result.content).toBe('Response');
+        expect(result.content).toBe("Response");
       });
 
-      it('should handle response with data.text format', async () => {
+      it("should handle response with data.text format", async () => {
         const mockResponse = {
           status: 200,
           data: {
-            text: '<|channel|>final<|message|>Direct text<|end|>',
+            text: "<|channel|>final<|message|>Direct text<|end|>",
           },
         };
 
         mockedAxios.post.mockResolvedValue(mockResponse);
 
         const parseResult: HarmonyParseResult = {
-          content: 'Direct text',
+          content: "Direct text",
           rawToolCalls: [],
         };
 
         mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
         mockHarmonyProcessor.extractToolCalls.mockReturnValue([]);
 
-        const result = await client.callServer('Test');
+        const result = await client.callServer("Test");
 
-        expect(result.content).toBe('Direct text');
+        expect(result.content).toBe("Direct text");
       });
 
-      it('should handle response with data.content format', async () => {
+      it("should handle response with data.content format", async () => {
         const mockResponse = {
           status: 200,
           data: {
-            content: '<|channel|>final<|message|>Content<|end|>',
+            content: "<|channel|>final<|message|>Content<|end|>",
           },
         };
 
         mockedAxios.post.mockResolvedValue(mockResponse);
 
         const parseResult: HarmonyParseResult = {
-          content: 'Content',
+          content: "Content",
           rawToolCalls: [],
         };
 
         mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
         mockHarmonyProcessor.extractToolCalls.mockReturnValue([]);
 
-        const result = await client.callServer('Test');
+        const result = await client.callServer("Test");
 
-        expect(result.content).toBe('Content');
+        expect(result.content).toBe("Content");
       });
 
-      it('should throw error for unexpected response format', async () => {
+      it("should throw error for unexpected response format", async () => {
         const mockResponse = {
           status: 200,
           data: {
-            unexpected: 'format',
+            unexpected: "format",
           },
         };
 
         mockedAxios.post.mockResolvedValue(mockResponse);
 
-        await expect(client.callServer('Test')).rejects.toThrow('Unexpected API response format');
+        await expect(client.callServer("Test")).rejects.toThrow(
+          "Unexpected API response format"
+        );
       });
 
-      it('should handle empty response content gracefully', async () => {
+      it("should handle empty response content gracefully", async () => {
         const mockResponse = {
           status: 200,
           data: {
-            choices: [{ text: '<|channel|>final<|message|><|end|>' }],
+            choices: [{ text: "<|channel|>final<|message|><|end|>" }],
           },
         };
 
         mockedAxios.post.mockResolvedValue(mockResponse);
 
         const parseResult: HarmonyParseResult = {
-          content: '',
+          content: "",
           rawToolCalls: [],
         };
 
         mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
         mockHarmonyProcessor.extractToolCalls.mockReturnValue([]);
 
-        const result = await client.callServer('Test');
-        expect(result.content).toBe('');
+        const result = await client.callServer("Test");
+        expect(result.content).toBe("");
       });
     });
 
-    describe('Tool calls', () => {
-      it('should execute MCP tool calls', async () => {
+    describe("Tool calls", () => {
+      it("should execute MCP tool calls", async () => {
         const mockResponse = {
           status: 200,
           data: {
-            choices: [{ text: '<|channel|>final<|message|><tool_call name="test_tool" args=\'{"arg": "value"}\' /><|end|>' }],
+            choices: [
+              {
+                text: '<|channel|>final<|message|><tool_call name="test_tool" args=\'{"arg": "value"}\' /><|end|>',
+              },
+            ],
           },
         };
 
         mockedAxios.post.mockResolvedValue(mockResponse);
 
         const parseResult: HarmonyParseResult = {
-          content: '',
-          rawToolCalls: ['<tool_call name="test_tool" args=\'{"arg": "value"}\' />'],
+          content: "",
+          rawToolCalls: [
+            '<tool_call name="test_tool" args=\'{"arg": "value"}\' />',
+          ],
         };
 
         mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
 
         const toolCalls: MCPToolCall[] = [
-          { name: 'test_tool', arguments: { arg: 'value' } },
+          { name: "test_tool", arguments: { arg: "value" } },
         ];
 
         mockHarmonyProcessor.extractToolCalls.mockReturnValue(toolCalls);
 
         const toolResult: MCPToolResult = {
-          content: [{ type: 'text', text: 'Tool result' }],
+          content: [{ type: "text", text: "Tool result" }],
           isError: false,
         };
 
-        mockMCPManager.findToolServer.mockReturnValue('test-server');
+        mockMCPManager.findToolServer.mockReturnValue("test-server");
         mockMCPManager.callTool.mockResolvedValue(toolResult);
 
-        const result = await client.callServer('Test');
+        const result = await client.callServer("Test");
 
-        expect(mockMCPManager.findToolServer).toHaveBeenCalledWith('test_tool');
-        expect(mockMCPManager.callTool).toHaveBeenCalledWith('test-server', 'test_tool', { arg: 'value' });
+        expect(mockMCPManager.findToolServer).toHaveBeenCalledWith("test_tool");
+        expect(mockMCPManager.callTool).toHaveBeenCalledWith(
+          "test-server",
+          "test_tool",
+          { arg: "value" }
+        );
         expect(result.toolCalls).toBeDefined();
         expect(result.toolCalls?.length).toBe(1);
-        expect(result.toolCalls?.[0].name).toBe('test_tool');
+        expect(result.toolCalls?.[0].name).toBe("test_tool");
         expect(result.toolCalls?.[0].result).toEqual(toolResult);
       });
 
-      it('should execute native tool calls', async () => {
+      it("should execute native tool calls", async () => {
         const mockResponse = {
           status: 200,
           data: {
-            choices: [{ text: '<|channel|>final<|message|><tool_call name="native_tool" args=\'{"arg": "value"}\' /><|end|>' }],
+            choices: [
+              {
+                text: '<|channel|>final<|message|><tool_call name="native_tool" args=\'{"arg": "value"}\' /><|end|>',
+              },
+            ],
           },
         };
 
         mockedAxios.post.mockResolvedValue(mockResponse);
 
         const parseResult: HarmonyParseResult = {
-          content: '',
-          rawToolCalls: ['<tool_call name="native_tool" args=\'{"arg": "value"}\' />'],
+          content: "",
+          rawToolCalls: [
+            '<tool_call name="native_tool" args=\'{"arg": "value"}\' />',
+          ],
         };
 
         mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
 
         const toolCalls: MCPToolCall[] = [
-          { name: 'native_tool', arguments: { arg: 'value' } },
+          { name: "native_tool", arguments: { arg: "value" } },
         ];
 
         mockHarmonyProcessor.extractToolCalls.mockReturnValue(toolCalls);
 
         const nativeTool: NativeTool = {
-          name: 'native_tool',
-          description: 'Test native tool',
+          name: "native_tool",
+          description: "Test native tool",
           inputSchema: {
-            type: 'object',
+            type: "object",
             properties: {
-              param: { type: 'string', description: 'Parameter' },
+              param: { type: "string", description: "Parameter" },
             },
           },
         } as any;
 
         mockNativeToolsManager.getAvailableTools.mockReturnValue([nativeTool]);
         mockNativeToolsManager.callTool.mockResolvedValue({
-          content: [{ type: 'text', text: 'Native tool result' }],
+          content: [{ type: "text", text: "Native tool result" }],
           isError: false,
         });
 
-        const result = await client.callServer('Test');
+        const result = await client.callServer("Test");
 
-        expect(mockNativeToolsManager.callTool).toHaveBeenCalledWith('native_tool', { arg: 'value' });
+        expect(mockNativeToolsManager.callTool).toHaveBeenCalledWith(
+          "native_tool",
+          { arg: "value" }
+        );
         expect(result.toolCalls).toBeDefined();
         expect(result.toolCalls?.length).toBe(1);
-        expect(result.toolCalls?.[0].name).toBe('native_tool');
+        expect(result.toolCalls?.[0].name).toBe("native_tool");
       });
 
-
-      it('should handle tool not found error', async () => {
+      it("should handle tool not found error", async () => {
         const mockResponse = {
           status: 200,
           data: {
-            choices: [{ text: '<|channel|>final<|message|><tool_call name="unknown_tool" args=\'{"arg": "value"}\' /><|end|>' }],
+            choices: [
+              {
+                text: '<|channel|>final<|message|><tool_call name="unknown_tool" args=\'{"arg": "value"}\' /><|end|>',
+              },
+            ],
           },
         };
 
         mockedAxios.post.mockResolvedValue(mockResponse);
 
         const parseResult: HarmonyParseResult = {
-          content: '',
-          rawToolCalls: ['<tool_call name="unknown_tool" args=\'{"arg": "value"}\' />'],
+          content: "",
+          rawToolCalls: [
+            '<tool_call name="unknown_tool" args=\'{"arg": "value"}\' />',
+          ],
         };
 
         mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
 
         const toolCalls: MCPToolCall[] = [
-          { name: 'unknown_tool', arguments: { arg: 'value' } },
+          { name: "unknown_tool", arguments: { arg: "value" } },
         ];
 
         mockHarmonyProcessor.extractToolCalls.mockReturnValue(toolCalls);
 
         mockMCPManager.findToolServer.mockReturnValue(null);
 
-        const result = await client.callServer('Test');
+        const result = await client.callServer("Test");
 
         expect(result.toolCalls).toBeDefined();
         // Check that we have at least one tool call with the expected error
-        const errorToolCalls = result.toolCalls?.filter(tc => tc.result?.isError && tc.result?.content[0]?.text?.includes('not found'));
+        const errorToolCalls = result.toolCalls?.filter(
+          (tc) =>
+            tc.result?.isError &&
+            tc.result?.content[0]?.text?.includes("not found")
+        );
         expect(errorToolCalls?.length).toBeGreaterThan(0);
         // Check that the first tool call has the expected error
-        const firstErrorCall = result.toolCalls?.find(tc => tc.name === 'unknown_tool');
+        const firstErrorCall = result.toolCalls?.find(
+          (tc) => tc.name === "unknown_tool"
+        );
         expect(firstErrorCall?.result?.isError).toBe(true);
-        expect(firstErrorCall?.result?.content[0].text).toContain('not found');
-
+        expect(firstErrorCall?.result?.content[0].text).toContain("not found");
       });
 
-      it('should handle tool execution error', async () => {
+      it("should handle tool execution error", async () => {
         const mockResponse = {
           status: 200,
           data: {
-            choices: [{ text: '<|channel|>final<|message|><tool_call name="error_tool" args=\'{"arg": "value"}\' /><|end|>' }],
+            choices: [
+              {
+                text: '<|channel|>final<|message|><tool_call name="error_tool" args=\'{"arg": "value"}\' /><|end|>',
+              },
+            ],
           },
         };
 
         mockedAxios.post.mockResolvedValue(mockResponse);
 
         const parseResult: HarmonyParseResult = {
-          content: '',
-          rawToolCalls: ['<tool_call name="error_tool" args=\'{"arg": "value"}\' />'],
+          content: "",
+          rawToolCalls: [
+            '<tool_call name="error_tool" args=\'{"arg": "value"}\' />',
+          ],
         };
 
         mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
 
         const toolCalls: MCPToolCall[] = [
-          { name: 'error_tool', arguments: { arg: 'value' } },
+          { name: "error_tool", arguments: { arg: "value" } },
         ];
 
         mockHarmonyProcessor.extractToolCalls.mockReturnValue(toolCalls);
 
-        mockMCPManager.findToolServer.mockReturnValue('test-server');
-        mockMCPManager.callTool.mockRejectedValue(new Error('Tool execution failed'));
+        mockMCPManager.findToolServer.mockReturnValue("test-server");
+        mockMCPManager.callTool.mockRejectedValue(
+          new Error("Tool execution failed")
+        );
 
-        const result = await client.callServer('Test');
+        const result = await client.callServer("Test");
 
         expect(result.toolCalls).toBeDefined();
         expect(result.toolCalls?.length).toBe(1);
         expect(result.toolCalls?.[0].result?.isError).toBe(true);
-        expect(result.toolCalls?.[0].result?.content[0].text).toContain('Tool execution failed');
+        expect(result.toolCalls?.[0].result?.content[0].text).toContain(
+          "Tool execution failed"
+        );
       });
 
-      it('should format tool results in response', async () => {
+      it("should format tool results in response", async () => {
         const mockResponse = {
           status: 200,
           data: {
-            choices: [{ text: '<|channel|>final<|message|><tool_call name="test_tool" args=\'{"arg": "value"}\' /><|end|>' }],
+            choices: [
+              {
+                text: '<|channel|>final<|message|><tool_call name="test_tool" args=\'{"arg": "value"}\' /><|end|>',
+              },
+            ],
           },
         };
 
         mockedAxios.post.mockResolvedValue(mockResponse);
 
         const parseResult: HarmonyParseResult = {
-          content: 'Initial content',
-          rawToolCalls: ['<tool_call name="test_tool" args=\'{"arg": "value"}\' />'],
+          content: "Initial content",
+          rawToolCalls: [
+            '<tool_call name="test_tool" args=\'{"arg": "value"}\' />',
+          ],
         };
 
         mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
 
         const toolCalls: MCPToolCall[] = [
-          { name: 'test_tool', arguments: { arg: 'value' } },
+          { name: "test_tool", arguments: { arg: "value" } },
         ];
 
         mockHarmonyProcessor.extractToolCalls.mockReturnValue(toolCalls);
 
         const toolResult: MCPToolResult = {
-          content: [{ type: 'text', text: 'Tool executed successfully' }],
+          content: [{ type: "text", text: "Tool executed successfully" }],
           isError: false,
         };
 
-        mockMCPManager.findToolServer.mockReturnValue('test-server');
+        mockMCPManager.findToolServer.mockReturnValue("test-server");
         mockMCPManager.callTool.mockResolvedValue(toolResult);
 
-        const result = await client.callServer('Test');
+        const result = await client.callServer("Test");
 
-        expect(result.content).toContain('Initial content');
-        expect(result.content).toContain('**Tool Results:**');
-        expect(result.content).toContain('test_tool');
-        expect(result.content).toContain('Tool executed successfully');
+        expect(result.content).toContain("Initial content");
+        expect(result.content).toContain("**Tool Results:**");
+        expect(result.content).toContain("test_tool");
+        expect(result.content).toContain("Tool executed successfully");
       });
-    });
 
-    describe('Rules integration', () => {
-      it('should include applicable rules in prompt', async () => {
-        const mockRule: Rule = {
-          id: 'rule1',
-          filePath: '/path/to/rule.md',
-          description: 'Test description',
-          triggers: ['test'],
-          content: 'Rule content',
-          lastModified: Date.now(),
-        };
-
-        mockRulesManager.getApplicableRules.mockReturnValue([mockRule]);
-        mockRulesManager.formatRulesForPrompt.mockReturnValue('Rule: Test Rule');
-
+      it("should include exec_terminal output in snippet stage response", async () => {
         const mockResponse = {
           status: 200,
           data: {
-            choices: [{ text: '<|channel|>final<|message|>Response<|end|>' }],
+            choices: [
+              {
+                text: '<|channel|>final<|message|><tool_call name="exec_terminal" args=\'{"command": "python calc.py add 2 3"}\' /><|end|>',
+              },
+            ],
           },
         };
 
         mockedAxios.post.mockResolvedValue(mockResponse);
 
         const parseResult: HarmonyParseResult = {
-          content: 'Response',
+          content: "",
+          rawToolCalls: [
+            '<tool_call name="exec_terminal" args=\'{"command": "python calc.py add 2 3"}\' />',
+          ],
+        };
+
+        mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
+
+        const toolCalls: MCPToolCall[] = [
+          {
+            name: "exec_terminal",
+            arguments: { command: "python calc.py add 2 3" },
+          },
+        ];
+
+        mockHarmonyProcessor.extractToolCalls.mockReturnValue(toolCalls);
+
+        const execTool: NativeTool = {
+          name: "exec_terminal",
+          description: "Execute a shell command",
+          inputSchema: {
+            type: "object",
+            properties: {
+              command: { type: "string" },
+            },
+            required: ["command"],
+          },
+        } as any;
+
+        mockNativeToolsManager.getAvailableTools.mockReturnValue([execTool]);
+        mockNativeToolsManager.callTool.mockResolvedValue({
+          content: [{ type: "text", text: "5" }],
+          isError: false,
+        });
+
+        const result = await client.callServer("@snippet run calc.py add 2 3");
+
+        expect(result.content).toContain("**Tool Results:**");
+        expect(result.content).toContain("exec_terminal");
+        expect(result.content).toContain("5");
+      });
+    });
+
+    describe("Rules integration", () => {
+      it("should include applicable rules in prompt", async () => {
+        const mockRule: Rule = {
+          id: "rule1",
+          filePath: "/path/to/rule.md",
+          description: "Test description",
+          triggers: ["test"],
+          content: "Rule content",
+          lastModified: Date.now(),
+        };
+
+        mockRulesManager.getApplicableRules.mockReturnValue([mockRule]);
+        mockRulesManager.formatRulesForPrompt.mockReturnValue(
+          "Rule: Test Rule"
+        );
+
+        const mockResponse = {
+          status: 200,
+          data: {
+            choices: [{ text: "<|channel|>final<|message|>Response<|end|>" }],
+          },
+        };
+
+        mockedAxios.post.mockResolvedValue(mockResponse);
+
+        const parseResult: HarmonyParseResult = {
+          content: "Response",
           rawToolCalls: [],
         };
 
         mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
         mockHarmonyProcessor.extractToolCalls.mockReturnValue([]);
 
-        await client.callServer('test prompt');
+        await client.callServer("test prompt");
 
-        expect(mockRulesManager.getApplicableRules).toHaveBeenCalledWith('test prompt');
-        expect(mockRulesManager.formatRulesForPrompt).toHaveBeenCalledWith([mockRule]);
+        expect(mockRulesManager.getApplicableRules).toHaveBeenCalledWith(
+          "test prompt"
+        );
+        expect(mockRulesManager.formatRulesForPrompt).toHaveBeenCalledWith([
+          mockRule,
+        ]);
 
         const callArgs = mockedAxios.post.mock.calls[0][1] as any;
-        expect(callArgs.prompt).toContain('Rule: Test Rule');
+        expect(callArgs.prompt).toContain("Rule: Test Rule");
       });
 
-      it('should check rules from conversation history', async () => {
+      it("should check rules from conversation history", async () => {
         const mockRule: Rule = {
-          id: 'rule1',
-          filePath: '/path/to/rule.md',
-          description: 'Test description',
-          triggers: ['test'],
-          content: 'Rule content',
+          id: "rule1",
+          filePath: "/path/to/rule.md",
+          description: "Test description",
+          triggers: ["test"],
+          content: "Rule content",
           lastModified: Date.now(),
         };
 
-        mockRulesManager.getApplicableRulesFromHistory.mockReturnValue([mockRule]);
-        mockRulesManager.formatRulesForPrompt.mockReturnValue('Rule content');
+        mockRulesManager.getApplicableRulesFromHistory.mockReturnValue([
+          mockRule,
+        ]);
+        mockRulesManager.formatRulesForPrompt.mockReturnValue("Rule content");
 
         const mockResponse = {
           status: 200,
           data: {
-            choices: [{ text: '<|channel|>final<|message|>Response<|end|>' }],
+            choices: [{ text: "<|channel|>final<|message|>Response<|end|>" }],
           },
         };
 
         mockedAxios.post.mockResolvedValue(mockResponse);
 
         const parseResult: HarmonyParseResult = {
-          content: 'Response',
+          content: "Response",
           rawToolCalls: [],
         };
 
@@ -507,76 +637,100 @@ describe('HarmonyClient', () => {
         mockHarmonyProcessor.extractToolCalls.mockReturnValue([]);
 
         const history = [
-          { role: 'user', content: 'test message' },
-          { role: 'assistant', content: 'response' },
+          { role: "user", content: "test message" },
+          { role: "assistant", content: "response" },
         ] as any;
 
-        await client.callServer('new prompt', undefined, undefined, false, history);
+        await client.callServer(
+          "new prompt",
+          undefined,
+          undefined,
+          false,
+          history
+        );
 
-        expect(mockRulesManager.getApplicableRulesFromHistory).toHaveBeenCalledWith(history);
+        expect(
+          mockRulesManager.getApplicableRulesFromHistory
+        ).toHaveBeenCalledWith(history);
       });
 
-      it('should format tool results with rules', async () => {
+      it("should format tool results with rules", async () => {
         const mockRule: Rule = {
-          id: 'rule1',
-          filePath: '/path/to/rule.md',
-          description: 'Test description',
-          triggers: ['test'],
-          content: 'Rule content',
+          id: "rule1",
+          filePath: "/path/to/rule.md",
+          description: "Test description",
+          triggers: ["test"],
+          content: "Rule content",
           lastModified: Date.now(),
         };
 
         const mockResponse = {
           status: 200,
           data: {
-            choices: [{ text: '<|channel|>final<|message|><tool_call name="test_tool" args=\'{"arg": "value"}\' /><|end|>' }],
+            choices: [
+              {
+                text: '<|channel|>final<|message|><tool_call name="test_tool" args=\'{"arg": "value"}\' /><|end|>',
+              },
+            ],
           },
         };
 
         mockedAxios.post.mockResolvedValue(mockResponse);
 
         const parseResult: HarmonyParseResult = {
-          content: '',
-          rawToolCalls: ['<tool_call name="test_tool" args=\'{"arg": "value"}\' />'],
+          content: "",
+          rawToolCalls: [
+            '<tool_call name="test_tool" args=\'{"arg": "value"}\' />',
+          ],
         };
 
         mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
 
         const toolCalls: MCPToolCall[] = [
-          { name: 'test_tool', arguments: { arg: 'value' } },
+          { name: "test_tool", arguments: { arg: "value" } },
         ];
 
         mockHarmonyProcessor.extractToolCalls.mockReturnValue(toolCalls);
 
         const toolResult: MCPToolResult = {
-          content: [{ type: 'text', text: 'Tool result' }],
+          content: [{ type: "text", text: "Tool result" }],
           isError: false,
         };
 
-        mockMCPManager.findToolServer.mockReturnValue('test-server');
+        mockMCPManager.findToolServer.mockReturnValue("test-server");
         mockMCPManager.callTool.mockResolvedValue(toolResult);
 
         mockRulesManager.getApplicableRules.mockReturnValue([mockRule]);
         mockRulesManager.getRulesForTools.mockReturnValue([mockRule]);
-        mockRulesManager.formatRulesForPrompt.mockReturnValue('Rule content');
+        mockRulesManager.formatRulesForPrompt.mockReturnValue("Rule content");
 
         // Mock the formatting API call
         const formatResponse = {
           status: 200,
           data: {
-            choices: [{ text: '<|channel|>final<|message|>{"formatted": "result"}<|end|>' }],
+            choices: [
+              {
+                text: '<|channel|>final<|message|>{"formatted": "result"}<|end|>',
+              },
+            ],
           },
         };
 
-        mockedAxios.post.mockResolvedValueOnce(mockResponse).mockResolvedValueOnce(formatResponse);
+        mockedAxios.post
+          .mockResolvedValueOnce(mockResponse)
+          .mockResolvedValueOnce(formatResponse);
 
-        mockHarmonyProcessor.formatPrompt.mockReturnValue('<|start|>user<|channel|>final<|message|>Formatted prompt<|end|>');
-        mockHarmonyProcessor.parseResponse.mockReturnValueOnce(parseResult).mockReturnValueOnce({
-          content: '{"formatted": "result"}',
-          rawToolCalls: [],
-        });
+        mockHarmonyProcessor.formatPrompt.mockReturnValue(
+          "<|start|>user<|channel|>final<|message|>Formatted prompt<|end|>"
+        );
+        mockHarmonyProcessor.parseResponse
+          .mockReturnValueOnce(parseResult)
+          .mockReturnValueOnce({
+            content: '{"formatted": "result"}',
+            rawToolCalls: [],
+          });
 
-        const result = await client.callServer('test prompt');
+        const result = await client.callServer("test prompt");
 
         // Should have made two API calls: one for main request, one for formatting
         expect(mockedAxios.post).toHaveBeenCalledTimes(2);
@@ -584,50 +738,54 @@ describe('HarmonyClient', () => {
       });
     });
 
-    describe('Templates', () => {
-      it('should apply template when provided', async () => {
+    describe("Templates", () => {
+      it("should apply template when provided", async () => {
         const mockResponse = {
           status: 200,
           data: {
-            choices: [{ text: '<|channel|>final<|message|>Response<|end|>' }],
+            choices: [{ text: "<|channel|>final<|message|>Response<|end|>" }],
           },
         };
 
         mockedAxios.post.mockResolvedValue(mockResponse);
 
         const parseResult: HarmonyParseResult = {
-          content: 'Response',
+          content: "Response",
           rawToolCalls: [],
         };
 
         mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
         mockHarmonyProcessor.extractToolCalls.mockReturnValue([]);
 
-        const applyTemplate = jest.fn().mockResolvedValue('Templated prompt');
+        const applyTemplate = jest.fn().mockResolvedValue("Templated prompt");
 
-        await client.callServer('Test prompt', 'chat', applyTemplate);
+        await client.callServer("Test prompt", "chat", applyTemplate);
 
         expect(applyTemplate).toHaveBeenCalled();
         const templateCallArgs = applyTemplate.mock.calls[0];
-        expect(templateCallArgs[0]).toBe('chat');
+        expect(templateCallArgs[0]).toBe("chat");
         expect(templateCallArgs[1]).toMatchObject({
-          prompt: 'Test prompt',
+          prompt: "Test prompt",
           tools: expect.any(Array),
           stage: expect.any(String),
           stageInstructions: expect.any(String),
         });
 
         const callArgs = mockedAxios.post.mock.calls[0][1] as any;
-        expect(callArgs.prompt).toBe('Templated prompt');
+        expect(callArgs.prompt).toBe("Templated prompt");
       });
     });
 
-    describe('Continuation logic', () => {
-      it('should continue task when shouldContinueTask returns true', async () => {
+    describe("Continuation logic", () => {
+      it("should continue task when shouldContinueTask returns true", async () => {
         const mockResponse = {
           status: 200,
           data: {
-            choices: [{ text: '<|channel|>final<|message|>Now I will read the file<tool_call name="read_file" args=\'{"file_path": "test.txt"}\' /><|end|>' }],
+            choices: [
+              {
+                text: '<|channel|>final<|message|>Now I will read the file<tool_call name="read_file" args=\'{"file_path": "test.txt"}\' /><|end|>',
+              },
+            ],
           },
         };
 
@@ -635,7 +793,11 @@ describe('HarmonyClient', () => {
         const continuationResponse = {
           status: 200,
           data: {
-            choices: [{ text: '<|channel|>final<|message|>Now I will read another file<tool_call name="read_file" args=\'{"file_path": "output.txt"}\' /><|end|>' }],
+            choices: [
+              {
+                text: '<|channel|>final<|message|>Now I will read another file<tool_call name="read_file" args=\'{"file_path": "output.txt"}\' /><|end|>',
+              },
+            ],
           },
         };
 
@@ -645,37 +807,41 @@ describe('HarmonyClient', () => {
           .mockResolvedValue({
             status: 200,
             data: {
-              choices: [{ text: '<|channel|>final<|message|>Done<|end|>' }],
+              choices: [{ text: "<|channel|>final<|message|>Done<|end|>" }],
             },
           }); // Fallback for any extra calls
 
         const parseResult: HarmonyParseResult = {
-          content: 'Now I will read the file',
-          rawToolCalls: ['<tool_call name="read_file" args=\'{"file_path": "test.txt"}\' />'],
+          content: "Now I will read the file",
+          rawToolCalls: [
+            '<tool_call name="read_file" args=\'{"file_path": "test.txt"}\' />',
+          ],
         };
 
         const continuationParseResult: HarmonyParseResult = {
-          content: 'Now I will read another file',
-          rawToolCalls: ['<tool_call name="read_file" args=\'{"file_path": "output.txt"}\' />'],
+          content: "Now I will read another file",
+          rawToolCalls: [
+            '<tool_call name="read_file" args=\'{"file_path": "output.txt"}\' />',
+          ],
         };
 
         mockHarmonyProcessor.parseResponse
           .mockReturnValueOnce(parseResult)
           .mockReturnValueOnce(continuationParseResult)
-          .mockReturnValue({ 
-            content: '', 
+          .mockReturnValue({
+            content: "",
             rawToolCalls: [],
             reasoning: undefined,
             commentary: undefined,
-            final: undefined
+            final: undefined,
           }); // Fallback for any extra calls - ensure all required fields
 
         const toolCalls: MCPToolCall[] = [
-          { name: 'read_file', arguments: { file_path: 'test.txt' } },
+          { name: "read_file", arguments: { file_path: "test.txt" } },
         ];
 
         const continuationToolCalls: MCPToolCall[] = [
-          { name: 'read_file', arguments: { file_path: 'output.txt' } },
+          { name: "read_file", arguments: { file_path: "output.txt" } },
         ];
 
         mockHarmonyProcessor.extractToolCalls
@@ -684,26 +850,28 @@ describe('HarmonyClient', () => {
           .mockReturnValue([]); // Fallback for any extra calls
 
         const readFileTool: NativeTool = {
-          name: 'read_file',
-          description: 'Read a file',
+          name: "read_file",
+          description: "Read a file",
           inputSchema: {
-            type: 'object',
+            type: "object",
             properties: {
-              file_path: { type: 'string', description: 'Path to the file' },
+              file_path: { type: "string", description: "Path to the file" },
             },
-            required: ['file_path'],
+            required: ["file_path"],
           },
         } as any;
 
-        mockNativeToolsManager.getAvailableTools.mockReturnValue([readFileTool]);
+        mockNativeToolsManager.getAvailableTools.mockReturnValue([
+          readFileTool,
+        ]);
 
         const toolResult = {
-          content: [{ type: 'text', text: 'File content' }],
+          content: [{ type: "text", text: "File content" }],
           isError: false,
         };
 
         const secondFileResult = {
-          content: [{ type: 'text', text: 'Second file content' }],
+          content: [{ type: "text", text: "Second file content" }],
           isError: false,
         };
 
@@ -711,7 +879,7 @@ describe('HarmonyClient', () => {
           .mockResolvedValueOnce(toolResult as any)
           .mockResolvedValueOnce(secondFileResult as any);
 
-        const result = await client.callServer('read test.txt and output.txt');
+        const result = await client.callServer("read test.txt and output.txt");
 
         // Should have made two API calls
         expect(mockedAxios.post).toHaveBeenCalledTimes(2);
@@ -719,41 +887,46 @@ describe('HarmonyClient', () => {
         expect(result.toolCalls?.length).toBe(2);
       });
 
-
-      it('should stop continuation at max steps', async () => {
+      it("should stop continuation at max steps", async () => {
         const mockResponse = {
           status: 200,
           data: {
-            choices: [{ text: '<|channel|>final<|message|><tool_call name="read_file" args=\'{"file_path": "test.txt"}\' /><|end|>' }],
+            choices: [
+              {
+                text: '<|channel|>final<|message|><tool_call name="read_file" args=\'{"file_path": "test.txt"}\' /><|end|>',
+              },
+            ],
           },
         };
 
         mockedAxios.post.mockResolvedValue(mockResponse);
 
         const parseResult: HarmonyParseResult = {
-          content: '',
-          rawToolCalls: ['<tool_call name="read_file" args=\'{"file_path": "test.txt"}\' />'],
+          content: "",
+          rawToolCalls: [
+            '<tool_call name="read_file" args=\'{"file_path": "test.txt"}\' />',
+          ],
         };
 
         mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
 
         const toolCalls: MCPToolCall[] = [
-          { name: 'read_file', arguments: { file_path: 'test.txt' } },
+          { name: "read_file", arguments: { file_path: "test.txt" } },
         ];
 
         mockHarmonyProcessor.extractToolCalls.mockReturnValue(toolCalls);
 
         const toolResult: MCPToolResult = {
-          content: [{ type: 'text', text: 'File content' }],
+          content: [{ type: "text", text: "File content" }],
           isError: false,
         };
 
-        mockMCPManager.findToolServer.mockReturnValue('test-server');
+        mockMCPManager.findToolServer.mockReturnValue("test-server");
         mockMCPManager.callTool.mockResolvedValue(toolResult);
 
         // Force continuation by making shouldContinueTask return true
         // We'll need to trigger this by having a file task with only discovery tools
-        const result = await client.callServer('update test.txt');
+        const result = await client.callServer("update test.txt");
 
         // After 5 steps, should stop
         // This is tested indirectly by checking the continuation logic
@@ -761,34 +934,34 @@ describe('HarmonyClient', () => {
       });
     });
 
-    describe('Tools context', () => {
-      it('should exclude MCP tools in chat stage', async () => {
+    describe("Tools context", () => {
+      it("should exclude MCP tools in chat stage", async () => {
         // Note: MCP tools are not allowed in chat stage, so this test verifies
         // that MCP tools are correctly filtered out and not shown in the prompt
         const mcpTool = {
-          name: 'mcp_tool',
-          description: 'MCP tool description',
+          name: "mcp_tool",
+          description: "MCP tool description",
           inputSchema: {
-            type: 'object',
+            type: "object",
             properties: {
-              param: { type: 'string', description: 'Parameter' },
+              param: { type: "string", description: "Parameter" },
             },
             required: [],
           },
         };
 
         mockMCPManager.getAllTools.mockReturnValue([mcpTool as any]);
-        
+
         // Also add an allowed native tool to verify the tools section appears
         const nativeTool: NativeTool = {
-          name: 'read_file',
-          description: 'Read the contents of a file',
+          name: "read_file",
+          description: "Read the contents of a file",
           inputSchema: {
-            type: 'object',
+            type: "object",
             properties: {
-              file_path: { type: 'string', description: 'Path to the file' },
+              file_path: { type: "string", description: "Path to the file" },
             },
-            required: ['file_path'],
+            required: ["file_path"],
           },
         } as any;
         mockNativeToolsManager.getAvailableTools.mockReturnValue([nativeTool]);
@@ -796,45 +969,47 @@ describe('HarmonyClient', () => {
         const mockResponse = {
           status: 200,
           data: {
-            choices: [{ text: '<|channel|>final<|message|>Response<|end|>' }],
+            choices: [{ text: "<|channel|>final<|message|>Response<|end|>" }],
           },
         };
 
         mockedAxios.post.mockResolvedValue(mockResponse);
 
         const parseResult: HarmonyParseResult = {
-          content: 'Response',
+          content: "Response",
           rawToolCalls: [],
         };
 
         mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
         mockHarmonyProcessor.extractToolCalls.mockReturnValue([]);
 
-        await client.callServer('Test');
+        await client.callServer("Test");
 
         const callArgs = mockedAxios.post.mock.calls[0][1] as any;
         // MCP tools should NOT appear in chat stage prompt
-        expect(callArgs.prompt).not.toContain('[MCP] mcp_tool');
-        expect(callArgs.prompt).not.toContain('MCP tool description');
+        expect(callArgs.prompt).not.toContain("[MCP] mcp_tool");
+        expect(callArgs.prompt).not.toContain("MCP tool description");
         // But allowed native tools SHOULD appear
-        expect(callArgs.prompt).toContain('Available Tools');
-        expect(callArgs.prompt).toContain('[Built-in] read_file');
+        expect(callArgs.prompt).toContain("Available Tools");
+        expect(callArgs.prompt).toContain("[Built-in] read_file");
       });
 
-      it('should include native tools in context', async () => {
+      it("should include native tools in context", async () => {
         // Use a native tool that IS allowed in chat stage
         const nativeTool: NativeTool = {
-          name: 'read_file',
-          description: 'Read the contents of a file. Returns the file content as text.',
+          name: "read_file",
+          description:
+            "Read the contents of a file. Returns the file content as text.",
           inputSchema: {
-            type: 'object',
+            type: "object",
             properties: {
               file_path: {
-                type: 'string',
-                description: 'Path to the file to read. Can be relative to workspace root or absolute.',
+                type: "string",
+                description:
+                  "Path to the file to read. Can be relative to workspace root or absolute.",
               },
             },
-            required: ['file_path'],
+            required: ["file_path"],
           },
         } as any;
 
@@ -843,97 +1018,103 @@ describe('HarmonyClient', () => {
         const mockResponse = {
           status: 200,
           data: {
-            choices: [{ text: '<|channel|>final<|message|>Response<|end|>' }],
+            choices: [{ text: "<|channel|>final<|message|>Response<|end|>" }],
           },
         };
 
         mockedAxios.post.mockResolvedValue(mockResponse);
 
         const parseResult: HarmonyParseResult = {
-          content: 'Response',
+          content: "Response",
           rawToolCalls: [],
         };
 
         mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
         mockHarmonyProcessor.extractToolCalls.mockReturnValue([]);
 
-        await client.callServer('Test');
+        await client.callServer("Test");
 
         const callArgs = mockedAxios.post.mock.calls[0][1] as any;
-        expect(callArgs.prompt).toContain('Available Tools');
-        expect(callArgs.prompt).toContain('[Built-in] read_file');
-        expect(callArgs.prompt).toContain('Read the contents of a file');
+        expect(callArgs.prompt).toContain("Available Tools");
+        expect(callArgs.prompt).toContain("[Built-in] read_file");
+        expect(callArgs.prompt).toContain("Read the contents of a file");
       });
     });
 
-    describe('Error handling', () => {
-      it('should handle axios errors', async () => {
-        const error = new Error('Network error');
+    describe("Error handling", () => {
+      it("should handle axios errors", async () => {
+        const error = new Error("Network error");
         mockedAxios.post.mockRejectedValue(error);
 
-        await expect(client.callServer('Test')).rejects.toThrow('Failed to call Harmony server: Network error');
+        await expect(client.callServer("Test")).rejects.toThrow(
+          "Failed to call Harmony server: Network error"
+        );
       });
 
-      it('should handle API errors gracefully', async () => {
+      it("should handle API errors gracefully", async () => {
         const mockResponse = {
           status: 500,
-          data: { error: 'Internal server error' },
+          data: { error: "Internal server error" },
         };
 
         mockedAxios.post.mockResolvedValue(mockResponse);
 
         // The code will try to extract response text, which will fail
         mockHarmonyProcessor.parseResponse.mockReturnValue({
-          content: '',
+          content: "",
           rawToolCalls: [],
         });
 
         // This should throw an error about unexpected format
-        await expect(client.callServer('Test')).rejects.toThrow();
+        await expect(client.callServer("Test")).rejects.toThrow();
       });
     });
 
-    describe('Reasoning extraction', () => {
-      it('should extract reasoning from analysis channel', async () => {
+    describe("Reasoning extraction", () => {
+      it("should extract reasoning from analysis channel", async () => {
         const mockResponse = {
           status: 200,
           data: {
-            choices: [{ text: '<|channel|>analysis<|message|>Reasoning text<|end|><|channel|>final<|message|>Response<|end|>' }],
+            choices: [
+              {
+                text: "<|channel|>analysis<|message|>Reasoning text<|end|><|channel|>final<|message|>Response<|end|>",
+              },
+            ],
           },
         };
 
         mockedAxios.post.mockResolvedValue(mockResponse);
 
         const parseResult: HarmonyParseResult = {
-          content: 'Response',
-          reasoning: 'Reasoning text',
+          content: "Response",
+          reasoning: "Reasoning text",
           rawToolCalls: [],
         };
 
         mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
         mockHarmonyProcessor.extractToolCalls.mockReturnValue([]);
 
-        const result = await client.callServer('Test');
+        const result = await client.callServer("Test");
 
-        expect(result.reasoning).toBe('Reasoning text');
+        expect(result.reasoning).toBe("Reasoning text");
       });
     });
   });
 
-  describe('resetConversationContext', () => {
-    it('should reset conversation context', () => {
+  describe("resetConversationContext", () => {
+    it("should reset conversation context", () => {
       // Initialize context by making a call
       const mockResponse = {
         status: 200,
         data: {
-          choices: [{ text: '<|channel|>final<|message|>Response<|end|>' }],
+          choices: [{ text: "<|channel|>final<|message|>Response<|end|>" }],
         },
       };
 
       mockedAxios.post.mockResolvedValue(mockResponse);
 
       mockHarmonyProcessor.parseResponse.mockReturnValue({
-        content: 'Response',
+        content: "Response",
         rawToolCalls: [],
       });
 
@@ -946,12 +1127,16 @@ describe('HarmonyClient', () => {
     });
   });
 
-  describe('Edge cases', () => {
-    it('should handle response without tool calls but with tool call content', async () => {
+  describe("Edge cases", () => {
+    it("should handle response without tool calls but with tool call content", async () => {
       const mockResponse = {
         status: 200,
         data: {
-          choices: [{ text: '<|channel|>final<|message|>Content with <tool_call name="test" /> in it<|end|>' }],
+          choices: [
+            {
+              text: '<|channel|>final<|message|>Content with <tool_call name="test" /> in it<|end|>',
+            },
+          ],
         },
       };
 
@@ -965,77 +1150,87 @@ describe('HarmonyClient', () => {
       mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
       mockHarmonyProcessor.extractToolCalls.mockReturnValue([]);
 
-      const result = await client.callServer('Test');
+      const result = await client.callServer("Test");
 
-      expect(result.content).toContain('Content with');
+      expect(result.content).toContain("Content with");
     });
 
-    it('should handle continuation without MCP or Native tools manager', async () => {
+    it("should handle continuation without MCP or Native tools manager", async () => {
       const clientWithoutManagers = new HarmonyClient(mockConfig);
 
       const mockResponse = {
         status: 200,
         data: {
-          choices: [{ text: '<|channel|>final<|message|>Response<|end|>' }],
+          choices: [{ text: "<|channel|>final<|message|>Response<|end|>" }],
         },
       };
 
       mockedAxios.post.mockResolvedValue(mockResponse);
 
       const parseResult: HarmonyParseResult = {
-        content: 'Response',
+        content: "Response",
         rawToolCalls: [],
       };
 
       // Need to mock the harmony processor methods for the new client
-      const harmonyProcessorInstance = (clientWithoutManagers as any).harmonyProcessor;
-      jest.spyOn(harmonyProcessorInstance, 'parseResponse').mockReturnValue(parseResult);
-      jest.spyOn(harmonyProcessorInstance, 'extractToolCalls').mockReturnValue([]);
+      const harmonyProcessorInstance = (clientWithoutManagers as any)
+        .harmonyProcessor;
+      jest
+        .spyOn(harmonyProcessorInstance, "parseResponse")
+        .mockReturnValue(parseResult);
+      jest
+        .spyOn(harmonyProcessorInstance, "extractToolCalls")
+        .mockReturnValue([]);
 
-      const result = await clientWithoutManagers.callServer('Test');
+      const result = await clientWithoutManagers.callServer("Test");
 
-      expect(result.content).toBe('Response');
+      expect(result.content).toBe("Response");
     });
 
-    it('should handle API key absence', async () => {
-      const configWithoutKey = { ...mockConfig, apiKey: '' };
+    it("should handle API key absence", async () => {
+      const configWithoutKey = { ...mockConfig, apiKey: "" };
       const clientWithoutKey = new HarmonyClient(configWithoutKey);
 
       const mockResponse = {
         status: 200,
         data: {
-          choices: [{ text: '<|channel|>final<|message|>Response<|end|>' }],
+          choices: [{ text: "<|channel|>final<|message|>Response<|end|>" }],
         },
       };
 
       mockedAxios.post.mockResolvedValue(mockResponse);
 
       const parseResult: HarmonyParseResult = {
-        content: 'Response',
+        content: "Response",
         rawToolCalls: [],
       };
 
       // Need to mock the harmony processor methods for the new client
-      const harmonyProcessorInstance = (clientWithoutKey as any).harmonyProcessor;
-      jest.spyOn(harmonyProcessorInstance, 'parseResponse').mockReturnValue(parseResult);
-      jest.spyOn(harmonyProcessorInstance, 'extractToolCalls').mockReturnValue([]);
+      const harmonyProcessorInstance = (clientWithoutKey as any)
+        .harmonyProcessor;
+      jest
+        .spyOn(harmonyProcessorInstance, "parseResponse")
+        .mockReturnValue(parseResult);
+      jest
+        .spyOn(harmonyProcessorInstance, "extractToolCalls")
+        .mockReturnValue([]);
 
-      await clientWithoutKey.callServer('Test');
+      await clientWithoutKey.callServer("Test");
 
       const callArgs = mockedAxios.post.mock.calls[0][2] as any;
-      expect(callArgs.headers).not.toHaveProperty('Authorization');
+      expect(callArgs.headers).not.toHaveProperty("Authorization");
     });
   });
 
-  describe('Truncation detection', () => {
-    it('should detect truncation from finish_reason: length', async () => {
+  describe("Truncation detection", () => {
+    it("should detect truncation from finish_reason: length", async () => {
       const mockResponse = {
         status: 200,
         data: {
           choices: [
             {
-              text: '<|channel|>final<|message|>Response content<|end|>',
-              finish_reason: 'length',
+              text: "<|channel|>final<|message|>Response content<|end|>",
+              finish_reason: "length",
             },
           ],
         },
@@ -1044,7 +1239,7 @@ describe('HarmonyClient', () => {
       mockedAxios.post.mockResolvedValue(mockResponse);
 
       const parseResult: HarmonyParseResult = {
-        content: 'Response content',
+        content: "Response content",
         rawToolCalls: [],
       };
 
@@ -1052,26 +1247,26 @@ describe('HarmonyClient', () => {
       mockHarmonyProcessor.extractToolCalls.mockReturnValue([]);
 
       // Spy on console.warn to check if truncation warning is logged
-      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
+      const consoleSpy = jest.spyOn(console, "warn").mockImplementation();
 
-      await client.callServer('Test');
+      await client.callServer("Test");
 
       // Should log truncation warning
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('⚠️ Response was truncated due to token limit')
+        expect.stringContaining("⚠️ Response was truncated due to token limit")
       );
 
       consoleSpy.mockRestore();
     });
 
-    it('should detect truncation from finish_reason: max_tokens', async () => {
+    it("should detect truncation from finish_reason: max_tokens", async () => {
       const mockResponse = {
         status: 200,
         data: {
           choices: [
             {
-              text: '<|channel|>final<|message|>Response<|end|>',
-              finish_reason: 'max_tokens',
+              text: "<|channel|>final<|message|>Response<|end|>",
+              finish_reason: "max_tokens",
             },
           ],
         },
@@ -1080,29 +1275,30 @@ describe('HarmonyClient', () => {
       mockedAxios.post.mockResolvedValue(mockResponse);
 
       const parseResult: HarmonyParseResult = {
-        content: 'Response',
+        content: "Response",
         rawToolCalls: [],
       };
 
       mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
       mockHarmonyProcessor.extractToolCalls.mockReturnValue([]);
 
-      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
+      const consoleSpy = jest.spyOn(console, "warn").mockImplementation();
 
-      await client.callServer('Test');
+      await client.callServer("Test");
 
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('⚠️ Response was truncated due to token limit')
+        expect.stringContaining("⚠️ Response was truncated due to token limit")
       );
 
       consoleSpy.mockRestore();
     });
 
-    it('should detect incomplete response with unclosed code block', async () => {
+    it("should detect incomplete response with unclosed code block", async () => {
       // Response with unclosed code block (only opening ```, no closing)
       // This has 1 ``` pattern (odd number), so should be detected
       // Note: Must use exactly 1 ``` (not 2 or more)
-      const responseText = '```python\nprint("test")\n# Missing closing code block';
+      const responseText =
+        '```python\nprint("test")\n# Missing closing code block';
       const mockResponse = {
         status: 200,
         data: {
@@ -1124,30 +1320,30 @@ describe('HarmonyClient', () => {
       mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
       mockHarmonyProcessor.extractToolCalls.mockReturnValue([]);
 
-      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
+      const consoleSpy = jest.spyOn(console, "warn").mockImplementation();
 
-      await client.callServer('Test');
+      await client.callServer("Test");
 
       // The detectIncompleteResponse method should detect the unclosed code block
       // and trigger a warning. Check for the warning message.
       const warnMessages = consoleSpy.mock.calls
-        .map(call => call[0])
-        .filter(msg => typeof msg === 'string')
-        .join(' ');
-      
+        .map((call) => call[0])
+        .filter((msg) => typeof msg === "string")
+        .join(" ");
+
       // Should contain warning about incomplete response
       expect(warnMessages).toMatch(/truncated|incomplete/i);
 
       consoleSpy.mockRestore();
     });
 
-    it('should detect incomplete response with file mention but no complete code block', async () => {
+    it("should detect incomplete response with file mention but no complete code block", async () => {
       const mockResponse = {
         status: 200,
         data: {
           choices: [
             {
-              text: '**File:** `test.swift`\n\n```swift\nclass Test {\n  // Code block not closed',
+              text: "**File:** `test.swift`\n\n```swift\nclass Test {\n  // Code block not closed",
             },
           ],
         },
@@ -1156,31 +1352,32 @@ describe('HarmonyClient', () => {
       mockedAxios.post.mockResolvedValue(mockResponse);
 
       const parseResult: HarmonyParseResult = {
-        content: '**File:** `test.swift`\n\n```swift\nclass Test {\n  // Code block not closed',
+        content:
+          "**File:** `test.swift`\n\n```swift\nclass Test {\n  // Code block not closed",
         rawToolCalls: [],
       };
 
       mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
       mockHarmonyProcessor.extractToolCalls.mockReturnValue([]);
 
-      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
+      const consoleSpy = jest.spyOn(console, "warn").mockImplementation();
 
-      await client.callServer('Test');
+      await client.callServer("Test");
 
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('⚠️ Response appears truncated or incomplete')
+        expect.stringContaining("⚠️ Response appears truncated or incomplete")
       );
 
       consoleSpy.mockRestore();
     });
 
-    it('should detect incomplete Harmony tokens', async () => {
+    it("should detect incomplete Harmony tokens", async () => {
       const mockResponse = {
         status: 200,
         data: {
           choices: [
             {
-              text: '<|channel|>final<|message|>Content<|channel|>analysis<|message|>Reasoning',
+              text: "<|channel|>final<|message|>Content<|channel|>analysis<|message|>Reasoning",
               // Missing <|end|> tokens
             },
           ],
@@ -1190,33 +1387,33 @@ describe('HarmonyClient', () => {
       mockedAxios.post.mockResolvedValue(mockResponse);
 
       const parseResult: HarmonyParseResult = {
-        content: 'Content',
-        reasoning: 'Reasoning',
+        content: "Content",
+        reasoning: "Reasoning",
         rawToolCalls: [],
       };
 
       mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
       mockHarmonyProcessor.extractToolCalls.mockReturnValue([]);
 
-      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
+      const consoleSpy = jest.spyOn(console, "warn").mockImplementation();
 
-      await client.callServer('Test');
+      await client.callServer("Test");
 
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('⚠️ Response appears truncated or incomplete')
+        expect.stringContaining("⚠️ Response appears truncated or incomplete")
       );
 
       consoleSpy.mockRestore();
     });
 
-    it('should not warn for complete responses', async () => {
+    it("should not warn for complete responses", async () => {
       const mockResponse = {
         status: 200,
         data: {
           choices: [
             {
-              text: '<|channel|>final<|message|>Complete response<|end|>',
-              finish_reason: 'stop',
+              text: "<|channel|>final<|message|>Complete response<|end|>",
+              finish_reason: "stop",
             },
           ],
         },
@@ -1225,36 +1422,36 @@ describe('HarmonyClient', () => {
       mockedAxios.post.mockResolvedValue(mockResponse);
 
       const parseResult: HarmonyParseResult = {
-        content: 'Complete response',
+        content: "Complete response",
         rawToolCalls: [],
       };
 
       mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
       mockHarmonyProcessor.extractToolCalls.mockReturnValue([]);
 
-      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
+      const consoleSpy = jest.spyOn(console, "warn").mockImplementation();
 
-      await client.callServer('Test');
+      await client.callServer("Test");
 
       // Should not warn about truncation for complete responses
       expect(consoleSpy).not.toHaveBeenCalledWith(
-        expect.stringContaining('⚠️ Response was truncated')
+        expect.stringContaining("⚠️ Response was truncated")
       );
       expect(consoleSpy).not.toHaveBeenCalledWith(
-        expect.stringContaining('⚠️ Response appears incomplete')
+        expect.stringContaining("⚠️ Response appears incomplete")
       );
 
       consoleSpy.mockRestore();
     });
 
-    it('should log maxTokens suggestion when truncated', async () => {
+    it("should log maxTokens suggestion when truncated", async () => {
       const mockResponse = {
         status: 200,
         data: {
           choices: [
             {
-              text: '<|channel|>final<|message|>Response<|end|>',
-              finish_reason: 'length',
+              text: "<|channel|>final<|message|>Response<|end|>",
+              finish_reason: "length",
             },
           ],
         },
@@ -1263,26 +1460,23 @@ describe('HarmonyClient', () => {
       mockedAxios.post.mockResolvedValue(mockResponse);
 
       const parseResult: HarmonyParseResult = {
-        content: 'Response',
+        content: "Response",
         rawToolCalls: [],
       };
 
       mockHarmonyProcessor.parseResponse.mockReturnValue(parseResult);
       mockHarmonyProcessor.extractToolCalls.mockReturnValue([]);
 
-      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
+      const consoleSpy = jest.spyOn(console, "warn").mockImplementation();
 
-      await client.callServer('Test');
+      await client.callServer("Test");
 
       // Should suggest increasing maxTokens
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Consider increasing harmony.maxTokens')
+        expect.stringContaining("Consider increasing harmony.maxTokens")
       );
 
       consoleSpy.mockRestore();
     });
   });
-
-
-  
 });

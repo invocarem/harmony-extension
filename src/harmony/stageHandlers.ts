@@ -1,6 +1,6 @@
 import { WorkflowStage, TransitionTrigger } from "./stageStateMachine";
 import { ConversationContext } from "./conversationContext";
-import { CodeContext } from "./codeContext";
+import { CodeContext, CodeContextType } from "./codeContext";
 import { NativeToolsManager } from "../nativeToolManager";
 import { ConversationContextManager } from "./conversationContext";
 import { ProgressPlanManager, PlanStep } from "../progressPlanManager";
@@ -10,7 +10,11 @@ import { HarmonyParseResult } from "../harmonyProcessor";
 import { MCPToolCall } from "../mcpClient";
 import { ChatManager } from "./chatManager";
 import { ChatMessage } from "../conversationManager";
-import { VerboseInfoFormatter } from "../utils/verboseInfo";
+import {
+  VerboseInfoFormatter,
+  SnippetRequirementsSummary,
+} from "../utils/verboseInfo";
+import { SnippetManager } from "./snippetManager";
 import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
@@ -41,7 +45,8 @@ export interface StageHandler {
     toolCalls: MCPToolCall[],
     context: ConversationContext | null,
     conversationHistory?: readonly ChatMessage[],
-    nativeToolsManager?: NativeToolsManager
+    nativeToolsManager?: NativeToolsManager,
+    contextManager?: ConversationContextManager
   ): Promise<{
     filtered: MCPToolCall[];
     blocked: MCPToolCall[];
@@ -839,6 +844,8 @@ class AssumptionsStageHandler implements StageHandler {
  * Generates code snippets without file operations or complex planning
  */
 class SnippetStageHandler implements StageHandler {
+  private snippetManager?: SnippetManager;
+
   async handlePreProcessing(
     context: ConversationContext | null,
     prompt: string,
@@ -850,7 +857,30 @@ class SnippetStageHandler implements StageHandler {
   ): Promise<{ shouldSkipLLM: boolean; response?: any }> {
     // Handle verbose_info trigger
     if (trigger === "verbose_info" && harmonyClient) {
+      if (contextManager && !this.snippetManager) {
+        this.snippetManager = new SnippetManager(contextManager);
+        console.log(`[SnippetStageHandler] Created SnippetManager`);
+      }
+
       const verboseInfo = harmonyClient.getCurrentVerboseInfo();
+      if (verboseInfo.stage === "snippet" && this.snippetManager) {
+        const requirements = this.snippetManager.getRequirements();
+        const completed = requirements.filter((req) => req.isComplete).length;
+        const summary: SnippetRequirementsSummary = {
+          total: requirements.length,
+          completed,
+          pending: Math.max(requirements.length - completed, 0),
+          items: requirements.map((req) => ({
+            type: req.type,
+            description: req.description,
+            targetFile: req.targetFile,
+            targetFunction: req.targetFunction,
+            isComplete: req.isComplete,
+            stepNumber: req.stepNumber,
+          })),
+        };
+        verboseInfo.requirements = summary;
+      }
       const formattedVerboseInfo = VerboseInfoFormatter.format(verboseInfo);
       return {
         shouldSkipLLM: true,
@@ -861,12 +891,107 @@ class SnippetStageHandler implements StageHandler {
       };
     }
 
+    // Initialize SnippetManager if not already created
+    if (contextManager && !this.snippetManager) {
+      this.snippetManager = new SnippetManager(contextManager);
+      console.log(`[SnippetStageHandler] Created SnippetManager`);
+    }
+
+    // Initialize SnippetManager with requirements from prompt/conversation
+    if (this.snippetManager && contextManager && context) {
+      // Check if we need to initialize requirements
+      if (!this.snippetManager.hasRequirements()) {
+        // Use the original prompt from context (which may contain the full requirement)
+        // If not available, use current prompt
+        const promptToParse = context.originalPrompt || prompt;
+        this.snippetManager.initializeFromPrompt(
+          promptToParse,
+          context.continueStep
+        );
+        console.log(
+          `[SnippetStageHandler] Initialized SnippetManager with requirements from prompt: "${promptToParse.substring(0, 100)}..."`
+        );
+      } else {
+        // Requirements already exist - create task CodeContexts if needed
+        this.snippetManager.createTaskCodeContextsFromRequirements(
+          context.continueStep
+        );
+      }
+    }
+
     return { shouldSkipLLM: false };
   }
 
   /**
+   * Get SnippetManager instance (for use by ContinuationManager)
+   */
+  getSnippetManager(): SnippetManager | undefined {
+    return this.snippetManager;
+  }
+
+  /**
+   * Filter tool calls in snippet stage
+   * Prevents reading files that are already available as reference contexts from chat stage
+   */
+  async filterToolCalls(
+    toolCalls: MCPToolCall[],
+    context: ConversationContext | null,
+    conversationHistory?: readonly ChatMessage[],
+    nativeToolsManager?: NativeToolsManager,
+    contextManager?: ConversationContextManager
+  ): Promise<{
+    filtered: MCPToolCall[];
+    blocked: MCPToolCall[];
+    blockedMessage?: string;
+  }> {
+    const filtered: MCPToolCall[] = [];
+    const blocked: MCPToolCall[] = [];
+
+    // Initialize SnippetManager if needed
+    if (contextManager && !this.snippetManager) {
+      this.snippetManager = new SnippetManager(contextManager);
+    }
+
+    for (const toolCall of toolCalls) {
+      // Check if it's a read_file call
+      if (toolCall.name === "read_file") {
+        const filePath =
+          toolCall.arguments?.file_path || toolCall.arguments?.filePath;
+        if (filePath && this.snippetManager) {
+          // Check if file is already available as reference context
+          const refContext = this.snippetManager.getFileReference(filePath);
+          if (refContext) {
+            // File already read in chat stage - block read_file, inform LLM
+            blocked.push(toolCall);
+            console.log(
+              `[SnippetStageHandler] Blocking read_file for ${filePath} - already available as reference context from chat stage`
+            );
+            continue;
+          }
+        }
+        // File not read yet - allow read_file
+        filtered.push(toolCall);
+      } else {
+        // Allow other tool calls
+        filtered.push(toolCall);
+      }
+    }
+
+    const blockedFiles = blocked
+      .filter((tc) => tc.name === "read_file")
+      .map((tc) => tc.arguments?.file_path || tc.arguments?.filePath)
+      .filter(Boolean);
+    const blockedMessage =
+      blockedFiles.length > 0
+        ? `Note: The following file(s) are already available from chat stage: ${blockedFiles.join(", ")}. You can reference them directly without reading again. Please proceed to generate the code fix/snippet based on the available file content.`
+        : undefined;
+
+    return { filtered, blocked, blockedMessage };
+  }
+
+  /**
    * Post-processing for snippet stage
-   * Validates code snippets are present in response
+   * Extracts CodeContexts from response and tracks completion
    */
   async handlePostProcessing(
     context: ConversationContext | null,
@@ -882,9 +1007,25 @@ class SnippetStageHandler implements StageHandler {
     nativeToolsManager?: NativeToolsManager,
     conversationHistory?: readonly ChatMessage[]
   ): Promise<void> {
-    // Snippet stage doesn't need complex post-processing
-    // Just log for debugging
-    console.log(`[SnippetStageHandler] Post-processing complete for snippet stage`);
+    // Extract CodeContexts from response and update SnippetManager
+    if (this.snippetManager && context) {
+      const stepNumber = context.continueStep;
+      this.snippetManager.extractCodeContextsFromResponse(content, stepNumber);
+      this.snippetManager.markCommandExecutionComplete(executedToolCalls);
+
+      // Log progress
+      const pending = this.snippetManager.getPendingRequirements();
+      const completed = this.snippetManager
+        .getRequirements()
+        .filter((r) => r.isComplete);
+      console.log(
+        `[SnippetStageHandler] Progress: ${completed.length}/${this.snippetManager.getRequirements().length} requirements complete, ${pending.length} pending`
+      );
+    } else {
+      console.log(
+        `[SnippetStageHandler] Post-processing complete for snippet stage`
+      );
+    }
   }
 }
 
@@ -1071,6 +1212,7 @@ class ChatStageHandler implements StageHandler {
   /**
    * Handle post-processing for chat stage
    * Tracks queries and extracts problem summaries
+   * Stores read_file results as reference CodeContexts for use in snippet stage
    */
   async handlePostProcessing(
     context: ConversationContext | null,
@@ -1087,6 +1229,51 @@ class ChatStageHandler implements StageHandler {
     conversationHistory?: readonly ChatMessage[]
   ): Promise<void> {
     if (!context) return;
+
+    // Store read_file results as reference CodeContexts
+    // This allows snippet stage to reuse files read in chat stage without re-reading
+    if (executedToolCalls && contextManager) {
+      for (const toolCall of executedToolCalls) {
+        if (
+          toolCall.name === "read_file" &&
+          toolCall.result &&
+          !toolCall.result.isError
+        ) {
+          const filePath =
+            toolCall.arguments?.file_path || toolCall.arguments?.filePath;
+          const fileContent = toolCall.result.content?.[0]?.text;
+
+          if (filePath && fileContent) {
+            // Check if reference context already exists (avoid duplicates)
+            const existing = contextManager.getActiveCodeContext(filePath);
+            if (!existing || existing.type !== CodeContextType.REFERENCE) {
+              // Create reference CodeContext with file content
+              const contentLines = fileContent.split("\n");
+              const refContext = new CodeContext(
+                filePath,
+                contentLines,
+                false, // waitForCreate: false (reference only)
+                "v1",
+                Date.now(),
+                `File read in chat stage`,
+                undefined,
+                true, // isActive
+                undefined,
+                CodeContextType.REFERENCE // type: REFERENCE (doesn't count toward completion)
+              );
+              contextManager.addCodeContext(refContext);
+              console.log(
+                `[ChatStageHandler] Stored read_file result as reference context: ${filePath} (${contentLines.length} lines)`
+              );
+            } else {
+              console.log(
+                `[ChatStageHandler] File ${filePath} already stored as reference context, skipping`
+              );
+            }
+          }
+        }
+      }
+    }
 
     // Track user queries in chat stage
     // Note: Query is already added in extension.ts with proper file extraction via addQueryWithFiles()
@@ -1138,5 +1325,16 @@ export class StageHandlerRegistry {
    */
   getHandler(stage: WorkflowStage): StageHandler {
     return this.handlers.get(stage) || new ChatStageHandler(new ChatManager());
+  }
+
+  /**
+   * Get SnippetManager from snippet stage handler (if available)
+   */
+  getSnippetManager(): SnippetManager | undefined {
+    const handler = this.handlers.get("snippet");
+    if (handler && handler instanceof SnippetStageHandler) {
+      return handler.getSnippetManager();
+    }
+    return undefined;
   }
 }

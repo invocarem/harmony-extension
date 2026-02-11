@@ -1,6 +1,7 @@
 import { MCPToolResult } from "../mcpClient";
 import { WorkflowStage } from "./stageStateMachine";
 import { ConversationContext } from "./conversationContext";
+import { SnippetManager } from "./snippetManager";
 
 /**
  * Manages continuation logic and task completion detection
@@ -19,7 +20,8 @@ export class ContinuationManager {
     currentContent: string,
     isAlreadyContinuation: boolean,
     currentStage: WorkflowStage,
-    conversationContext: ConversationContext | null
+    conversationContext: ConversationContext | null,
+    snippetManager?: SnippetManager
   ): boolean {
     // Check if we've reached the maximum steps
     if (
@@ -41,7 +43,7 @@ export class ContinuationManager {
     // The continuation response has already done work, so only continue if explicitly needed
     if (isAlreadyContinuation && executedToolCalls.length > 0) {
       const suggestsCompletion =
-        /(?:done|complete|finished|ready|all|both|each)/i.test(
+        /\b(?:done|complete|finished|ready|all|both|each)\b/i.test(
           currentContent.toLowerCase()
         );
       if (suggestsCompletion) {
@@ -53,7 +55,7 @@ export class ContinuationManager {
       // After a continuation has executed tool calls, only continue if content explicitly says MORE work is needed
       // Simple action statements like "Now I will read another file" don't count - they describe what was just done
       const explicitlyNeedsMore =
-        /(?:still|also|need to|must|should|more|additional|further|next step|continue|then)/i.test(
+        /\b(?:still|also|must|should|more|additional|further|continue|then)\b|need to|next step/i.test(
           currentContent.toLowerCase()
         );
       if (!explicitlyNeedsMore) {
@@ -88,7 +90,8 @@ export class ContinuationManager {
         originalPrompt,
         executedToolCalls,
         currentContent,
-        isAlreadyContinuation
+        isAlreadyContinuation,
+        snippetManager
       );
     }
 
@@ -129,7 +132,7 @@ export class ContinuationManager {
     if (isFileTask && onlyDiscoveryTools && !hasFileModification) {
       // Check if content suggests the task is complete
       const suggestsCompletion =
-        /(?:done|complete|finished|ready|here|below|above)/i.test(
+        /\b(?:done|complete|finished|ready|here|below|above)\b/i.test(
           currentContent.toLowerCase()
         );
       if (suggestsCompletion) {
@@ -142,7 +145,7 @@ export class ContinuationManager {
       // If we're already in a continuation, be more conservative - only continue if content explicitly suggests more work
       if (isAlreadyContinuation) {
         const explicitlySuggestsMore =
-          /(?:next|another|also|still|more|need to|should)/i.test(
+          /\b(?:next|another|also|still|more|should)\b|need to/i.test(
             currentContent.toLowerCase()
           );
         if (!explicitlySuggestsMore) {
@@ -161,7 +164,7 @@ export class ContinuationManager {
 
     // Otherwise, only continue if there are explicit continuation hints
     const hasContinuationHint =
-      /(?:next|continue|then|after|now|further|additional|let'?s|proceed)/i.test(
+      /\b(?:next|continue|then|after|now|further|additional|proceed)\b|let'?s/i.test(
         currentContent.toLowerCase()
       );
     if (hasContinuationHint) {
@@ -181,13 +184,40 @@ export class ContinuationManager {
       result?: MCPToolResult;
     }>,
     currentContent: string,
-    isAlreadyContinuation: boolean = false
+    isAlreadyContinuation: boolean = false,
+    snippetManager?: SnippetManager
   ): boolean {
+    const contentWithoutToolResults = this.stripToolResults(currentContent);
+
+    // NEW: Check SnippetManager completion status first (if available)
+    // This takes priority over other checks - if SnippetManager says tasks are incomplete, continue
+    if (snippetManager && snippetManager.hasRequirements()) {
+      const allComplete = snippetManager.areAllTasksComplete();
+      if (allComplete) {
+        console.log(
+          `[Harmony] Snippet stage: All tasks complete per SnippetManager, task complete`
+        );
+        return false; // Don't continue - all tasks done
+      }
+
+      // If not all complete, we have pending work - continue
+      const pendingReqs = snippetManager.getPendingRequirements();
+      const pendingTasks = snippetManager.getPendingTaskCodeContexts();
+      
+      if (pendingReqs.length > 0 || pendingTasks.length > 0) {
+        console.log(
+          `[Harmony] Snippet stage: ${pendingReqs.length} pending requirement(s), ${pendingTasks.length} pending task(s) per SnippetManager, continuing`
+        );
+        // Continue even if read_file was blocked or no tool calls executed - we need to generate code
+        return true;
+      }
+    }
+
     // Snippet stage goal: Generate code snippets directly - may need to read files or explore workspace first
     // Always continue after read-only tool calls because we need the results to generate code
 
     // Check if we have code snippets in the response
-    const hasCodeSnippets = /```[\s\S]*?```/.test(currentContent);
+    const hasCodeSnippets = /```[\s\S]*?```/.test(contentWithoutToolResults);
 
     // Check if we've only done discovery/read tools
     const onlyDiscoveryTools = executedToolCalls.every((tc) =>
@@ -207,7 +237,7 @@ export class ContinuationManager {
     // Check for completion phrases
     const hasCompletionPhrase =
       /(?:here'?s|here is|below is|this (?:could|should|would) go)/i.test(
-        currentContent.toLowerCase()
+        contentWithoutToolResults.toLowerCase()
       );
 
     // If we have code snippets and completion phrases, task is done
@@ -221,8 +251,8 @@ export class ContinuationManager {
     // If we have code snippets but no completion phrase, check for continuation hints
     if (hasCodeSnippets) {
       const hasContinuationHint =
-        /(?:next|another|also|additionally|further|more)/i.test(
-          currentContent.toLowerCase()
+        /\b(?:next|another|also|additionally|further|more)\b/i.test(
+          contentWithoutToolResults.toLowerCase()
         );
       if (hasContinuationHint) {
         console.log(
@@ -230,7 +260,22 @@ export class ContinuationManager {
         );
         return true;
       }
-      // Has code but no continuation hint - task complete
+      // Has code but no continuation hint - check SnippetManager if available
+      if (snippetManager && snippetManager.hasRequirements()) {
+        // If SnippetManager says tasks are complete, we're done
+        if (snippetManager.areAllTasksComplete()) {
+          console.log(
+            `[Harmony] Snippet stage: Code snippets generated and SnippetManager confirms all tasks complete`
+          );
+          return false;
+        }
+        // Otherwise continue to complete remaining tasks
+        console.log(
+          `[Harmony] Snippet stage: Code snippets generated but SnippetManager has pending tasks, continuing`
+        );
+        return true;
+      }
+      // Has code but no continuation hint - task complete (fallback if no SnippetManager)
       console.log(
         `[Harmony] Snippet stage: Code snippets generated, no continuation hints, task complete`
       );
@@ -238,7 +283,7 @@ export class ContinuationManager {
     }
 
     // If response is very short (< 100 chars), it's likely incomplete
-    if (currentContent.trim().length < 100) {
+    if (contentWithoutToolResults.trim().length < 100) {
       console.log(
         `[Harmony] Snippet stage: Response too short, likely incomplete, continuing`
       );
@@ -250,6 +295,23 @@ export class ContinuationManager {
       `[Harmony] Snippet stage: Default - continuing to generate code`
     );
     return true;
+  }
+
+  private stripToolResults(content: string): string {
+    if (
+      !content.includes("**Tool Results:**") &&
+      !content.includes("Tool Results:")
+    ) {
+      return content;
+    }
+
+    const toolResultsPattern = /(?:\*\*)?Tool Results(?::)?(?:\*\*)?/i;
+    const toolResultsMatch = content.match(toolResultsPattern);
+    if (!toolResultsMatch || toolResultsMatch.index === undefined) {
+      return content;
+    }
+
+    return content.substring(0, toolResultsMatch.index);
   }
 
   private shouldContinueInAssumptionsStage(
@@ -273,11 +335,11 @@ export class ContinuationManager {
     // Check for plan indicators in the response
     const hasPlanSteps = /step\s+\d+:/i.test(currentContent);
     const hasAssumptions =
-      /(?:assumption|assume|assuming|edge\s+case|consideration)/i.test(
+      /\b(?:assumption|assume|assuming|consideration)\b|edge\s+case/i.test(
         currentContent.toLowerCase()
       );
     const hasAnalysis =
-      /(?:analyze|analysis|complexity|requirement|identify)/i.test(
+      /\b(?:analyze|analysis|complexity|requirement|identify)\b/i.test(
         currentContent.toLowerCase()
       );
 
@@ -293,7 +355,7 @@ export class ContinuationManager {
 
     // Check for explicit continuation hints
     const hasContinuationHint =
-      /(?:next|continue|then|after|now|further|additional|more|also)/i.test(
+      /\b(?:next|continue|then|after|now|further|additional|more|also)\b/i.test(
         currentContent.toLowerCase()
       );
 
@@ -434,7 +496,7 @@ export class ContinuationManager {
     // If we executed terminal commands and the task involves creating log/output files, continue until files are created
     if (hasTerminalExecution && !hasFileModification && !hasCompletionPhrase) {
       const taskMentionsLogging =
-        /(?:log|output|result|step_\d+|document|save|record)/i.test(
+        /\b(?:log|output|result|document|save|record)\b|step_\d+/i.test(
           originalPrompt.toLowerCase()
         );
       if (taskMentionsLogging) {
@@ -477,7 +539,7 @@ export class ContinuationManager {
 
     // Check for explicit "continue" or "next step" in reasoning/content
     const hasContinuationHint =
-      /(?:next|continue|then|after|now|further|additional)/i.test(
+      /\b(?:next|continue|then|after|now|further|additional)\b/i.test(
         currentContent.toLowerCase()
       );
 

@@ -440,8 +440,10 @@ export class HarmonyProcessor {
     );
 
     // Extract <think> tags as reasoning (similar to harmony protocol's analysis channel)
-    const { reasoning, contentWithoutThinks, hasThinkTags } =
+    // Use non-greedy matching to extract only properly paired <think>...</think> tags
+    let { reasoning, contentWithoutThinks, hasThinkTags } =
       XmlProcessor.extractThinkTags(trimmed);
+
     if (hasThinkTags) {
       console.log(
         `[HarmonyProcessor] Extracted ${reasoning.length} think tag(s) as reasoning`
@@ -472,6 +474,7 @@ export class HarmonyProcessor {
       return {
         content: contentWithoutToolCalls,
         reasoning: reasoning.length > 0 ? reasoning.join("\n\n") : undefined,
+        final: contentWithoutToolCalls,
         rawToolCalls: rawToolCalls,
         remaining: response,
       };
@@ -492,6 +495,7 @@ export class HarmonyProcessor {
         return {
           content: "",
           reasoning: reasoning.length > 0 ? reasoning.join("\n\n") : undefined,
+          final: "",
           rawToolCalls: [contentWithoutThinks],
           remaining: response,
         };
@@ -516,6 +520,7 @@ export class HarmonyProcessor {
       return {
         content: contentWithoutThinks, // Preserve full response including code blocks for webview display
         reasoning: reasoning.length > 0 ? reasoning.join("\n\n") : undefined,
+        final: contentWithoutThinks,
         rawToolCalls: [extractedToolCall.raw],
         remaining: response,
       };

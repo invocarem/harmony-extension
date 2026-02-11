@@ -46,7 +46,7 @@ export class XmlProcessor {
 
         if (tagEnd !== -1) {
           const raw = text.substring(startPos, tagEnd);
-          
+
           // Extract attributes: everything between <tagName and />
           // Don't use regex - it can match /> inside string values!
           // Instead, use string manipulation since we already found the correct tagEnd
@@ -56,15 +56,15 @@ export class XmlProcessor {
             // Find where attributes start (after tagName and any whitespace)
             const attrsStart = tagStart + tagNameWithBracket.length;
             // Find where they end (before the closing />)
-            const attrsEnd = raw.lastIndexOf('/>');
-            
+            const attrsEnd = raw.lastIndexOf("/>");
+
             if (attrsEnd > attrsStart) {
               const attributes = raw.substring(attrsStart, attrsEnd).trim();
 
               console.log(
                 `[XmlProcessor] Extracted attributes (${attributes.length} chars) from raw (${raw.length} chars)`
               );
-              
+
               if (attributes.length < raw.length - 20) {
                 // Attributes seem truncated compared to raw
                 console.warn(
@@ -75,11 +75,15 @@ export class XmlProcessor {
                 );
                 console.warn(
                   `[XmlProcessor] ⚠️ This likely means the regex matched the wrong closing />, ` +
-                  `possibly finding a /> sequence inside the JSON string content.`
+                    `possibly finding a /> sequence inside the JSON string content.`
                 );
               }
 
-              const parsed = this.parseAttributesWithParsers(attributes, raw, false);
+              const parsed = this.parseAttributesWithParsers(
+                attributes,
+                raw,
+                false
+              );
               if (parsed) {
                 results.push(parsed);
                 // Track this processed position
@@ -120,7 +124,11 @@ export class XmlProcessor {
             );
             if (attributesMatch) {
               const attributes = attributesMatch[1];
-              const parsed = this.parseAttributesWithParsers(attributes, raw, false);
+              const parsed = this.parseAttributesWithParsers(
+                attributes,
+                raw,
+                false
+              );
               if (parsed) {
                 results.push(parsed);
                 processedRanges.push({ start: variantStart, end: tagEnd });
@@ -165,7 +173,11 @@ export class XmlProcessor {
               );
               if (attributesMatch) {
                 const attributes = attributesMatch[1];
-                const parsed = this.parseAttributesWithParsers(attributes, raw, false);
+                const parsed = this.parseAttributesWithParsers(
+                  attributes,
+                  raw,
+                  false
+                );
                 if (parsed) {
                   results.push(parsed);
                   processedPositions.push({ start: variantStart, end: tagEnd });
@@ -222,7 +234,11 @@ export class XmlProcessor {
           // Try to extract from attributes
           const attrMatch = raw.match(/<(?:tool_call|MCP_CALL)\s+([^>]+)>/);
           if (attrMatch) {
-            const parsed = this.parseAttributesWithParsers(attrMatch[1], raw, false);
+            const parsed = this.parseAttributesWithParsers(
+              attrMatch[1],
+              raw,
+              false
+            );
             if (parsed) {
               results.push(parsed);
               processedPositions.push({ start: matchStart, end: matchEnd });
@@ -274,7 +290,11 @@ export class XmlProcessor {
         if (lenientMatch) {
           const attributes = lenientMatch[1];
           const raw = lenientMatch[0];
-          const parsed = this.parseAttributesWithParsers(attributes, raw, false);
+          const parsed = this.parseAttributesWithParsers(
+            attributes,
+            raw,
+            false
+          );
           if (parsed) {
             const rawEnd = startPos + raw.length;
             results.push(parsed);
@@ -553,7 +573,7 @@ export class XmlProcessor {
     if (raw.length > 5000) {
       console.log(
         `[XmlProcessor] Large tool call detected (${raw.length} chars). ` +
-        `This is normal for code generation with large content blocks.`
+          `This is normal for code generation with large content blocks.`
       );
     }
 
@@ -673,17 +693,20 @@ export class XmlProcessor {
 
     const quoteChar = match[1];
     const argsValueStart = match.index + match[0].length;
-    
+
     // Find the opening brace after the args=quote
     let jsonStartPos = argsValueStart;
-    while (jsonStartPos < attributes.length && attributes[jsonStartPos] !== '{') {
+    while (
+      jsonStartPos < attributes.length &&
+      attributes[jsonStartPos] !== "{"
+    ) {
       // Only skip whitespace - if we hit anything else, bail out
       if (!/\s/.test(attributes[jsonStartPos])) {
         return null;
       }
       jsonStartPos++;
     }
-    
+
     if (jsonStartPos >= attributes.length) {
       return null; // No opening brace found
     }

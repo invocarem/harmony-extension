@@ -1,4 +1,14 @@
 /**
+ * Type of CodeContext - determines if it counts toward completion
+ */
+export enum CodeContextType {
+  /** Task/deliverable - counts toward snippet stage completion */
+  TASK = 'task',
+  /** Reference only - available for context but doesn't count toward completion */
+  REFERENCE = 'reference'
+}
+
+/**
  * Represents a code snippet that's ready for file creation
  */
 export class CodeContext {
@@ -13,8 +23,9 @@ export class CodeContext {
     public description?: string, // Description of change/reason (e.g., "generate json based on whitaker and the rule", "add field xxx")
     public previousVersion?: string, // Reference to previous version
     public isActive: boolean = true, // Whether this is the active version
-    public stepNumber?: number // The step number that generated this context
-  ) {}
+    public stepNumber?: number, // The step number that generated this context
+    public type: CodeContextType = CodeContextType.TASK // Type: TASK (counts toward completion) or REFERENCE (doesn't count)
+  ) { }
 
   /**
    * Create a CodeContext from a code block with file path
@@ -93,7 +104,8 @@ export class CodeContext {
             undefined,
             undefined,
             true,
-            stepNumber
+            stepNumber,
+            CodeContextType.TASK
           );
         }
       } else if (
@@ -113,7 +125,8 @@ export class CodeContext {
           undefined,
           undefined,
           true,
-          stepNumber
+          stepNumber,
+          CodeContextType.TASK
         );
       } else {
         // All content is code
@@ -129,7 +142,8 @@ export class CodeContext {
           undefined,
           undefined,
           true,
-          stepNumber
+          stepNumber,
+          CodeContextType.TASK
         );
       }
     }
@@ -339,7 +353,8 @@ export class CodeContext {
       undefined,
       undefined,
       true,
-      stepNumber
+      stepNumber,
+      CodeContextType.TASK
     );
   }
 

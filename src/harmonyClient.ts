@@ -495,7 +495,8 @@ export class HarmonyClient {
         toolCalls,
         context,
         conversationHistory,
-        this.nativeToolsManager
+        this.nativeToolsManager,
+        this.contextManager
       );
 
       if (filterResult.blocked.length > 0) {
@@ -743,6 +744,20 @@ export class HarmonyClient {
 
       // Format tool results
       let finalContent = content;
+      let finalWithResults = parsed.final; // Preserve original final field
+
+      // Debug: Check if content or final already contains tool results
+      if (content && content.includes("**Tool Results:**")) {
+        console.warn(
+          `[Harmony] WARNING: content already contains Tool Results before formatting. Content length: ${content.length}`
+        );
+      }
+      if (parsed.final && parsed.final.includes("**Tool Results:**")) {
+        console.warn(
+          `[Harmony] WARNING: parsed.final already contains Tool Results before formatting. Final length: ${parsed.final.length}`
+        );
+      }
+
       if (executedToolCalls.length > 0) {
         const formattedResults =
           await this.toolExecutionCoordinator.formatToolResults(
@@ -750,23 +765,41 @@ export class HarmonyClient {
             prompt,
             currentStage
           );
+        console.log(
+          `[Harmony] Appending formatted tool results (${formattedResults.length} chars) to content (${content.length} chars) and final (${parsed.final?.length || 0} chars)`
+        );
         finalContent += formattedResults;
+        // Also append tool results to final field if it exists
+        // This ensures tool results are visible even when webview shows final instead of content
+        if (finalWithResults) {
+          finalWithResults += formattedResults;
+        }
       }
 
       // Check for continuation
       const updatedContext = this.contextManager.getContext();
       // In snippet stage, always use the current prompt (not originalPrompt) because
       // each new question in snippet stage should be treated as a fresh request
-      const promptForContinuation = 
-        currentStage === 'snippet' ? prompt : 
-        (isContinuation ? updatedContext?.originalPrompt || prompt : prompt);
+      const promptForContinuation =
+        currentStage === "snippet"
+          ? prompt
+          : isContinuation
+            ? updatedContext?.originalPrompt || prompt
+            : prompt;
+      // Get SnippetManager for snippet stage continuation check
+      const snippetManager =
+        currentStage === "snippet"
+          ? this.stageHandlerRegistry.getSnippetManager()
+          : undefined;
+
       const shouldContinue = this.continuationManager.shouldContinueTask(
         promptForContinuation,
         executedToolCalls || [],
         finalContent,
         isContinuation,
         currentStage,
-        updatedContext
+        updatedContext,
+        snippetManager
       );
 
       if (shouldContinue && updatedContext) {
@@ -802,7 +835,7 @@ export class HarmonyClient {
           content: finalContent + "\n\n---\n\n" + continuationResponse.content,
           reasoning: parsed.reasoning,
           commentary: parsed.commentary || continuationResponse.commentary,
-          final: parsed.final || continuationResponse.final,
+          final: finalWithResults || continuationResponse.final,
           toolCalls: [
             ...(executedToolCalls || []),
             ...(continuationResponse.toolCalls || []),
@@ -816,7 +849,7 @@ export class HarmonyClient {
         content: finalContent,
         reasoning: parsed.reasoning,
         commentary: parsed.commentary,
-        final: parsed.final,
+        final: finalWithResults,
         toolCalls: executedToolCalls,
         isContinuation: isContinuation,
         verboseInfo: this.buildVerboseInfo(currentStage, updatedContext, {
@@ -1254,7 +1287,7 @@ export class HarmonyClient {
           const lines: string[] = [];
           let accumulatedText = ''; // Track accumulated text for streaming callback
           
-          response.data.on('data', (chunk: Buffer) => {
+          response.data.on('data', async (chunk: Buffer) => {
             buffer += chunk.toString();
             const parts = buffer.split('\n');
             
@@ -1271,11 +1304,13 @@ export class HarmonyClient {
                     accumulatedText += newText;
                     process.stdout.write(newText); // Show streaming progress in console
                     
-                    // Call streaming callback with accumulated text
+                    // Call streaming callback with accumulated text - await to ensure webview gets updates immediately
                     if (this.streamingCallback) {
-                      this.streamingCallback(accumulatedText).catch(err => {
+                      try {
+                        await this.streamingCallback(accumulatedText);
+                      } catch (err) {
                         console.warn('[Harmony] Error in streaming callback:', err);
-                      });
+                      }
                     }
                   }
                   if (data.choices?.[0]?.finish_reason) {
@@ -1512,7 +1547,8 @@ export class HarmonyClient {
           toolCalls,
           context,
           conversationHistory,
-          this.nativeToolsManager
+          this.nativeToolsManager,
+          this.contextManager
         );
         
         if (filterResult.blocked.length > 0) {
@@ -1596,6 +1632,20 @@ export class HarmonyClient {
 
         // Format tool results
         let finalContent = content;
+        let finalWithResults = parsed.final; // Preserve original final field
+        
+        // Debug: Check if content or final already contains tool results
+        if (content && content.includes("**Tool Results:**")) {
+          console.warn(
+            `[Harmony] WARNING: content already contains Tool Results before formatting. Content length: ${content.length}`
+          );
+        }
+        if (parsed.final && parsed.final.includes("**Tool Results:**")) {
+          console.warn(
+            `[Harmony] WARNING: parsed.final already contains Tool Results before formatting. Final length: ${parsed.final.length}`
+          );
+        }
+        
         if (applicableRules.length > 0) {
           console.log(
             `[Rules] Formatting tool results according to ${applicableRules.length} rule(s) in ${currentStage} stage`
@@ -1608,12 +1658,29 @@ export class HarmonyClient {
               currentStage
             );
             finalContent = formattedContent;
+            // Also update final field if it exists
+            if (finalWithResults) {
+              finalWithResults = formattedContent;
+            }
           } catch (formatError: any) {
             console.error(`[Rules] Error formatting tool results:`, formatError);
-            finalContent += this.toolResultFormatter.formatToolResults(executedToolCalls);
+            const formattedResults = this.toolResultFormatter.formatToolResults(executedToolCalls);
+            finalContent += formattedResults;
+            // Also append to final field if it exists
+            if (finalWithResults) {
+              finalWithResults += formattedResults;
+            }
           }
         } else {
-          finalContent += this.toolResultFormatter.formatToolResults(executedToolCalls);
+          const formattedResults = this.toolResultFormatter.formatToolResults(executedToolCalls);
+          console.log(
+            `[Harmony] Appending formatted tool results (${formattedResults.length} chars) to content (${content.length} chars) and final (${parsed.final?.length || 0} chars)`
+          );
+          finalContent += formattedResults;
+          // Also append tool results to final field if it exists
+          if (finalWithResults) {
+            finalWithResults += formattedResults;
+          }
         }
 
         // Check if we should continue
@@ -1623,13 +1690,19 @@ export class HarmonyClient {
         const promptForContinuation = 
           currentStage === 'snippet' ? prompt : 
           (isContinuation ? (updatedContextForContinuation?.originalPrompt || prompt) : prompt);
+        // Get SnippetManager for snippet stage continuation check
+        const snippetManager = currentStage === "snippet" 
+          ? this.stageHandlerRegistry.getSnippetManager()
+          : undefined;
+
         const shouldContinue = this.continuationManager.shouldContinueTask(
           promptForContinuation,
           executedToolCalls || [],
           finalContent,
           isContinuation,
           currentStage,
-          updatedContextForContinuation
+          updatedContextForContinuation,
+          snippetManager
         );
 
         // Build verbose info with tool calls
@@ -1716,7 +1789,7 @@ export class HarmonyClient {
               content: finalContent,
               reasoning: parsed.reasoning,
               commentary: parsed.commentary,
-              final: parsed.final,
+              final: finalWithResults,
               ...(executedToolCalls !== undefined ? { toolCalls: executedToolCalls } : {}),
               isContinuation: isContinuation,
               verboseInfo,
@@ -1762,7 +1835,7 @@ export class HarmonyClient {
             content: finalContent + "\n\n---\n\n" + continuationResponse.content,
             reasoning: parsed.reasoning,
             commentary: parsed.commentary || continuationResponse.commentary,
-            final: parsed.final || continuationResponse.final,
+            final: finalWithResults || continuationResponse.final,
             toolCalls: allToolCalls,
             isContinuation: true,
             verboseInfo: mergedVerboseInfo,
@@ -1773,7 +1846,7 @@ export class HarmonyClient {
           content: finalContent,
           reasoning: parsed.reasoning,
           commentary: parsed.commentary,
-          final: parsed.final,
+          final: finalWithResults,
           ...(executedToolCalls !== undefined ? { toolCalls: executedToolCalls } : {}),
           isContinuation: isContinuation,
           verboseInfo,

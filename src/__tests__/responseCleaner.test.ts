@@ -161,6 +161,93 @@ describe('responseCleaner', () => {
         expect(parsed.data.key).toBe('value');
       });
     });
+
+    describe('Tool Results preservation', () => {
+      it('should preserve tool results when content is truncated', () => {
+        // Simulate a response with tool results that gets truncated
+        const toolResults = '\n\n**Tool Results:**\n\n**exec_terminal**:\n4\n';
+        const longContent = 'Looking at the user request and my role, I need to run calc.py to perform an addition operation. Let me first understand what calc.py does by reading it, then execute it with the requested parameters. '.repeat(30);
+        const content = longContent + toolResults;
+        
+        const result = cleanVerboseResponse(content);
+        
+        // Tool results should be preserved
+        expect(result).toContain('**Tool Results:**');
+        expect(result).toContain('**exec_terminal**:');
+        expect(result).toContain('4');
+      });
+
+      it('should preserve tool results when JSON is extracted', () => {
+        const json = '{"result": "success"}';
+        const toolResults = '\n\n**Tool Results:**\n\n**exec_terminal**:\nOutput: 4\n';
+        const content = `Restating the problem: You want to format this.\nBrief context: This is a test.\n${json}${toolResults}`;
+        
+        const result = cleanVerboseResponse(content);
+        
+        // Tool results should be present (JSON formatting is secondary)
+        expect(result).toContain('**Tool Results:**');
+        expect(result).toContain('**exec_terminal**:');
+        expect(result).toContain('Output: 4');
+      });
+
+      it('should preserve tool results when content is extremely long and truncated', () => {
+        // This test demonstrates the actual bug: tool results are removed when content is truncated
+        const toolResults = '\n\n**Tool Results:**\n\n**exec_terminal**:\n4\n';
+        // Create very long content that triggers truncation (over 2000 chars with "restat" pattern)
+        const longPrefix = 'Restating the problem: You want to run calc.py. '.repeat(60); // ~2400 chars
+        const content = longPrefix + toolResults;
+        
+        const result = cleanVerboseResponse(content);
+        
+        // Tool results should ALWAYS be preserved, even when content is truncated
+        expect(result).toContain('**Tool Results:**');
+        expect(result).toContain('**exec_terminal**:');
+        expect(result).toContain('4');
+      });
+
+      it('BUG REPRODUCTION: tool results removed when content triggers truncation logic', () => {
+        // This reproduces the actual bug: when content is long and matches truncation patterns,
+        // tool results at the end get removed because the truncation logic doesn't preserve them
+        const toolResults = '\n\n**Tool Results:**\n\n**exec_terminal**:\n4\n';
+        
+        // Create content that triggers the truncation logic (length > 2000, contains "restat" pattern)
+        // The truncation happens at line 211-216 in responseCleaner.ts
+        const longVerboseContent = 'Restating the problem: You want to run calc.py. '.repeat(50); // ~2400 chars
+        const content = longVerboseContent + toolResults;
+        
+        // Verify content has tool results before cleaning
+        expect(content).toContain('**Tool Results:**');
+        expect(content.length).toBeGreaterThan(2000); // Triggers truncation
+        
+        const result = cleanVerboseResponse(content);
+        
+        // BUG: Tool results are removed when truncation logic runs
+        // The truncation at line 216 returns 'briefPrefix + actualContent' but doesn't include tool results
+        console.log('Original content length:', content.length);
+        console.log('Cleaned content length:', result.length);
+        console.log('Original has tool results:', content.includes('**Tool Results:**'));
+        console.log('Cleaned has tool results:', result.includes('**Tool Results:**'));
+        
+        // This assertion will FAIL, demonstrating the bug
+        expect(result).toContain('**Tool Results:**');
+        expect(result).toContain('**exec_terminal**:');
+        expect(result).toContain('4');
+      });
+
+      it('should preserve tool results at the end of content', () => {
+        const toolResults = '\n\n**Tool Results:**\n\n**exec_terminal**:\n4\n';
+        const content = 'I executed the command successfully.' + toolResults;
+        
+        const result = cleanVerboseResponse(content);
+        
+        // Tool results should be preserved
+        expect(result).toContain('**Tool Results:**');
+        expect(result).toContain('**exec_terminal**:');
+        expect(result).toContain('4');
+        // Tool results should be at the end
+        expect(result.indexOf('**Tool Results:**')).toBeGreaterThan(result.indexOf('successfully'));
+      });
+    });
   });
 });
 

@@ -171,12 +171,31 @@ export interface SnippetVerboseInfo {
     extractedAt: number;
   };
 
+  requirements?: SnippetRequirementsSummary;
+
   toolCalls?: Array<{
     name: string;
     stage: WorkflowStage;
     success: boolean;
     error?: string;
     file?: string;
+  }>;
+}
+
+/**
+ * Snippet stage requirements summary
+ */
+export interface SnippetRequirementsSummary {
+  total: number;
+  completed: number;
+  pending: number;
+  items: Array<{
+    type: "question" | "bug_fix" | "feature_addition" | "text_generation";
+    description: string;
+    targetFile?: string;
+    targetFunction?: string;
+    isComplete: boolean;
+    stepNumber?: number;
   }>;
 }
 
@@ -981,6 +1000,20 @@ export class VerboseInfoFormatter {
       if (info.problemSummary.restatedProblem) {
         lines.push(`   Restated: ${info.problemSummary.restatedProblem}`);
       }
+    }
+
+    if (info.requirements) {
+      lines.push(
+        `\n📋 Requirements: ${info.requirements.completed}/${info.requirements.total} complete, ${info.requirements.pending} pending`
+      );
+      info.requirements.items.forEach((req) => {
+        const status = req.isComplete ? "✅" : "⏳";
+        const targetParts = [req.targetFile, req.targetFunction]
+          .filter(Boolean)
+          .join("::");
+        const targetInfo = targetParts ? ` (${targetParts})` : "";
+        lines.push(`   ${status} ${req.type}: ${req.description}${targetInfo}`);
+      });
     }
 
     // Show tool calls if available (but not full code content)
