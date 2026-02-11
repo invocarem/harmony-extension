@@ -778,10 +778,19 @@ export class HarmonyAssistant {
       }
 
       // Clean verbose responses to improve readability (apply cleaning even in verbose mode)
-      const cleanedContent = cleanVerboseResponse(response.content || "");
-      console.log(
-        `[Harmony] After cleanVerboseResponse: length=${cleanedContent.length}, has tool results: ${cleanedContent.includes("**Tool Results:**")}`
-      );
+      // SKIP cleaning for SNIPPET stage to preserve full code snippets
+      let cleanedContent = response.content || "";
+      if (currentStage !== "snippet") {
+        cleanedContent = cleanVerboseResponse(cleanedContent);
+        console.log(
+          `[Harmony] After cleanVerboseResponse: length=${cleanedContent.length}, has tool results: ${cleanedContent.includes("**Tool Results:**")}`
+        );
+      } else {
+        console.log(
+          `[Harmony] Skipping cleanVerboseResponse for SNIPPET stage to preserve full code snippets`
+        );
+      }
+
       const cleanedResponse = {
         ...response,
         content: cleanedContent,

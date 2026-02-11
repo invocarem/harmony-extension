@@ -998,7 +998,7 @@ export class StageStateMachine {
 - (If applicable) User has confirmed which rules are relevant
 
 **NEXT STAGE PROPOSAL**: When understanding is complete, propose: 
-"I now understand your requirements. Shall I move to the Analysis stage to create an implementation plan?"
+"I now understand your requirements. Shall I move to the Snippet stage for prototyping, debugging, and problem solving?"
 
 `,
 
@@ -1013,7 +1013,7 @@ export class StageStateMachine {
 **WHAT YOU CAN DO:**
 ✅ Read files to understand code
 ✅ Execute commands to test/debug/check output  
-✅ Provide code fixes as snippets for user to copy
+✅ Provide code snippet for new features, bug fixes for user to copy
 ✅ Explain what's wrong and how to fix it
 ✅ Generate complete working code examples
 

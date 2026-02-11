@@ -831,11 +831,19 @@ export class HarmonyClient {
           conversationHistory
         );
 
+        const continuationFinal =
+          continuationResponse.final || continuationResponse.content;
+        const combinedFinal = finalWithResults
+          ? continuationFinal
+            ? finalWithResults + "\n\n---\n\n" + continuationFinal
+            : finalWithResults
+          : continuationFinal;
+
         return {
           content: finalContent + "\n\n---\n\n" + continuationResponse.content,
           reasoning: parsed.reasoning,
           commentary: parsed.commentary || continuationResponse.commentary,
-          final: finalWithResults || continuationResponse.final,
+          final: combinedFinal,
           toolCalls: [
             ...(executedToolCalls || []),
             ...(continuationResponse.toolCalls || []),
