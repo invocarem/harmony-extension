@@ -751,8 +751,13 @@ export class HarmonyClient {
 
       // Check for continuation
       const updatedContext = this.contextManager.getContext();
+      // In snippet stage, always use the current prompt (not originalPrompt) because
+      // each new question in snippet stage should be treated as a fresh request
+      const promptForContinuation = 
+        currentStage === 'snippet' ? prompt : 
+        (isContinuation ? updatedContext?.originalPrompt || prompt : prompt);
       const shouldContinue = this.continuationManager.shouldContinueTask(
-        isContinuation ? updatedContext?.originalPrompt || prompt : prompt,
+        promptForContinuation,
         executedToolCalls || [],
         finalContent,
         isContinuation,
@@ -1599,8 +1604,13 @@ export class HarmonyClient {
 
         // Check if we should continue
         const updatedContextForContinuation = this.contextManager.getContext();
+        // In snippet stage, always use the current prompt (not originalPrompt) because
+        // each new question in snippet stage should be treated as a fresh request
+        const promptForContinuation = 
+          currentStage === 'snippet' ? prompt : 
+          (isContinuation ? (updatedContextForContinuation?.originalPrompt || prompt) : prompt);
         const shouldContinue = this.continuationManager.shouldContinueTask(
-          isContinuation ? (updatedContextForContinuation?.originalPrompt || prompt) : prompt,
+          promptForContinuation,
           executedToolCalls || [],
           finalContent,
           isContinuation,

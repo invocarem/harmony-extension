@@ -799,6 +799,8 @@ export class VerboseInfoFormatter {
     switch (verboseInfo.stage) {
       case "chat":
         return this.formatChatVerboseInfo(verboseInfo);
+      case "snippet":
+        return this.formatSnippetVerboseInfo(verboseInfo);
       case "assumptions":
         return this.formatAssumptionVerboseInfo(verboseInfo);
       case "implementation":
@@ -949,6 +951,39 @@ export class VerboseInfoFormatter {
       }
     }
 
+    if (info.toolCalls && info.toolCalls.length > 0) {
+      lines.push(`\n🔧 Tool Calls:`);
+      info.toolCalls.forEach((tc) => {
+        const status = tc.success ? "✅" : "❌";
+        const fileInfo = tc.file ? ` (${tc.file})` : "";
+        lines.push(`   ${status} ${tc.name}${fileInfo}`);
+        if (tc.error) {
+          lines.push(`      Error: ${tc.error}`);
+        }
+      });
+    }
+
+    return lines.join("\n");
+  }
+
+  private static formatSnippetVerboseInfo(info: SnippetVerboseInfo): string {
+    const lines: string[] = [];
+    lines.push(`📝 Snippet Stage Verbose Info`);
+    lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+
+    // Only show current stage (no stage transition details)
+    lines.push(`\n📍 Current Stage: snippet`);
+
+    // Show problem summary if available
+    if (info.problemSummary) {
+      lines.push(`\n📝 Problem Summary:`);
+      lines.push(`   Original Query: ${info.problemSummary.originalQuery}`);
+      if (info.problemSummary.restatedProblem) {
+        lines.push(`   Restated: ${info.problemSummary.restatedProblem}`);
+      }
+    }
+
+    // Show tool calls if available (but not full code content)
     if (info.toolCalls && info.toolCalls.length > 0) {
       lines.push(`\n🔧 Tool Calls:`);
       info.toolCalls.forEach((tc) => {
