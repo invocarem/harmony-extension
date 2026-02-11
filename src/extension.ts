@@ -71,6 +71,11 @@ export class HarmonyAssistant {
       await this.webviewManager.sendMessage(response);
     });
 
+    // Set up callback to send streaming updates to webview
+    this.harmonyClient.setStreamingCallback(async (text) => {
+      await this.webviewManager.sendStreamingUpdate(text);
+    });
+
     this.templateRenderer = new TemplateRenderer(
       context,
       this.config.harmonyMode
@@ -153,6 +158,12 @@ export class HarmonyAssistant {
               verboseInfo: verboseInfo,
             });
           });
+          this.harmonyClient.setIntermediateResponseCallback(async (response) => {
+            await this.webviewManager.sendMessage(response);
+          });
+          this.harmonyClient.setStreamingCallback(async (text) => {
+            await this.webviewManager.sendStreamingUpdate(text);
+          });
           this.codeActions = new CodeActions(
             this.harmonyClient,
             this.templateRenderer
@@ -179,6 +190,12 @@ export class HarmonyAssistant {
               verboseInfo: verboseInfo,
             });
           });
+          this.harmonyClient.setIntermediateResponseCallback(async (response) => {
+            await this.webviewManager.sendMessage(response);
+          });
+          this.harmonyClient.setStreamingCallback(async (text) => {
+            await this.webviewManager.sendStreamingUpdate(text);
+          });
           this.codeActions = new CodeActions(
             this.harmonyClient,
             this.templateRenderer
@@ -197,6 +214,12 @@ export class HarmonyAssistant {
               content: "",
               verboseInfo: verboseInfo,
             });
+          });
+          this.harmonyClient.setIntermediateResponseCallback(async (response) => {
+            await this.webviewManager.sendMessage(response);
+          });
+          this.harmonyClient.setStreamingCallback(async (text) => {
+            await this.webviewManager.sendStreamingUpdate(text);
           });
           this.codeActions = new CodeActions(
             this.harmonyClient,

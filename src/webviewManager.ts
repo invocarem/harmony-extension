@@ -173,6 +173,17 @@ export class WebviewManager {
         console.log(`[DEBUG] Message posted successfully`);
     }
 
+    async sendStreamingUpdate(text: string): Promise<void> {
+        if (!this.view) {
+            return;
+        }
+
+        this.view.webview.postMessage({
+            command: "streamingUpdate",
+            text: text,
+        });
+    }
+
     async sendCodeContext(context: string): Promise<void> {
         if (!this.view) {
             return;

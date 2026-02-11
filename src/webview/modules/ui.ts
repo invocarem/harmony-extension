@@ -9,6 +9,7 @@ import { verboseInfoToString, addToString, VerboseInfo } from './verboseInfoForm
 const messagesDiv = document.getElementById('messages') as HTMLDivElement;
 let lastUserMessageElement: HTMLElement | null = null;
 let currentHasPlan = false; // Track whether a plan exists in assumptions stage
+let streamingMessageElement: HTMLElement | null = null; // Track the currently streaming message
 
 export function addMessage(
     text: string,
@@ -197,6 +198,58 @@ export function removeTypingIndicator(): void {
     const indicator = document.getElementById('typing-indicator');
     if (indicator) {
         indicator.remove();
+    }
+}
+
+/**
+ * Start a streaming message - creates the message element and returns it for updates
+ */
+export function startStreamingMessage(): void {
+    // Remove typing indicator if present
+    removeTypingIndicator();
+    
+    // Create streaming message element
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'message assistant-message streaming-message';
+    messageDiv.id = 'streaming-message';
+    
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'streaming-content';
+    contentDiv.textContent = '';
+    messageDiv.appendChild(contentDiv);
+    
+    messagesDiv.appendChild(messageDiv);
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    
+    streamingMessageElement = messageDiv;
+}
+
+/**
+ * Update the streaming message with new content
+ */
+export function updateStreamingMessage(text: string): void {
+    if (!streamingMessageElement) {
+        startStreamingMessage();
+    }
+    
+    if (streamingMessageElement) {
+        const contentDiv = streamingMessageElement.querySelector('.streaming-content');
+        if (contentDiv) {
+            // Update with formatted markdown
+            contentDiv.innerHTML = formatMarkdown(text);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+    }
+}
+
+/**
+ * Finalize the streaming message and convert it to a regular message
+ */
+export function finalizeStreamingMessage(): void {
+    if (streamingMessageElement) {
+        streamingMessageElement.classList.remove('streaming-message');
+        streamingMessageElement.id = '';
+        streamingMessageElement = null;
     }
 }
 

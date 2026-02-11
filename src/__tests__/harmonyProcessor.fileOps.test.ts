@@ -9,15 +9,15 @@ describe("HarmonyProcessor - File Operations Extraction", () => {
     processor = new HarmonyProcessor(true); // harmonyMode enabled
   });
 
-  test("should preserve content when extracting read_file operations from description", () => {
+  test("should preserve content when read_file operations are only described", () => {
     // Simulate AI response that describes task and mentions files
     const response = `<|start|>assistant<|message|><|channel|>final<|message|>I understand that you need a gawk script for CRC16 calculation. Let me read the files crc16.md and test_input.txt to understand the requirements better.<|end|>`;
 
     const result = processor.parseResponse(response);
 
-    // Should extract read_file tool calls
+    // Auto-extraction of read_file is disabled; no tool calls should be produced
     expect(result.rawToolCalls).toBeDefined();
-    expect(result.rawToolCalls!.length).toBeGreaterThan(0);
+    expect(result.rawToolCalls!.length).toBe(0);
 
     // Should preserve the AI's explanation as content
     expect(result.content).toBeDefined();
@@ -26,21 +26,16 @@ describe("HarmonyProcessor - File Operations Extraction", () => {
     expect(result.content).toContain("CRC16");
   });
 
-  test("should preserve final content when extracting read_file operations", () => {
+  test("should preserve final content when read_file operations are only described", () => {
     // Test with final channel content that mentions files
     // Use text that matches the extraction patterns
     const response = `<|start|>assistant<|message|><|channel|>final<|message|>I'll help you with that. First, let me read the file setup.py to understand the current setup.<|end|>`;
 
     const result = processor.parseResponse(response);
 
-    // Should extract read_file tool call
+    // Auto-extraction of read_file is disabled; no tool calls should be produced
     expect(result.rawToolCalls).toBeDefined();
-    expect(result.rawToolCalls!.length).toBeGreaterThan(0);
-
-    // Verify tool call is read_file
-    const toolCall = JSON.parse(result.rawToolCalls![0]);
-    expect(toolCall.name).toBe("read_file");
-    expect(toolCall.arguments.file_path).toContain("setup.py");
+    expect(result.rawToolCalls!.length).toBe(0);
 
     // Should preserve content or final
     const displayText = result.final || result.content;
@@ -55,9 +50,9 @@ describe("HarmonyProcessor - File Operations Extraction", () => {
 
     const result = processor.parseResponse(response);
 
-    // Should extract multiple read_file tool calls
+    // Auto-extraction of read_file is disabled; no tool calls should be produced
     expect(result.rawToolCalls).toBeDefined();
-    expect(result.rawToolCalls!.length).toBeGreaterThanOrEqual(1);
+    expect(result.rawToolCalls!.length).toBe(0);
 
     // Should preserve content
     const displayText = result.final || result.content;

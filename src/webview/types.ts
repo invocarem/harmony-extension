@@ -15,7 +15,7 @@ export interface WebviewToExtensionMessage {
 }
 
 export interface ExtensionToWebviewMessage {
-    command: 'receiveMessage' | 'updateContext' | 'updateContextSummary' | 'showFileAutocomplete' | 'insertText';
+    command: 'receiveMessage' | 'streamingUpdate' | 'updateContext' | 'updateContextSummary' | 'showFileAutocomplete' | 'insertText';
     text?: string;
     context?: string;
     reasoning?: string;

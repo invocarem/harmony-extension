@@ -71,6 +71,8 @@ export type IntermediateResponseCallback = (
   response: HarmonyResponse
 ) => void | Promise<void>;
 
+export type StreamingCallback = (text: string) => void | Promise<void>;
+
 /**
  * Main HarmonyClient with HarmonyProcessor integration and multi-step continuation
  * Refactored to use modular components for better maintainability
@@ -104,6 +106,8 @@ export class HarmonyClient {
   private verboseInfoCallback?: VerboseInfoCallback;
   // Callback for intermediate responses in auto mode
   private intermediateResponseCallback?: IntermediateResponseCallback;
+  // Callback for streaming updates
+  private streamingCallback?: StreamingCallback;
 
   constructor(
     private config: LlamaConfig,
@@ -1243,6 +1247,7 @@ export class HarmonyClient {
         rawResponse = await new Promise<string>((resolve, reject) => {
           let buffer = '';
           const lines: string[] = [];
+          let accumulatedText = ''; // Track accumulated text for streaming callback
           
           response.data.on('data', (chunk: Buffer) => {
             buffer += chunk.toString();
@@ -1257,7 +1262,16 @@ export class HarmonyClient {
                 try {
                   const data = JSON.parse(line.slice(6));
                   if (data.choices?.[0]?.text) {
-                    process.stdout.write(data.choices[0].text); // Show streaming progress
+                    const newText = data.choices[0].text;
+                    accumulatedText += newText;
+                    process.stdout.write(newText); // Show streaming progress in console
+                    
+                    // Call streaming callback with accumulated text
+                    if (this.streamingCallback) {
+                      this.streamingCallback(accumulatedText).catch(err => {
+                        console.warn('[Harmony] Error in streaming callback:', err);
+                      });
+                    }
                   }
                   if (data.choices?.[0]?.finish_reason) {
                     finishReason = data.choices[0].finish_reason;
@@ -2167,6 +2181,14 @@ export class HarmonyClient {
     callback: IntermediateResponseCallback
   ): void {
     this.intermediateResponseCallback = callback;
+  }
+
+  /**
+   * Set callback for streaming updates
+   * This callback will be called as streaming chunks arrive from the LLM
+   */
+  setStreamingCallback(callback: StreamingCallback): void {
+    this.streamingCallback = callback;
   }
 
   /**
