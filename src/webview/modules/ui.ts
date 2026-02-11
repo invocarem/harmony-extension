@@ -228,7 +228,9 @@ export function startStreamingMessage(): void {
  * Update the streaming message with new content
  */
 export function updateStreamingMessage(text: string): void {
+    console.log('UI: updateStreamingMessage called, text length:', text.length);
     if (!streamingMessageElement) {
+        console.log('UI: Starting new streaming message');
         startStreamingMessage();
     }
     
@@ -238,7 +240,12 @@ export function updateStreamingMessage(text: string): void {
             // Update with formatted markdown
             contentDiv.innerHTML = formatMarkdown(text);
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            console.log('UI: Streaming content updated');
+        } else {
+            console.warn('UI: No .streaming-content div found');
         }
+    } else {
+        console.warn('UI: streamingMessageElement is null after startStreamingMessage');
     }
 }
 

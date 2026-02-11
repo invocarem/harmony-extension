@@ -175,9 +175,11 @@ export class WebviewManager {
 
     async sendStreamingUpdate(text: string): Promise<void> {
         if (!this.view) {
+            console.warn('[WebviewManager] Cannot send streaming update: view is undefined');
             return;
         }
 
+        console.log(`[WebviewManager] Sending streaming update, text length: ${text.length}`);
         this.view.webview.postMessage({
             command: "streamingUpdate",
             text: text,

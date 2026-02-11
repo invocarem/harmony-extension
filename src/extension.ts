@@ -73,6 +73,7 @@ export class HarmonyAssistant {
 
     // Set up callback to send streaming updates to webview
     this.harmonyClient.setStreamingCallback(async (text) => {
+      console.log(`[Extension] Streaming callback invoked, text length: ${text.length}`);
       await this.webviewManager.sendStreamingUpdate(text);
     });
 
@@ -194,6 +195,7 @@ export class HarmonyAssistant {
             await this.webviewManager.sendMessage(response);
           });
           this.harmonyClient.setStreamingCallback(async (text) => {
+            console.log(`[Extension] Streaming callback invoked, text length: ${text.length}`);
             await this.webviewManager.sendStreamingUpdate(text);
           });
           this.codeActions = new CodeActions(
@@ -219,6 +221,7 @@ export class HarmonyAssistant {
             await this.webviewManager.sendMessage(response);
           });
           this.harmonyClient.setStreamingCallback(async (text) => {
+            console.log(`[Extension] Streaming callback invoked, text length: ${text.length}`);
             await this.webviewManager.sendStreamingUpdate(text);
           });
           this.codeActions = new CodeActions(

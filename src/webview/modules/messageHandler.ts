@@ -18,6 +18,7 @@ export function handleExtensionMessage(message: ExtensionToWebviewMessage): void
     switch (message.command) {
         case 'streamingUpdate':
             // Handle streaming update - create or update the streaming message
+            console.log('Webview: Streaming update received, text length:', message.text?.length || 0);
             if (message.text) {
                 updateStreamingMessage(message.text);
             }
