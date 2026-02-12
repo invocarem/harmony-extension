@@ -955,7 +955,7 @@ export class StageStateMachine {
     const instructions: Record<WorkflowStage, string> = {
       chat: `## Chat Stage
       
-      You are now at **Chat** stage, your main task here is to understand user's request. move on to next stages if the request is clear.
+You are now at **Chat** stage, your main task is simple: restate the user's request. 
 
 **PRIMARY GOAL:**
 - Restate user's problem in your own words to show understanding; 
@@ -972,8 +972,8 @@ export class StageStateMachine {
 ✅ If rules are available, ask: "I found applicable rule(s): [list]. Are these relevant to your task? (yes/no/which ones)"
 
 **DO NOT:**
-❌ Ask excessive questions, or provide solutions, code, or implementation ideas
-❌ Jump to analysis without complete understanding
+❌ Ask excessive questions
+❌ Solve user's problem 
 ❌ Use any file modification tools and MCP tools
 ❌ Force rules on the user - always ask if they're relevant
 

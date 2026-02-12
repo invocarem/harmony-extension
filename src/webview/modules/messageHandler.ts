@@ -29,7 +29,12 @@ const messageInput = document.getElementById(
 export function handleExtensionMessage(
   message: ExtensionToWebviewMessage
 ): void {
-  console.log("Webview: Received message from extension:", message.command);
+  console.log(
+    "Webview: Received message from extension, command:",
+    message.command,
+    "intermediate:",
+    message.intermediate
+  );
 
   switch (message.command) {
     case "streamingUpdate":
@@ -43,28 +48,42 @@ export function handleExtensionMessage(
       if (message.text) {
         updateStreamingMessage(message.text);
       } else {
-        console.warn("Webview: streamingUpdate received but text is empty/undefined");
+        console.warn(
+          "Webview: streamingUpdate received but text is empty/undefined"
+        );
       }
       break;
     case "receiveMessage":
-      // Finalize streaming message with complete content
-      // This updates the streaming message in-place instead of creating a duplicate
-      finalizeStreamingMessage({
-        text: message.text,
-        reasoning: message.reasoning,
-        commentary: message.commentary,
-        final: message.final,
-        verboseInfo: message.verboseInfo,
-      });
-      removeTypingIndicator();
-
-      // Don't call addMessage here - finalization already updated the DOM
-      // Only update stage indicator lights
-      if (message.verboseInfo?.stage) {
-        updateStageIndicator(
-          message.verboseInfo.stage,
-          message.verboseInfo.hasPlan
+      // Handle both intermediate streaming updates and final messages
+      if (message.intermediate) {
+        // This is an intermediate streaming update using receiveMessage workaround channel
+        console.log(
+          "Webview: Receiving intermediate streaming update via receiveMessage, length:",
+          message.text?.length || 0
         );
+        if (message.text) {
+          updateStreamingMessage(message.text);
+        }
+      } else {
+        // This is a final message - finalize streaming with complete content
+        console.log("Webview: Received final message, finalizing streaming...");
+        finalizeStreamingMessage({
+          text: message.text,
+          reasoning: message.reasoning,
+          commentary: message.commentary,
+          final: message.final,
+          verboseInfo: message.verboseInfo,
+        });
+        removeTypingIndicator();
+
+        // Don't call addMessage here - finalization already updated the DOM
+        // Only update stage indicator lights
+        if (message.verboseInfo?.stage) {
+          updateStageIndicator(
+            message.verboseInfo.stage,
+            message.verboseInfo.hasPlan
+          );
+        }
       }
       break;
     case "updateContext":

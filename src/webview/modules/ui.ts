@@ -256,7 +256,17 @@ export function removeTypingIndicator(): void {
  * Start a streaming message - creates the message element and returns it for updates
  */
 export function startStreamingMessage(): void {
-  console.log("UI: startStreamingMessage called");
+  console.log(
+    "UI: startStreamingMessage called, existing element:",
+    !!streamingMessageElement
+  );
+
+  // Only create new element if one doesn't already exist
+  if (streamingMessageElement) {
+    console.log("UI: Streaming message element already exists, reusing it");
+    return;
+  }
+
   // Remove typing indicator if present
   removeTypingIndicator();
 
@@ -289,17 +299,27 @@ export function startStreamingMessage(): void {
  * Update the streaming message with new content
  */
 export function updateStreamingMessage(text: string): void {
-  console.log("UI: updateStreamingMessage called, text length:", text.length);
+  console.log(
+    "UI: updateStreamingMessage called, text length:",
+    text.length,
+    "Element exists:",
+    !!streamingMessageElement
+  );
+
   if (!streamingMessageElement) {
-    console.log("UI: Starting new streaming message");
+    console.log(
+      "UI: Starting new streaming message because streamingMessageElement was null"
+    );
     startStreamingMessage();
   }
 
   if (streamingMessageElement) {
     const contentDiv =
       streamingMessageElement.querySelector(".streaming-content");
-    const dotsWrapper =
-      streamingMessageElement.querySelector(".streaming-typing-dots");
+    const dotsWrapper = streamingMessageElement.querySelector(
+      ".streaming-typing-dots"
+    );
+
     if (contentDiv) {
       // Update with formatted markdown
       contentDiv.innerHTML = formatMarkdown(text);
@@ -308,9 +328,11 @@ export function updateStreamingMessage(text: string): void {
         dotsWrapper.classList.add("hidden");
       }
       messagesDiv.scrollTop = messagesDiv.scrollHeight;
-      console.log("UI: Streaming content updated");
+      console.log("UI: Streaming content updated successfully");
     } else {
-      console.warn("UI: No .streaming-content div found");
+      console.warn(
+        "UI: No .streaming-content div found in streamingMessageElement"
+      );
     }
   } else {
     console.warn(
@@ -331,7 +353,15 @@ export function finalizeStreamingMessage(finalContent?: {
   final?: string;
   verboseInfo?: any;
 }): void {
+  console.log(
+    "UI: finalizeStreamingMessage called, element exists:",
+    !!streamingMessageElement,
+    "finalContent:",
+    !!finalContent
+  );
+
   if (streamingMessageElement) {
+    console.log("UI: Finalizing existing streaming message");
     streamingMessageElement.classList.remove("streaming-message");
     streamingMessageElement.id = "";
 
@@ -354,6 +384,10 @@ export function finalizeStreamingMessage(finalContent?: {
       finalContent.verboseInfo,
       finalContent.final,
       finalContent.commentary
+    );
+  } else {
+    console.warn(
+      "UI: finalizeStreamingMessage called but no element and no finalContent provided"
     );
   }
 }
