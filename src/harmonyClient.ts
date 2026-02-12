@@ -1289,13 +1289,21 @@ export class HarmonyClient {
       if (response.data && typeof response.data === 'object' && response.data.pipe) {
         // Stream response
         console.log(`[Harmony] Handling streamed response...`);
+        console.log(`[Harmony] Stream callback exists: ${!!this.streamingCallback}`);
+        console.log(`[Harmony] response.data type: ${typeof response.data}, has pipe: ${typeof response.data.pipe}`);
         
         rawResponse = await new Promise<string>((resolve, reject) => {
           let buffer = '';
           const lines: string[] = [];
           let accumulatedText = ''; // Track accumulated text for streaming callback
+          let chunkCount = 0;
           
-          response.data.on('data', async (chunk: Buffer) => {
+          console.log(`[Harmony] Registering data event handler...`);
+          
+          response.data.on('data', (chunk: Buffer) => {
+            chunkCount++;
+            process.stdout.write(`\n>>>DATA-EVENT-${chunkCount}<<<\n`);
+            console.log(`[Harmony] DATA EVENT #${chunkCount}: chunk size: ${chunk.length} bytes`);
             buffer += chunk.toString();
             const parts = buffer.split('\n');
             
@@ -1307,15 +1315,24 @@ export class HarmonyClient {
               if (line.startsWith('data: ')) {
                 try {
                   const data = JSON.parse(line.slice(6));
-                  if (data.choices?.[0]?.text) {
-                    const newText = data.choices[0].text;
+                  // Support both completion-style (text) and chat-style (delta.content) streaming
+                  const newText =
+                    data.choices?.[0]?.text ??
+                    data.choices?.[0]?.delta?.content ??
+                    '';
+                  if (newText) {
                     accumulatedText += newText;
                     process.stdout.write(newText); // Show streaming progress in console
-                    
-                    // Call streaming callback with accumulated text - await to ensure webview gets updates immediately
+
+                    // Call streaming callback with accumulated text - don't await to prevent message batching
                     if (this.streamingCallback) {
                       try {
-                        await this.streamingCallback(accumulatedText);
+                        const result = this.streamingCallback(accumulatedText);
+                        if (result instanceof Promise) {
+                          result.catch(err => {
+                            console.warn('[Harmony] Error in streaming callback:', err);
+                          });
+                        }
                       } catch (err) {
                         console.warn('[Harmony] Error in streaming callback:', err);
                       }
@@ -1343,9 +1360,11 @@ export class HarmonyClient {
               if (line.startsWith('data: ')) {
                 try {
                   const data = JSON.parse(line.slice(6));
-                  if (data.choices?.[0]?.text) {
-                    fullText += data.choices[0].text;
-                  }
+                  const chunk =
+                    data.choices?.[0]?.text ??
+                    data.choices?.[0]?.delta?.content ??
+                    '';
+                  if (chunk) fullText += chunk;
                   if (data.choices?.[0]?.finish_reason) {
                     lastFinishReason = data.choices[0].finish_reason;
                   }
@@ -1411,6 +1430,15 @@ export class HarmonyClient {
 
       console.log(`[Harmony] Raw response length: ${rawResponse.length}`);
       logLongMessage(`[Harmony] Raw response`, rawResponse);
+
+      // Ensure webview has the latest content (e.g. if no chunks were streamed or only one big chunk at end)
+      if (this.streamingCallback && rawResponse) {
+        try {
+          this.streamingCallback(rawResponse);
+        } catch (err) {
+          console.warn('[Harmony] Error sending final streaming update:', err);
+        }
+      }
 
       // Detect if response looks incomplete
       const looksIncomplete = this.responseValidator.detectIncompleteResponse(rawResponse);
@@ -2279,7 +2307,9 @@ export class HarmonyClient {
    * This callback will be called as streaming chunks arrive from the LLM
    */
   setStreamingCallback(callback: StreamingCallback): void {
+    console.log(`[HarmonyClient] setStreamingCallback called, callback type: ${typeof callback}`);
     this.streamingCallback = callback;
+    console.log(`[HarmonyClient] Streaming callback registered, exists: ${!!this.streamingCallback}`);
   }
 
   /**

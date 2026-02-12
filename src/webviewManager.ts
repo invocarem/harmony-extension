@@ -173,17 +173,26 @@ export class WebviewManager {
         console.log(`[DEBUG] Message posted successfully`);
     }
 
-    async sendStreamingUpdate(text: string): Promise<void> {
+    sendStreamingUpdate(text: string): void {
         if (!this.view) {
             console.warn('[WebviewManager] Cannot send streaming update: view is undefined');
             return;
         }
 
-        console.log(`[WebviewManager] Sending streaming update, text length: ${text.length}`);
-        this.view.webview.postMessage({
-            command: "streamingUpdate",
-            text: text,
-        });
+        console.log(`[WebviewManager] Sending streaming update, text length: ${text.length}, First 50 chars: ${text.substring(0, 50)}`);
+        console.log(`[WebviewManager] View exists: ${!!this.view}, Webview exists: ${!!this.view.webview}`);
+        
+        // Use non-awaited postMessage to avoid message batching
+        // postMessage is synchronous, so no await needed
+        try {
+            this.view.webview.postMessage({
+                command: "streamingUpdate",
+                text: text,
+            });
+            console.log(`[WebviewManager] postMessage sent successfully`);
+        } catch (error) {
+            console.error(`[WebviewManager] Error sending postMessage:`, error);
+        }
     }
 
     async sendCodeContext(context: string): Promise<void> {

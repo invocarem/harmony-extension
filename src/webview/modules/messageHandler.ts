@@ -36,10 +36,14 @@ export function handleExtensionMessage(
       // Handle streaming update - create or update the streaming message
       console.log(
         "Webview: Streaming update received, text length:",
-        message.text?.length || 0
+        message.text?.length || 0,
+        "First 50 chars:",
+        message.text?.substring(0, 50)
       );
       if (message.text) {
         updateStreamingMessage(message.text);
+      } else {
+        console.warn("Webview: streamingUpdate received but text is empty/undefined");
       }
       break;
     case "receiveMessage":

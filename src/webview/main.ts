@@ -3,7 +3,7 @@
  */
 
 import { WebviewToExtensionMessage } from "./types";
-import { addMessage, addTypingIndicator } from "./modules/ui";
+import { addMessage, startStreamingMessage } from "./modules/ui";
 import {
   checkForAutocomplete,
   handleAutocompleteKeyboard,
@@ -54,7 +54,7 @@ sendButton.addEventListener("click", () => {
   console.log("Webview: Send button clicked, text:", text);
   if (text) {
     addMessage(text, true, undefined, undefined);
-    addTypingIndicator();
+    startStreamingMessage();
     vscode.postMessage({
       command: "sendMessage",
       text: text,
@@ -143,7 +143,7 @@ if (stageLightAssumptions) {
     // Send @cmd:plan command
     const message = "@cmd:plan";
     addMessage(message, true, undefined, undefined);
-    addTypingIndicator();
+    startStreamingMessage();
     vscode.postMessage({
       command: "sendMessage",
       text: message,
@@ -157,7 +157,7 @@ if (stageLightImplementation) {
     // Send @cmd:step command
     const message = "@cmd:step";
     addMessage(message, true, undefined, undefined);
-    addTypingIndicator();
+    startStreamingMessage();
     vscode.postMessage({
       command: "sendMessage",
       text: message,
@@ -175,7 +175,7 @@ if (arrowChatToSnippet) {
     // Send message using @cmd:move_to_snippet format
     const message = "@cmd:move_to_snippet";
     addMessage(message, true, undefined, undefined);
-    addTypingIndicator();
+    startStreamingMessage();
     vscode.postMessage({
       command: "sendMessage",
       text: message,
@@ -193,7 +193,7 @@ if (arrowSnippetToAssumptions) {
     // Send message using @cmd:move_to_assumptions format
     const message = "@cmd:move_to_assumptions";
     addMessage(message, true, undefined, undefined);
-    addTypingIndicator();
+    startStreamingMessage();
     vscode.postMessage({
       command: "sendMessage",
       text: message,
@@ -211,7 +211,7 @@ if (arrowAssumptionsToImplementation) {
     // Send message using @cmd:move_to_implementation format
     const message = "@cmd:move_to_implementation";
     addMessage(message, true, undefined, undefined);
-    addTypingIndicator();
+    startStreamingMessage();
     vscode.postMessage({
       command: "sendMessage",
       text: message,
@@ -229,7 +229,7 @@ if (buttonNextStep) {
     // Send @cmd:auto command
     const message = "@cmd:auto";
     addMessage(message, true, undefined, undefined);
-    addTypingIndicator();
+    startStreamingMessage();
     vscode.postMessage({
       command: "sendMessage",
       text: message,

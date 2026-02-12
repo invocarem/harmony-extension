@@ -256,6 +256,7 @@ export function removeTypingIndicator(): void {
  * Start a streaming message - creates the message element and returns it for updates
  */
 export function startStreamingMessage(): void {
+  console.log("UI: startStreamingMessage called");
   // Remove typing indicator if present
   removeTypingIndicator();
 
@@ -269,10 +270,19 @@ export function startStreamingMessage(): void {
   contentDiv.textContent = "";
   messageDiv.appendChild(contentDiv);
 
+  // Show typing dots while waiting for first content
+  const dotsWrapper = document.createElement("div");
+  dotsWrapper.className = "streaming-typing-dots";
+  dotsWrapper.setAttribute("aria-hidden", "true");
+  dotsWrapper.innerHTML =
+    '<span class="streaming-dot"></span><span class="streaming-dot"></span><span class="streaming-dot"></span>';
+  messageDiv.appendChild(dotsWrapper);
+
   messagesDiv.appendChild(messageDiv);
   messagesDiv.scrollTop = messagesDiv.scrollHeight;
 
   streamingMessageElement = messageDiv;
+  console.log("UI: Streaming message element created and appended to DOM");
 }
 
 /**
@@ -288,9 +298,15 @@ export function updateStreamingMessage(text: string): void {
   if (streamingMessageElement) {
     const contentDiv =
       streamingMessageElement.querySelector(".streaming-content");
+    const dotsWrapper =
+      streamingMessageElement.querySelector(".streaming-typing-dots");
     if (contentDiv) {
       // Update with formatted markdown
       contentDiv.innerHTML = formatMarkdown(text);
+      // Hide typing dots once we have content
+      if (dotsWrapper) {
+        dotsWrapper.classList.add("hidden");
+      }
       messagesDiv.scrollTop = messagesDiv.scrollHeight;
       console.log("UI: Streaming content updated");
     } else {
@@ -355,11 +371,15 @@ function updateStreamingMessageContent(
     verboseInfo?: any;
   }
 ): void {
-  // Clear existing streaming content div if present
+  // Clear existing streaming content and typing dots
   const existingStreamingContent =
     messageDiv.querySelector(".streaming-content");
   if (existingStreamingContent) {
     messageDiv.removeChild(existingStreamingContent);
+  }
+  const existingDots = messageDiv.querySelector(".streaming-typing-dots");
+  if (existingDots) {
+    messageDiv.removeChild(existingDots);
   }
 
   // Add verbose info section if present

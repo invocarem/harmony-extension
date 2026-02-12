@@ -72,11 +72,12 @@ export class HarmonyAssistant {
     });
 
     // Set up callback to send streaming updates to webview
-    this.harmonyClient.setStreamingCallback(async (text) => {
+    this.harmonyClient.setStreamingCallback((text) => {
       console.log(
         `[Extension] Streaming callback invoked, text length: ${text.length}`
       );
-      await this.webviewManager.sendStreamingUpdate(text);
+      // Don't await to prevent message batching
+      this.webviewManager.sendStreamingUpdate(text);
     });
 
     this.templateRenderer = new TemplateRenderer(
@@ -166,8 +167,8 @@ export class HarmonyAssistant {
               await this.webviewManager.sendMessage(response);
             }
           );
-          this.harmonyClient.setStreamingCallback(async (text) => {
-            await this.webviewManager.sendStreamingUpdate(text);
+          this.harmonyClient.setStreamingCallback((text) => {
+            this.webviewManager.sendStreamingUpdate(text);
           });
           this.codeActions = new CodeActions(
             this.harmonyClient,
@@ -200,11 +201,11 @@ export class HarmonyAssistant {
               await this.webviewManager.sendMessage(response);
             }
           );
-          this.harmonyClient.setStreamingCallback(async (text) => {
+          this.harmonyClient.setStreamingCallback((text) => {
             console.log(
               `[Extension] Streaming callback invoked, text length: ${text.length}`
             );
-            await this.webviewManager.sendStreamingUpdate(text);
+            this.webviewManager.sendStreamingUpdate(text);
           });
           this.codeActions = new CodeActions(
             this.harmonyClient,
@@ -230,11 +231,11 @@ export class HarmonyAssistant {
               await this.webviewManager.sendMessage(response);
             }
           );
-          this.harmonyClient.setStreamingCallback(async (text) => {
+          this.harmonyClient.setStreamingCallback((text) => {
             console.log(
               `[Extension] Streaming callback invoked, text length: ${text.length}`
             );
-            await this.webviewManager.sendStreamingUpdate(text);
+            this.webviewManager.sendStreamingUpdate(text);
           });
           this.codeActions = new CodeActions(
             this.harmonyClient,
@@ -828,6 +829,10 @@ export class HarmonyAssistant {
           response.toolCalls
         );
       }
+
+      // Yield so any in-flight streaming updates are delivered before the final message.
+      // Otherwise the webview may process receiveMessage before the last streamingUpdate.
+      await new Promise<void>((resolve) => setImmediate(resolve));
 
       await this.webviewManager.sendMessage(cleanedResponse);
     } catch (error: any) {
