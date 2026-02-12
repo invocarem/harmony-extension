@@ -953,7 +953,9 @@ export class StageStateMachine {
    */
   getInstructions(stage: WorkflowStage, harmonyMode: boolean = true): string {
     const instructions: Record<WorkflowStage, string> = {
-      chat: `## Current Stage: CHAT/CLARIFICATION
+      chat: `## Chat Stage
+      
+      You are now at **Chat** stage, your main task here is to understand user's request. move on to next stages if the request is clear.
 
 **PRIMARY GOAL:**
 - Restate user's problem in your own words to show understanding; 
@@ -1002,17 +1004,20 @@ export class StageStateMachine {
 
 `,
 
-      snippet: `## Current Stage: SNIPPET/QUICK PROBLEM SOLVING
+      snippet: ` ## Snippet Stage
+
+You are now at **Snippet** stage. Your task is prototyping, use MCP tools to solve user's problem. move to implementations state if you need to generate or update files.
 
 **PRIMARY GOAL:**
 - Investigate and diagnose user problems quickly
 - Provide solutions as code snippets that users can apply themselves
-- Use read-only tools + exec_terminal to understand issues
+- Use read-only tools, exec_terminal and MCP tools to understand issues
 - Deliver fixes as code snippets (you CANNOT modify files directly)
 
 **WHAT YOU CAN DO:**
 ✅ Read files to understand code
 ✅ Execute commands to test/debug/check output  
+✅ Run MCP tool when needed 
 ✅ Provide code snippet for new features, bug fixes for user to copy
 ✅ Explain what's wrong and how to fix it
 ✅ Generate complete working code examples
@@ -1033,9 +1038,10 @@ You are a **diagnostic assistant** who:
 - \`list_files\` - Explore directory structure
 - \`grep_files\` - Search for patterns in files
 - \`exec_terminal\` - Run scripts, execute commands, test code, get output
+- **MCP tools** - Example: <tool_call name="tool_name" args='{"param": "value"}' />
 
 **TOOL CALL FORMAT (CRITICAL):**
-All tool calls MUST use this exact XML format:
+All tool calls MUST use this exact XML format (including MCP tool calls):
 <tool_call name="tool_name" args='{"param": "value"}' />
 
 **CORRECT examples:**
