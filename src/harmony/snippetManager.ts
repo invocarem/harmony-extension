@@ -109,6 +109,7 @@ export class SnippetManager {
    */
   parseRequirements(prompt: string): SnippetRequirement[] {
     const requirements: SnippetRequirement[] = [];
+    const promptSummary = this.summarizePrompt(prompt);
 
     // Helper to check if requirement already exists
     const isDuplicate = (type: string, targetFile?: string): boolean => {
@@ -130,7 +131,7 @@ export class SnippetManager {
         if (fileName && !isDuplicate("bug_fix", fileName)) {
           requirements.push({
             type: "bug_fix",
-            description: `Fix bug in ${fileName}`,
+            description: `Fix bug in ${fileName}: ${promptSummary}`,
             targetFile: fileName,
             isComplete: false,
           });
@@ -151,7 +152,7 @@ export class SnippetManager {
         if (fileName && !isDuplicate("feature_addition", fileName)) {
           requirements.push({
             type: "feature_addition",
-            description: `Add feature to ${fileName}`,
+            description: `Add feature to ${fileName}: ${promptSummary}`,
             targetFile: fileName,
             isComplete: false,
           });
@@ -177,8 +178,8 @@ export class SnippetManager {
         requirements.push({
           type: "question",
           description: fileName
-            ? `Execute ${fileName}`
-            : "Execute the requested command",
+            ? `Execute ${fileName}: ${promptSummary}`
+            : `Execute the requested command: ${promptSummary}`,
           targetFile: fileName,
           isComplete: false,
         });
@@ -196,7 +197,7 @@ export class SnippetManager {
       if (!isDuplicate("question")) {
         requirements.push({
           type: "question",
-          description: "Generate answer/analysis/brief",
+          description: `Generate answer/analysis/brief: ${promptSummary}`,
           isComplete: false,
         });
       }
@@ -206,7 +207,7 @@ export class SnippetManager {
     if (requirements.length === 0) {
       requirements.push({
         type: "text_generation",
-        description: prompt.substring(0, 100),
+        description: `Text generation: ${promptSummary}`,
         isComplete: false,
       });
     }
@@ -230,6 +231,14 @@ export class SnippetManager {
     }
 
     return undefined;
+  }
+
+  private summarizePrompt(prompt: string, maxLength: number = 140): string {
+    const normalized = prompt.replace(/\s+/g, " ").trim();
+    if (normalized.length <= maxLength) {
+      return normalized;
+    }
+    return `${normalized.substring(0, Math.max(maxLength - 3, 0))}...`;
   }
 
   /**

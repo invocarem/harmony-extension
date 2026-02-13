@@ -180,6 +180,23 @@ describe("SnippetManager", () => {
         }
       }
     });
+
+    it("should include prompt summary in descriptions", () => {
+      const prompt = "fix the bug in handler.ts when input is empty";
+      const reqs = snippetManager.parseRequirements(prompt);
+
+      expect(reqs).toHaveLength(1);
+      expect(reqs[0].description).toContain(prompt);
+    });
+
+    it("should truncate long prompt summaries in descriptions", () => {
+      const longPrompt = `fix the bug in handler.ts ${"extra ".repeat(60)}`;
+      const reqs = snippetManager.parseRequirements(longPrompt);
+
+      expect(reqs).toHaveLength(1);
+      expect(reqs[0].description).toContain("Fix bug in handler.ts:");
+      expect(reqs[0].description.endsWith("...")).toBe(true);
+    });
   });
 
   describe("addRequirement", () => {

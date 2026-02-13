@@ -953,9 +953,9 @@ export class StageStateMachine {
    */
   getInstructions(stage: WorkflowStage, harmonyMode: boolean = true): string {
     const instructions: Record<WorkflowStage, string> = {
-      chat: `## Chat Stage
+      chat: `## Current Stage: Chat 
       
-You are now at **Chat** stage, your main task is simple: restate the user's request. 
+You are at **Chat** stage, your main task is simple: restate the user's request. 
 
 **PRIMARY GOAL:**
 - Restate user's problem in your own words to show understanding; 
@@ -1004,9 +1004,9 @@ You are now at **Chat** stage, your main task is simple: restate the user's requ
 
 `,
 
-      snippet: ` ## Snippet Stage
+      snippet: ` ## Current Stage: Snippet
 
-You are now at **Snippet** stage. Your task is prototyping, use MCP tools to solve user's problem. move to implementations state if you need to generate or update files.
+You are at **Snippet** stage. Your task is prototyping to solve user's problems. Please remember you don't create or modify files here.
 
 **PRIMARY GOAL:**
 - Investigate and diagnose user problems quickly
